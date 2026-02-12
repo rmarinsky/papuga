@@ -6,6 +6,7 @@ struct PermissionRow: View {
     let description: String
     @Binding var isGranted: Bool
     let permissionType: PermissionType
+    @State private var isChecking = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -29,50 +30,78 @@ struct PermissionRow: View {
                     .foregroundColor(.green)
                     .font(.title3)
             } else {
-                Button("Перевірити") {
+                Button(isChecking ? "Перевіряю..." : "Перевірити") {
                     Task {
                         await checkAndUpdatePermission()
                     }
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(isChecking)
             }
         }
         .padding(.vertical, 4)
     }
 
+    @MainActor
     private func checkAndUpdatePermission() async {
-        let granted: Bool
+        if isChecking {
+            return
+        }
 
-        switch permissionType {
-        case .accessibility:
-            if PermissionManager.shared.checkAccessibilityPermission() {
-                granted = true
-            } else {
-                PermissionManager.shared.requestAccessibilityPermission()
-                try? await Task.sleep(for: .milliseconds(500))
-                await MainActor.run {
-                    NSApp.activate(ignoringOtherApps: true)
-                }
-                try? await Task.sleep(for: .milliseconds(500))
-                granted = PermissionManager.shared.checkAccessibilityPermission()
-            }
+        isChecking = true
+        defer { isChecking = false }
 
-        case .inputMonitoring:
-            if PermissionManager.shared.checkInputMonitoringPermission() {
-                granted = true
-            } else {
-                PermissionManager.shared.requestInputMonitoringPermission()
-                try? await Task.sleep(for: .milliseconds(500))
-                await MainActor.run {
-                    NSApp.activate(ignoringOtherApps: true)
-                }
-                try? await Task.sleep(for: .milliseconds(500))
-                granted = PermissionManager.shared.checkInputMonitoringPermission()
+        if currentPermissionStatus() {
+            isGranted = true
+            return
+        }
+
+        let requestSucceeded = requestPermission()
+        if requestSucceeded {
+            isGranted = true
+            return
+        }
+
+        for _ in 0..<6 {
+            try? await Task.sleep(for: .milliseconds(500))
+            if currentPermissionStatus() {
+                isGranted = true
+                return
             }
         }
 
-        await MainActor.run {
-            isGranted = granted
+        // If prompt did not appear or permission was previously denied,
+        // take user directly to the correct Privacy pane.
+        PermissionManager.shared.openSystemSettingsForPermission(permissionType)
+
+        for _ in 0..<20 {
+            try? await Task.sleep(for: .milliseconds(500))
+            if currentPermissionStatus() {
+                isGranted = true
+                return
+            }
+        }
+
+        isGranted = false
+    }
+
+    @MainActor
+    private func currentPermissionStatus() -> Bool {
+        switch permissionType {
+        case .accessibility:
+            return PermissionManager.shared.checkAccessibilityPermission()
+        case .inputMonitoring:
+            return PermissionManager.shared.checkInputMonitoringPermission()
+        }
+    }
+
+    @MainActor
+    private func requestPermission() -> Bool {
+        switch permissionType {
+        case .accessibility:
+            return PermissionManager.shared.requestAccessibilityPermission()
+        case .inputMonitoring:
+            return PermissionManager.shared.requestInputMonitoringPermission()
         }
     }
 }

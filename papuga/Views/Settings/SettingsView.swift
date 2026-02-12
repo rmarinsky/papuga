@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SettingsView: View {
+    private static let windowIdentifier = NSUserInterfaceItemIdentifier("ua.com.rmarinsky.papuga.settings")
     @State private var positionedWindowID: ObjectIdentifier?
 
     var body: some View {
@@ -30,17 +31,31 @@ struct SettingsView: View {
             SettingsWindowAccessor { window in
                 guard let window else { return }
                 let id = ObjectIdentifier(window)
-                guard positionedWindowID != id else { return }
-                positionedWindowID = id
+                window.identifier = Self.windowIdentifier
 
-                window.center()
-                window.makeKeyAndOrderFront(nil)
-                NSApp.activate(ignoringOtherApps: true)
+                if positionedWindowID != id {
+                    positionedWindowID = id
+                    window.center()
+                }
+
+                bringToFront(window)
             }
         )
+        .onAppear {
+            if let window = NSApp.windows.first(where: { $0.identifier == Self.windowIdentifier }) {
+                bringToFront(window)
+            }
+        }
         .onDisappear {
             positionedWindowID = nil
         }
+    }
+
+    @MainActor
+    private func bringToFront(_ window: NSWindow) {
+        NSApp.activate(ignoringOtherApps: true)
+        window.orderFrontRegardless()
+        window.makeKeyAndOrderFront(nil)
     }
 }
 

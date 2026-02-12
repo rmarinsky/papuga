@@ -38,13 +38,15 @@ final class PermissionManager {
 
     // MARK: - Request Permissions
 
-    func requestAccessibilityPermission() {
+    @discardableResult
+    func requestAccessibilityPermission() -> Bool {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-        AXIsProcessTrustedWithOptions(options)
+        return AXIsProcessTrustedWithOptions(options)
     }
 
-    func requestInputMonitoringPermission() {
-        CGRequestListenEventAccess()
+    @discardableResult
+    func requestInputMonitoringPermission() -> Bool {
+        return CGRequestListenEventAccess()
     }
 
     // MARK: - Refresh

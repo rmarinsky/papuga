@@ -5,6 +5,7 @@ struct MenuBarView: View {
     @Default(.textReplacementCount) private var textReplacementCount
     @Default(.totalReplacedWords) private var totalReplacedWords
     @Environment(ClipboardHistoryManager.self) private var clipboardHistoryManager
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -28,8 +29,18 @@ struct MenuBarView: View {
 
             Divider()
 
-            SettingsLink {
-                Text("Налаштування...")
+            Button("Налаштування...") {
+                openSettings()
+
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(120))
+                    NSApp.activate(ignoringOtherApps: true)
+
+                    if let settingsWindow = NSApp.windows.first(where: { $0.identifier?.rawValue == "ua.com.rmarinsky.papuga.settings" }) {
+                        settingsWindow.orderFrontRegardless()
+                        settingsWindow.makeKeyAndOrderFront(nil)
+                    }
+                }
             }
 
             Divider()
