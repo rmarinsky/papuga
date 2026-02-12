@@ -51,13 +51,7 @@ struct MenuBarView: View {
         .monospacedDigit()
     }
 
-    private var averageWordsPerReplacement: Double {
-        guard textReplacementCount > 0 else { return 0 }
-        return Double(totalReplacedWords) / Double(textReplacementCount)
-    }
-
     private var estimatedSecondsSaved: Int {
-        let estimated = Double(textReplacementCount) * averageWordsPerReplacement * Constants.estimatedManualReplacementSecondsPerWord
-        return Int(estimated.rounded())
+        Constants.estimatedSecondsSaved(replacementCount: textReplacementCount, totalWords: totalReplacedWords)
     }
 }

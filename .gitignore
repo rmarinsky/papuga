@@ -4,6 +4,9 @@
 # JetBrains IDE
 .idea/
 
+# Claude Code
+.claude/
+
 # Xcode user-specific data
 **/xcuserdata/
 *.xcuserstate

@@ -1,5 +1,3 @@
-import ApplicationServices
-import CoreGraphics
 import SwiftUI
 
 struct PermissionRow: View {
@@ -47,7 +45,7 @@ struct PermissionRow: View {
 
         switch permissionType {
         case .accessibility:
-            if AXIsProcessTrusted() {
+            if PermissionManager.shared.checkAccessibilityPermission() {
                 granted = true
             } else {
                 PermissionManager.shared.requestAccessibilityPermission()
@@ -56,11 +54,11 @@ struct PermissionRow: View {
                     NSApp.activate(ignoringOtherApps: true)
                 }
                 try? await Task.sleep(for: .milliseconds(500))
-                granted = AXIsProcessTrusted()
+                granted = PermissionManager.shared.checkAccessibilityPermission()
             }
 
         case .inputMonitoring:
-            if CGPreflightListenEventAccess() {
+            if PermissionManager.shared.checkInputMonitoringPermission() {
                 granted = true
             } else {
                 PermissionManager.shared.requestInputMonitoringPermission()
@@ -69,7 +67,7 @@ struct PermissionRow: View {
                     NSApp.activate(ignoringOtherApps: true)
                 }
                 try? await Task.sleep(for: .milliseconds(500))
-                granted = CGPreflightListenEventAccess()
+                granted = PermissionManager.shared.checkInputMonitoringPermission()
             }
         }
 

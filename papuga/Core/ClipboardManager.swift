@@ -2,15 +2,6 @@ import AppKit
 import ApplicationServices
 import CoreGraphics
 
-struct SavedPasteboardState {
-    struct Item {
-        let types: [NSPasteboard.PasteboardType]
-        let data: [NSPasteboard.PasteboardType: Data]
-    }
-    let items: [Item]
-    let changeCount: Int
-}
-
 final class ClipboardManager {
     private let pasteboard = NSPasteboard.general
     private let logger = AppLogger.clipboard

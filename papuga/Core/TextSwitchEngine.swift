@@ -141,7 +141,7 @@ final class TextSwitchEngine {
         let updatedReplacementCount = Defaults[.textReplacementCount] + 1
         let updatedWordsTotal = Defaults[.totalReplacedWords] + wordsInText
 
-        let currentDay = currentDayStamp()
+        let currentDay = Constants.currentDayStamp()
         if Defaults[.analyticsDayStamp] != currentDay {
             Defaults[.analyticsDayStamp] = currentDay
             Defaults[.savedSecondsToday] = 0
@@ -160,11 +160,4 @@ final class TextSwitchEngine {
         )
     }
 
-    private func currentDayStamp() -> String {
-        let components = Calendar.current.dateComponents([.year, .month, .day], from: Date())
-        let year = components.year ?? 0
-        let month = components.month ?? 0
-        let day = components.day ?? 0
-        return String(format: "%04d-%02d-%02d", year, month, day)
-    }
 }
