@@ -48,10 +48,6 @@ xcodebuild -project papuga.xcodeproj -scheme papuga -configuration Debug build
 
 Або просто відкрий `papuga.xcodeproj` в Xcode і запускай схему `papuga`.
 
-## Релізи
-Пайплайн підтримує universal build (`arm64 + x86_64`), підпис, нотаризацію та DMG-артефакти.
-Деталі: `RELEASING.md`.
-
 ## Технічний стек
 - Swift + SwiftUI
 - Defaults
