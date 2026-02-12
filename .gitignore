@@ -1,0 +1,35 @@
+# macOS
+.DS_Store
+
+# JetBrains IDE
+.idea/
+
+# Xcode user-specific data
+**/xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+
+# Xcode/Swift build outputs
+build/
+DerivedData/
+*.dSYM
+*.dSYM.zip
+*.dSYM.tar.gz
+
+# Swift Package Manager local state
+.swiftpm/
+
+# Release artifacts
+*.dmg
+*.pkg
+papuga-notary.zip
+*.sha256
+
+# Signing materials and local secrets
+*.p12
+*.p8
+*.cer
+*.mobileprovision
+.env
+.env.*

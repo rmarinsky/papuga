@@ -1,17 +1,32 @@
-//
-//  papugaApp.swift
-//  papuga
-//
-//  Created by Roman Marinskyi on 11.02.2026.
-//
-
 import SwiftUI
+import Defaults
 
 @main
-struct papugaApp: App {
+struct PapugaApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @Default(.showMenuBarIcon) private var showMenuBarIcon
+
+    @State private var layoutManager = LayoutManager()
+    @State private var clipboardHistoryManager = ClipboardHistoryManager()
+
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        MenuBarExtra(isInserted: $showMenuBarIcon) {
+            MenuBarView()
+                .environment(layoutManager)
+                .environment(clipboardHistoryManager)
+                .onAppear {
+                    appDelegate.configure(
+                        layoutManager: layoutManager,
+                        clipboardHistoryManager: clipboardHistoryManager
+                    )
+                }
+        } label: {
+            MenuBarIconView()
+        }
+
+        Settings {
+            SettingsView()
+                .environment(layoutManager)
         }
     }
 }
