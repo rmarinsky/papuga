@@ -31,13 +31,13 @@ Papuga - це менюбар-утиліта для macOS, яка рятує те
 
 ### Через Homebrew tap
 ```bash
-brew tap rmarinsky/papuga
+brew tap rmarinsky/tap
 brew install --cask papuga
 ```
 
 ### Без tap (прямо з формули репо)
 ```bash
-brew install --cask rmarinsky/papuga/papuga
+brew install --cask rmarinsky/tap/papuga
 ```
 
 ## Локальний запуск для розробки
