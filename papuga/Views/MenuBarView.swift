@@ -16,10 +16,11 @@ struct MenuBarView: View {
             Divider()
 
             Menu("Попередні копіопасти") {
-                if filteredHistoryEntries.isEmpty {
+                let entries = filteredHistoryEntries
+                if entries.isEmpty {
                     Text("За вибраний період історія порожня")
                 } else {
-                    ForEach(filteredHistoryEntries) { entry in
+                    ForEach(entries) { entry in
                         Button {
                             clipboardHistoryManager.restoreEntry(entry)
                         } label: {
@@ -95,14 +96,14 @@ struct MenuBarView: View {
         case .oneHour:
             return date >= now.addingTimeInterval(-preset.timeInterval)
         case .oneDay:
-            return Calendar.current.isDate(date, inSameDayAs: now)
+            return date >= now.addingTimeInterval(-preset.timeInterval)
         case .twoDays, .oneWeek:
             return date >= now.addingTimeInterval(-preset.timeInterval)
         }
     }
 
     private func historyMenuLabel(for entry: ClipboardHistoryEntry) -> String {
-        "\(entry.menuLabel) • \(formattedTimestamp(for: entry.capturedAt))"
+        "\(formattedTimestamp(for: entry.capturedAt)) • \(entry.menuLabel)"
     }
 
     private func formattedTimestamp(for date: Date) -> String {
@@ -124,7 +125,7 @@ struct MenuBarView: View {
     private static let dayTimeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = .current
-        formatter.dateFormat = "dd.MM HH:mm"
+        formatter.setLocalizedDateFormatFromTemplate("dd.MM HH:mm")
         return formatter
     }()
 }

@@ -63,6 +63,10 @@ while [[ $# -gt 0 ]]; do
                 echo "--install-name requires a value"
                 exit 1
             fi
+            if [[ "$2" == */* || "$2" == *..* ]]; then
+                echo "--install-name must be a simple name (no path separators or traversal patterns)"
+                exit 1
+            fi
             INSTALL_APP_NAME="$2"
             INSTALL_PATH="/Applications/${INSTALL_APP_NAME}.app"
             shift 2
@@ -136,6 +140,7 @@ xcodebuild -resolvePackageDependencies \
 
 echo ""
 echo "Building $APP_DISPLAY_NAME ..."
+set +e
 xcodebuild \
     -project "$PROJECT_FILE" \
     -scheme "$SCHEME" \
@@ -145,8 +150,14 @@ xcodebuild \
     CONFIGURATION_BUILD_DIR="$CONFIG_BUILD_DIR" \
     PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
     clean build \
-    | tee "$LOG_PATH" \
-    | grep -E "^(Build|Compile|Compiling|Ld|Linking|error:|warning:|\\*\\*)" || true
+    2>&1 | tee "$LOG_PATH" \
+    | grep -E "^(Build|Compile|Compiling|Ld|Linking|error:|warning:|\\*\\*)"
+XCODEBUILD_STATUS=${PIPESTATUS[0]}
+set -e
+if [ "$XCODEBUILD_STATUS" -ne 0 ]; then
+    echo "xcodebuild failed (exit $XCODEBUILD_STATUS). See full log: $LOG_PATH"
+    exit "$XCODEBUILD_STATUS"
+fi
 
 if [ ! -d "$APP_PATH" ]; then
     echo ""

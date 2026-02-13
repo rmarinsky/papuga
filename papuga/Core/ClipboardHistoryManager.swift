@@ -24,7 +24,9 @@ final class ClipboardHistoryManager {
         self.pollInterval = pollInterval
         self.lastObservedChangeCount = NSPasteboard.general.changeCount
         Defaults.observe(.clipboardHistoryRetention) { [weak self] _ in
-            self?.pruneExpiredEntries(now: Date(), force: true)
+            DispatchQueue.main.async {
+                self?.pruneExpiredEntries(now: Date(), force: true)
+            }
         }.tieToLifetime(of: self)
         AppLogger.post(logger, "ClipboardHistoryManager initialized: maxEntries=\(maxEntries), pollInterval=\(pollInterval)")
     }

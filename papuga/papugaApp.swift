@@ -9,24 +9,25 @@ struct PapugaApp: App {
     @State private var layoutManager = LayoutManager()
     @State private var clipboardHistoryManager = ClipboardHistoryManager()
 
+    private func configureIfNeeded() {
+        appDelegate.configure(
+            layoutManager: layoutManager,
+            clipboardHistoryManager: clipboardHistoryManager
+        )
+    }
+
     var body: some Scene {
         MenuBarExtra(isInserted: $showMenuBarIcon) {
             MenuBarView()
                 .environment(layoutManager)
                 .environment(clipboardHistoryManager)
                 .onAppear {
-                    appDelegate.configure(
-                        layoutManager: layoutManager,
-                        clipboardHistoryManager: clipboardHistoryManager
-                    )
+                    configureIfNeeded()
                 }
         } label: {
             MenuBarIconView()
                 .onAppear {
-                    appDelegate.configure(
-                        layoutManager: layoutManager,
-                        clipboardHistoryManager: clipboardHistoryManager
-                    )
+                    configureIfNeeded()
                 }
         }
 
