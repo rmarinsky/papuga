@@ -4,6 +4,8 @@ import Defaults
 struct MenuBarView: View {
     @Default(.textReplacementCount) private var textReplacementCount
     @Default(.totalReplacedWords) private var totalReplacedWords
+    @Default(.clipboardMenuTimeRange) private var clipboardMenuTimeRange
+    @Default(.clipboardMenuItemLimit) private var clipboardMenuItemLimit
     @Environment(ClipboardHistoryManager.self) private var clipboardHistoryManager
     @Environment(\.openSettings) private var openSettings
 
@@ -13,15 +15,16 @@ struct MenuBarView: View {
 
             Divider()
 
-            Menu("Попередні копіпасти") {
-                if clipboardHistoryManager.entries.isEmpty {
-                    Text("Історія порожня")
+            Menu("Попередні копіопасти") {
+                let entries = filteredHistoryEntries
+                if entries.isEmpty {
+                    Text("За вибраний період історія порожня")
                 } else {
-                    ForEach(Array(clipboardHistoryManager.entries.prefix(15))) { entry in
+                    ForEach(entries) { entry in
                         Button {
                             clipboardHistoryManager.restoreEntry(entry)
                         } label: {
-                            Label(entry.menuLabel, systemImage: entry.systemImage)
+                            Label(historyMenuLabel(for: entry), systemImage: entry.systemImage)
                         }
                     }
                 }
@@ -51,6 +54,9 @@ struct MenuBarView: View {
             .keyboardShortcut("q")
         }
         .padding(8)
+        .onAppear {
+            clipboardHistoryManager.refreshNow()
+        }
     }
 
     private var compactSummaryText: some View {
@@ -65,4 +71,61 @@ struct MenuBarView: View {
     private var estimatedSecondsSaved: Int {
         Constants.estimatedSecondsSaved(replacementCount: textReplacementCount, totalWords: totalReplacedWords)
     }
+
+    private var filteredHistoryEntries: [ClipboardHistoryEntry] {
+        let preset = ClipboardHistoryRetentionPreset(rawValue: clipboardMenuTimeRange) ?? .oneDay
+        let now = Date()
+
+        let entriesInRange = clipboardHistoryManager.entries.filter { entry in
+            isWithinMenuTimeRange(entry.capturedAt, now: now, preset: preset)
+        }
+
+        if clipboardMenuItemLimit <= 0 {
+            return entriesInRange
+        }
+
+        return Array(entriesInRange.prefix(clipboardMenuItemLimit))
+    }
+
+    private func isWithinMenuTimeRange(
+        _ date: Date,
+        now: Date,
+        preset: ClipboardHistoryRetentionPreset
+    ) -> Bool {
+        switch preset {
+        case .oneHour:
+            return date >= now.addingTimeInterval(-preset.timeInterval)
+        case .oneDay:
+            return date >= now.addingTimeInterval(-preset.timeInterval)
+        case .twoDays, .oneWeek:
+            return date >= now.addingTimeInterval(-preset.timeInterval)
+        }
+    }
+
+    private func historyMenuLabel(for entry: ClipboardHistoryEntry) -> String {
+        "\(formattedTimestamp(for: entry.capturedAt)) • \(entry.menuLabel)"
+    }
+
+    private func formattedTimestamp(for date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) || calendar.isDateInYesterday(date) {
+            return Self.timeFormatter.string(from: date)
+        }
+        return Self.dayTimeFormatter.string(from: date)
+    }
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = .current
+        formatter.timeStyle = .short
+        formatter.dateStyle = .none
+        return formatter
+    }()
+
+    private static let dayTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = .current
+        formatter.setLocalizedDateFormatFromTemplate("dd.MM HH:mm")
+        return formatter
+    }()
 }

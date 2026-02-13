@@ -1,4 +1,5 @@
 import AppKit
+import Defaults
 import Foundation
 
 @Observable
@@ -15,11 +16,18 @@ final class ClipboardHistoryManager {
 
     private let maxEntries: Int
     private let pollInterval: TimeInterval
+    private let cleanupInterval: TimeInterval = 60
+    private var lastCleanupAt: Date = .distantPast
 
-    init(maxEntries: Int = 30, pollInterval: TimeInterval = 0.35) {
+    init(maxEntries: Int = 120, pollInterval: TimeInterval = 0.35) {
         self.maxEntries = maxEntries
         self.pollInterval = pollInterval
         self.lastObservedChangeCount = NSPasteboard.general.changeCount
+        Defaults.observe(.clipboardHistoryRetention) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.pruneExpiredEntries(now: Date(), force: true)
+            }
+        }.tieToLifetime(of: self)
         AppLogger.post(logger, "ClipboardHistoryManager initialized: maxEntries=\(maxEntries), pollInterval=\(pollInterval)")
     }
 
@@ -35,6 +43,7 @@ final class ClipboardHistoryManager {
         }
 
         lastObservedChangeCount = pasteboard.changeCount
+        pruneExpiredEntries(now: Date(), force: true)
         captureCurrentStateIfNeeded(force: true)
 
         let timer = Timer(timeInterval: pollInterval, repeats: true) { [weak self] _ in
@@ -43,6 +52,15 @@ final class ClipboardHistoryManager {
         RunLoop.main.add(timer, forMode: .common)
         monitorTimer = timer
         AppLogger.post(logger, "Clipboard history monitoring started")
+    }
+
+    func refreshNow() {
+        if monitorTimer == nil {
+            startMonitoring()
+            return
+        }
+
+        captureCurrentStateIfNeeded(force: true)
     }
 
     func stopMonitoring() {
@@ -79,6 +97,9 @@ final class ClipboardHistoryManager {
     }
 
     private func captureCurrentStateIfNeeded(force: Bool = false) {
+        let now = Date()
+        pruneExpiredEntries(now: now)
+
         let currentChangeCount = pasteboard.changeCount
 
         if !force {
@@ -117,9 +138,7 @@ final class ClipboardHistoryManager {
         )
 
         entries.insert(entry, at: 0)
-        if entries.count > maxEntries {
-            entries.removeLast(entries.count - maxEntries)
-        }
+        enforceMaxEntriesLimit()
 
         AppLogger.post(logger, "Clipboard history captured: entries=\(entries.count), title=\(entry.title)")
     }
@@ -129,6 +148,32 @@ final class ClipboardHistoryManager {
         guard index != 0 else { return }
         let entry = entries.remove(at: index)
         entries.insert(entry, at: 0)
+    }
+
+    private func pruneExpiredEntries(now: Date, force: Bool = false) {
+        guard force || now.timeIntervalSince(lastCleanupAt) >= cleanupInterval else { return }
+        lastCleanupAt = now
+
+        let retention = currentRetentionPreset
+        let cutoffDate = now.addingTimeInterval(-retention.timeInterval)
+        let beforeCount = entries.count
+        entries.removeAll(where: { $0.capturedAt < cutoffDate })
+
+        if beforeCount != entries.count {
+            AppLogger.action(
+                logger,
+                "Clipboard history pruned by retention (\(retention.rawValue)): \(beforeCount) -> \(entries.count)"
+            )
+        }
+    }
+
+    private func enforceMaxEntriesLimit() {
+        guard entries.count > maxEntries else { return }
+        entries.removeLast(entries.count - maxEntries)
+    }
+
+    private var currentRetentionPreset: ClipboardHistoryRetentionPreset {
+        ClipboardHistoryRetentionPreset(rawValue: Defaults[.clipboardHistoryRetention]) ?? .oneDay
     }
 
     private func signatureForState(_ state: SavedPasteboardState) -> Int {
