@@ -1,3 +1,4 @@
+import Foundation
 import Defaults
 import KeyboardShortcuts
 
@@ -41,6 +42,52 @@ enum SwitchResultMode: String, CaseIterable {
     }
 }
 
+enum ClipboardHistoryRetentionPreset: String, CaseIterable {
+    case oneHour
+    case oneDay
+    case twoDays
+    case oneWeek
+
+    var title: String {
+        switch self {
+        case .oneHour:
+            return "1 година"
+        case .oneDay:
+            return "1 день"
+        case .twoDays:
+            return "2 дні"
+        case .oneWeek:
+            return "1 тиждень"
+        }
+    }
+
+    var timeInterval: TimeInterval {
+        switch self {
+        case .oneHour:
+            return 60 * 60
+        case .oneDay:
+            return 24 * 60 * 60
+        case .twoDays:
+            return 2 * 24 * 60 * 60
+        case .oneWeek:
+            return 7 * 24 * 60 * 60
+        }
+    }
+}
+
+enum ClipboardHistoryMenuItemLimitPreset: Int, CaseIterable {
+    case all = 0
+    case ten = 10
+    case twenty = 20
+    case thirty = 30
+    case fifty = 50
+    case hundred = 100
+
+    var title: String {
+        rawValue == 0 ? "Всі" : "\(rawValue)"
+    }
+}
+
 extension Defaults.Keys {
     static let isServiceRunning = Key<Bool>("isServiceRunning", default: true)
     static let useDoublePress = Key<Bool>("useDoublePress", default: true)
@@ -53,6 +100,18 @@ extension Defaults.Keys {
     static let totalReplacedWords = Key<Int>("totalReplacedWords", default: 0)
     static let analyticsDayStamp = Key<String>("analyticsDayStamp", default: "")
     static let savedSecondsToday = Key<Int>("savedSecondsToday", default: 0)
+    static let clipboardHistoryRetention = Key<String>(
+        "clipboardHistoryRetention",
+        default: ClipboardHistoryRetentionPreset.oneDay.rawValue
+    )
+    static let clipboardMenuTimeRange = Key<String>(
+        "clipboardMenuTimeRange",
+        default: ClipboardHistoryRetentionPreset.oneDay.rawValue
+    )
+    static let clipboardMenuItemLimit = Key<Int>(
+        "clipboardMenuItemLimit",
+        default: ClipboardHistoryMenuItemLimitPreset.all.rawValue
+    )
 }
 
 extension KeyboardShortcuts.Name {

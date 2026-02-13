@@ -7,10 +7,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var textSwitchEngine: TextSwitchEngine?
     private var layoutManager: LayoutManager?
     private var clipboardHistoryManager: ClipboardHistoryManager?
+    private var isConfigured = false
     private let logger = AppLogger.lifecycle
 
     func configure(layoutManager: LayoutManager, clipboardHistoryManager: ClipboardHistoryManager) {
         AppLogger.pre(logger, "configure(layoutManager:) called")
+        guard !isConfigured else {
+            AppLogger.action(logger, "configure(layoutManager:) skipped: already configured")
+            return
+        }
         self.layoutManager = layoutManager
         self.clipboardHistoryManager = clipboardHistoryManager
         AppLogger.action(logger, "Creating TextSwitchEngine")
@@ -19,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             clipboardHistoryManager: clipboardHistoryManager
         )
         clipboardHistoryManager.startMonitoring()
+        isConfigured = true
         AppLogger.post(logger, "configure(layoutManager:) completed")
     }
 

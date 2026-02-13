@@ -22,6 +22,12 @@ struct PapugaApp: App {
                 }
         } label: {
             MenuBarIconView()
+                .onAppear {
+                    appDelegate.configure(
+                        layoutManager: layoutManager,
+                        clipboardHistoryManager: clipboardHistoryManager
+                    )
+                }
         }
 
         Settings {
