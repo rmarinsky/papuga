@@ -16,12 +16,13 @@ env:
   APP_BUNDLE_NAME: papuga.app
   ARCHIVE_PATH: build/papuga.xcarchive
   EXPORT_DIR: build/export
-  KEYCHAIN_PATH: ${{ runner.temp }}/build.keychain-db
   USES_XCODEGEN: "false"
 
 jobs:
   release:
     runs-on: macos-14
+    env:
+      KEYCHAIN_PATH: ${{ runner.temp }}/build.keychain-db
     steps:
       - uses: actions/checkout@v4
         with:
