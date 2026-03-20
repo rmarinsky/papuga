@@ -2,6 +2,7 @@ import AppKit
 import Defaults
 import KeyboardShortcuts
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotkeyListener: HotkeyListener?
     private var textSwitchEngine: TextSwitchEngine?
