@@ -184,7 +184,13 @@ jobs:
           tar -xf sparkle.tar.xz -C sparkle_tools
 
           # Sign the DMG and capture signature info
-          SIGN_OUTPUT=$(echo "$SPARKLE_EDDSA_PRIVATE_KEY" | sparkle_tools/bin/sign_update "$DMG_PATH" -f -)
+          echo "Key length: ${#SPARKLE_EDDSA_PRIVATE_KEY}"
+          echo "$SPARKLE_EDDSA_PRIVATE_KEY" | sparkle_tools/bin/sign_update "$DMG_PATH" -f - > /tmp/sign_output.txt 2>&1 || {
+            echo "sign_update failed:"
+            cat /tmp/sign_output.txt
+            exit 1
+          }
+          SIGN_OUTPUT=$(cat /tmp/sign_output.txt)
           echo "Sparkle signature: $SIGN_OUTPUT"
           {
             echo 'SPARKLE_SIGN_OUTPUT<<SPARKLE_EOF'
