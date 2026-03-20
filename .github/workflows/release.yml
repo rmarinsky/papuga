@@ -16,7 +16,7 @@ env:
   APP_BUNDLE_NAME: papuga.app
   ARCHIVE_PATH: build/papuga.xcarchive
   EXPORT_DIR: build/export
-  KEYCHAIN_NAME: build.keychain-db
+  KEYCHAIN_PATH: ${{ runner.temp }}/build.keychain-db
   USES_XCODEGEN: "false"
 
 jobs:
@@ -56,14 +56,14 @@ jobs:
         run: |
           echo "$MACOS_CERTIFICATE_P12" | base64 --decode > certificate.p12
 
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_NAME"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
-          security default-keychain -s "$KEYCHAIN_NAME"
-          security list-keychains -d user -s "$KEYCHAIN_NAME" login.keychain-db
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security default-keychain -s "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
 
           security import certificate.p12 \
-            -k "$KEYCHAIN_NAME" \
+            -k "$KEYCHAIN_PATH" \
             -P "$MACOS_CERTIFICATE_PASSWORD" \
             -T /usr/bin/codesign \
             -T /usr/bin/security \
@@ -73,9 +73,9 @@ jobs:
             -S apple-tool:,apple:,codesign: \
             -s \
             -k "$KEYCHAIN_PASSWORD" \
-            "$KEYCHAIN_NAME"
+            "$KEYCHAIN_PATH"
 
-          security find-identity -v -p codesigning "$KEYCHAIN_NAME"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
       - name: Store notarization credentials
         env:
@@ -87,7 +87,7 @@ jobs:
             --apple-id "$APPLE_ID" \
             --password "$APPLE_APP_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" \
-            --keychain "$KEYCHAIN_NAME"
+            --keychain "$KEYCHAIN_PATH"
 
       - name: Generate Xcode project (XcodeGen)
         if: env.USES_XCODEGEN == 'true'
@@ -132,7 +132,7 @@ jobs:
 
           xcrun notarytool submit "build/${APP_NAME}-notary.zip" \
             --keychain-profile "$APP_NAME" \
-            --keychain "$KEYCHAIN_NAME" \
+            --keychain "$KEYCHAIN_PATH" \
             --wait
 
           xcrun stapler staple "$EXPORT_DIR/$APP_BUNDLE_NAME"
@@ -245,5 +245,5 @@ jobs:
       - name: Cleanup signing artifacts
         if: always()
         run: |
-          security delete-keychain "$KEYCHAIN_NAME" || true
+          security delete-keychain "$KEYCHAIN_PATH" || true
           rm -f certificate.p12 "build/${APP_NAME}-notary.zip"
