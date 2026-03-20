@@ -186,7 +186,7 @@ jobs:
           ls -la sparkle_tools/bin/sign_update
 
           # Sign the DMG and capture signature info
-          SIGN_OUTPUT=$(echo "$SPARKLE_EDDSA_PRIVATE_KEY" | sparkle_tools/bin/sign_update "$DMG_PATH" -f -)
+          SIGN_OUTPUT=$(printf '%s' "$SPARKLE_EDDSA_PRIVATE_KEY" | sparkle_tools/bin/sign_update "$DMG_PATH" -f -)
           echo "Sparkle signature: $SIGN_OUTPUT"
           {
             echo 'SPARKLE_SIGN_OUTPUT<<SPARKLE_EOF'
