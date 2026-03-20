@@ -21,12 +21,13 @@ env:
 jobs:
   release:
     runs-on: macos-14
-    env:
-      KEYCHAIN_PATH: ${{ runner.temp }}/build.keychain-db
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Set keychain path
+        run: echo "KEYCHAIN_PATH=${{ runner.temp }}/build.keychain-db" >> "$GITHUB_ENV"
 
       - name: Select Xcode
         run: |
