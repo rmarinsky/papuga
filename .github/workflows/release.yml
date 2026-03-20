@@ -118,10 +118,12 @@ jobs:
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER"
 
-      - name: Export and verify app
+      - name: Export app
         run: |
-          mkdir -p "$EXPORT_DIR"
-          ditto "$ARCHIVE_PATH/Products/Applications/$APP_BUNDLE_NAME" "$EXPORT_DIR/$APP_BUNDLE_NAME"
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportPath "$EXPORT_DIR" \
+            -exportOptionsPlist ExportOptions.plist
 
           echo "Architectures:"
           lipo -archs "$EXPORT_DIR/$APP_BUNDLE_NAME/Contents/MacOS/$APP_NAME"
@@ -135,7 +137,18 @@ jobs:
           xcrun notarytool submit "build/${APP_NAME}-notary.zip" \
             --keychain-profile "$APP_NAME" \
             --keychain "$KEYCHAIN_PATH" \
-            --wait
+            --wait 2>&1 | tee /tmp/notarize-output.txt
+
+          # On failure, fetch the log for debugging
+          if grep -q "status: Invalid" /tmp/notarize-output.txt; then
+            SUBMISSION_ID=$(grep "id:" /tmp/notarize-output.txt | head -1 | awk '{print $2}')
+            echo "::group::Notarization log"
+            xcrun notarytool log "$SUBMISSION_ID" \
+              --keychain-profile "$APP_NAME" \
+              --keychain "$KEYCHAIN_PATH" 2>&1 || true
+            echo "::endgroup::"
+            exit 1
+          fi
 
           xcrun stapler staple "$EXPORT_DIR/$APP_BUNDLE_NAME"
           spctl --assess --type exec --verbose "$EXPORT_DIR/$APP_BUNDLE_NAME"
