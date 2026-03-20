@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var clipboardHistoryManager: ClipboardHistoryManager?
     private var isConfigured = false
     private let logger = AppLogger.lifecycle
+    lazy var updaterManager = UpdaterManager()
 
     func configure(layoutManager: LayoutManager, clipboardHistoryManager: ClipboardHistoryManager) {
         AppLogger.pre(logger, "configure(layoutManager:) called")
@@ -30,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppLogger.pre(logger, "applicationDidFinishLaunching")
+        _ = updaterManager
         setupHotkeyListener()
         setupKeyboardShortcuts()
         AppLogger.action(logger, "Hotkey listener and keyboard shortcuts setup complete")

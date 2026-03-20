@@ -1,6 +1,12 @@
 import SwiftUI
 
 struct AboutTab: View {
+    @ObservedObject private var updaterManager: UpdaterManager
+
+    init() {
+        self.updaterManager = (NSApp.delegate as! AppDelegate).updaterManager
+    }
+
     var body: some View {
         VStack(spacing: 12) {
             Image(systemName: "keyboard")
@@ -19,6 +25,11 @@ struct AboutTab: View {
 
             Text("Перемикач розкладки клавіатури для macOS")
                 .foregroundStyle(.secondary)
+
+            Button("Перевірити оновлення…") {
+                updaterManager.checkForUpdates()
+            }
+            .disabled(!updaterManager.canCheckForUpdates)
 
             Divider()
                 .frame(width: 200)
