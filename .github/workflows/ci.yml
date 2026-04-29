@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -switch /Applications/Xcode.app/Contents/Developer
+
+      - name: Resolve packages
+        run: xcodebuild -resolvePackageDependencies -project papuga.xcodeproj -scheme papuga
+
+      - name: Build (Debug)
+        run: |
+          xcodebuild build \
+            -project papuga.xcodeproj \
+            -scheme papuga \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcbeautify --renderer github-actions || xcodebuild build \
+                -project papuga.xcodeproj -scheme papuga -configuration Debug \
+                -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO
+
+      - name: Run unit tests
+        run: |
+          xcodebuild test \
+            -project papuga.xcodeproj \
+            -scheme papuga \
+            -destination 'platform=macOS' \
+            -only-testing:papugaTests \
+            CODE_SIGNING_ALLOWED=NO

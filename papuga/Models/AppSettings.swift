@@ -100,6 +100,7 @@ extension Defaults.Keys {
     static let totalReplacedWords = Key<Int>("totalReplacedWords", default: 0)
     static let analyticsDayStamp = Key<String>("analyticsDayStamp", default: "")
     static let savedSecondsToday = Key<Int>("savedSecondsToday", default: 0)
+    static let dailyStatsHistory = Key<[PapugaDailyStats]>("dailyStatsHistory", default: [])
     static let clipboardHistoryRetention = Key<String>(
         "clipboardHistoryRetention",
         default: ClipboardHistoryRetentionPreset.oneDay.rawValue
@@ -112,6 +113,14 @@ extension Defaults.Keys {
         "clipboardMenuItemLimit",
         default: ClipboardHistoryMenuItemLimitPreset.all.rawValue
     )
+
+    static let autoFixEnabled = Key<Bool>("autoFixEnabled", default: false)
+    static let autoFixAlgorithm = Key<String>("autoFixAlgorithm", default: LanguageScorerAlgorithm.appleNL.rawValue)
+    static let autoFixThreshold = Key<Double>("autoFixThreshold", default: 0.3)
+    static let autoFixUndoWindow = Key<Double>("autoFixUndoWindow", default: 1.5)
+    static let autoFixBlocklist = Key<[String]>("autoFixBlocklist", default: [])
+    static let autoFixAllowlist = Key<[String]>("autoFixAllowlist", default: [])
+    static let autoFixToastEnabled = Key<Bool>("autoFixToastEnabled", default: true)
 }
 
 extension KeyboardShortcuts.Name {
