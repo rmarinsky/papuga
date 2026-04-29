@@ -94,4 +94,5 @@ enum AutoFixSkipReason: String {
     case noTargetLayout = "no_target_layout"
     case missingMaps = "missing_maps"
     case identicalCandidate = "identical_candidate"
+    case originalIsRealWord = "original_is_real_word"
 }

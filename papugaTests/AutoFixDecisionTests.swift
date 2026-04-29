@@ -77,6 +77,16 @@ final class AutoFixDecisionTests: XCTestCase {
         XCTAssertFalse(AutoFixDecision.isInAllowlist("anything", allowlist: []))
     }
 
+    func test_isCorrectlySpelled_recognises_real_words_in_each_language() {
+        // Real English words in EN — must be recognised.
+        XCTAssertTrue(AutoFixDecision.isCorrectlySpelled("faster", language: "en"))
+        XCTAssertTrue(AutoFixDecision.isCorrectlySpelled("hello", language: "en"))
+        // Wrong-layout gibberish typed in EN layout (intent: Ukrainian word) —
+        // must be flagged as misspelled in EN.
+        XCTAssertFalse(AutoFixDecision.isCorrectlySpelled("ghbdsn", language: "en"))
+        XCTAssertFalse(AutoFixDecision.isCorrectlySpelled("nmrybr", language: "en"))
+    }
+
     func test_languageHint_recognises_known_layouts() {
         XCTAssertEqual(AutoFixDecision.languageHintForLayoutID("com.apple.keylayout.Ukrainian-PC"), "uk")
         XCTAssertEqual(AutoFixDecision.languageHintForLayoutID("com.apple.keylayout.Russian"), "ru")

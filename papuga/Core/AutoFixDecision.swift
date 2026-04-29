@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 enum AutoFixDecision {
@@ -68,5 +69,24 @@ enum AutoFixDecision {
     static func isInAllowlist(_ word: String, allowlist: [String]) -> Bool {
         let normalized = word.lowercased()
         return allowlist.contains { $0.lowercased() == normalized }
+    }
+
+    /// True when the word is in the system spell-check dictionary for the
+    /// given language. Used to short-circuit auto-fix when the user typed a
+    /// legitimate word: e.g. `faster` in EN scores ~0.5 as English while the
+    /// Cyrillic gibberish candidate `афіеук` scores ~0.99 as Ukrainian (Apple
+    /// NL is mostly script detection on short text), which otherwise crosses
+    /// the threshold and produces a false positive.
+    static func isCorrectlySpelled(_ word: String, language: String) -> Bool {
+        let checker = NSSpellChecker.shared
+        let range = checker.checkSpelling(
+            of: word,
+            startingAt: 0,
+            language: language,
+            wrap: false,
+            inSpellDocumentWithTag: 0,
+            wordCount: nil
+        )
+        return range.location == NSNotFound || range.length == 0
     }
 }

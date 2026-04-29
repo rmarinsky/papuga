@@ -243,11 +243,21 @@ final class AutoFixController {
             logSkip(.identicalCandidate, word: word, bundleID: bundleID); return
         }
 
-        let algorithm = LanguageScorerAlgorithm(rawValue: Defaults[.autoFixAlgorithm]) ?? .appleNL
-        let scorer = LanguageScorerFactory.make(algorithm)
-
         let currentLang = languageHintForLayoutID(currentID)
         let targetLang = languageHintForLayoutID(targetID)
+
+        // Hard guard against false positives like `faster` -> `афіеук`. If the
+        // original is a real word in the current layout's language, the user
+        // intended to type it; never replace.
+        if AutoFixDecision.isCorrectlySpelled(word, language: currentLang) {
+            logSkip(.originalIsRealWord, word: word, bundleID: bundleID, extra: [
+                "from_lang": .string(currentLang)
+            ])
+            return
+        }
+
+        let algorithm = LanguageScorerAlgorithm(rawValue: Defaults[.autoFixAlgorithm]) ?? .appleNL
+        let scorer = LanguageScorerFactory.make(algorithm)
         let scoreOriginal = scorer.score(word, expecting: currentLang)
         let scoreCandidate = scorer.score(candidate, expecting: targetLang)
         let threshold = Defaults[.autoFixThreshold]
