@@ -3,12 +3,26 @@ import Foundation
 enum AutoFixDecision {
     static func shouldSkipWord(_ word: String, minLength: Int = 3) -> SkipReason? {
         if word.count < minLength { return .tooShort }
-        if word.contains("@") || word.contains("/") || word.contains(".") {
-            return .containsForbiddenChars
-        }
+        // `.` and `/` are NOT blanket-forbidden: on Ukrainian-PC `.` is `ю`, so a
+        // word like `.hsq` typed in EN actually maps to `юрій`. Only skip when
+        // the token clearly looks URL/email-like.
+        if word.contains("@") { return .containsForbiddenChars }
+        if word.contains("://") { return .containsForbiddenChars }
+        if hasTLDSuffix(word) { return .containsForbiddenChars }
         if word.first == "#" || word.first == "$" { return .containsForbiddenChars }
         for ch in word where ch.isNumber { return .containsDigits }
         return nil
+    }
+
+    private static let knownTLDs: Set<String> = [
+        "com", "org", "net", "io", "dev", "app", "ua", "ru",
+        "co", "uk", "de", "fr", "us", "ai", "me"
+    ]
+
+    private static func hasTLDSuffix(_ word: String) -> Bool {
+        guard let dot = word.lastIndex(of: ".") else { return false }
+        let suffix = word[word.index(after: dot)...].lowercased()
+        return knownTLDs.contains(suffix)
     }
 
     static func shouldReplace(

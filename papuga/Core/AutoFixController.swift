@@ -134,7 +134,7 @@ final class AutoFixController {
         }
 
         if isWordBoundary(keyCode: keyCode, typedString: typedString) {
-            evaluateAndMaybeFix()
+            evaluateAndMaybeFix(boundary: typedString)
             buffer.reset()
             return
         }
@@ -149,7 +149,9 @@ final class AutoFixController {
             let elapsed = timestamp - pending.timestamp
             let window = Defaults[.autoFixUndoWindow]
             if elapsed <= window {
-                undo(pending)
+                // Backspace already deleted the trailing boundary char; only the
+                // replacement word remains to be removed.
+                undo(pending, boundaryAlreadyConsumed: true)
                 lastFix = nil
                 return
             }
@@ -166,17 +168,23 @@ final class AutoFixController {
             Defaults[.autoFixAllowlist] = list
             AppLogger.action(logger, "Added '\(pending.original)' to allowlist via toast click")
         }
-        undo(pending)
+        // Toast click: replacement + boundary are still in the buffer.
+        undo(pending, boundaryAlreadyConsumed: false)
         lastFix = nil
     }
 
-    private func undo(_ pending: PendingUndo) {
+    private func undo(_ pending: PendingUndo, boundaryAlreadyConsumed: Bool) {
         AppLogger.action(logger, "Undoing recent auto-fix: \(pending.replacement) -> \(pending.original)")
         let elapsedMs = Int((ProcessInfo.processInfo.systemUptime - pending.timestamp) * 1000)
         sessionRejected.insert(pending.original)
         layoutManager.switchTo(pending.fromLayoutID)
-        deleteCharacters(count: 1 + pending.replacement.count)
-        typeText(pending.original)
+        if boundaryAlreadyConsumed {
+            deleteCharacters(count: pending.replacement.count)
+            typeText(pending.original)
+        } else {
+            deleteCharacters(count: pending.replacement.count + pending.boundary.count)
+            typeText(pending.original + pending.boundary)
+        }
         AnalyticsCounters.reverseReplacement(text: pending.replacement)
 
         PapugaEventLog.shared.track(AnalyticsEvent(
@@ -190,7 +198,7 @@ final class AutoFixController {
         ))
     }
 
-    private func evaluateAndMaybeFix() {
+    private func evaluateAndMaybeFix(boundary: String) {
         let word = buffer.text
         guard !word.isEmpty else { return }
 
@@ -260,6 +268,7 @@ final class AutoFixController {
         applyFix(
             original: word,
             candidate: candidate,
+            boundary: boundary,
             fromLayoutID: currentID,
             targetLayoutID: targetID,
             scoreOriginal: scoreOriginal,
@@ -274,6 +283,7 @@ final class AutoFixController {
     private func applyFix(
         original: String,
         candidate: String,
+        boundary: String,
         fromLayoutID: String,
         targetLayoutID: String,
         scoreOriginal: Double,
@@ -284,15 +294,19 @@ final class AutoFixController {
         bundleID: String
     ) {
         AppLogger.action(logger, "Auto-fix applying: \(original) -> \(candidate)")
-        // Word + boundary char already typed. Delete count = original + 1 boundary.
-        let totalToDelete = original.count + 1
+        // Word + boundary char already typed. Delete the original word and the
+        // boundary, then re-type the candidate followed by the same boundary so
+        // Enter/Tab keep their semantics (newline, focus shift, indent).
+        let boundaryToReplay = boundary.isEmpty ? " " : boundary
+        let totalToDelete = original.count + boundaryToReplay.count
         deleteCharacters(count: totalToDelete)
-        typeText(candidate + " ")
+        typeText(candidate + boundaryToReplay)
         layoutManager.switchTo(targetLayoutID)
 
         lastFix = PendingUndo(
             original: original,
             replacement: candidate,
+            boundary: boundaryToReplay,
             fromLayoutID: fromLayoutID,
             timestamp: ProcessInfo.processInfo.systemUptime
         )
@@ -410,6 +424,7 @@ private struct WordBuffer {
 private struct PendingUndo {
     let original: String
     let replacement: String
+    let boundary: String
     let fromLayoutID: String
     let timestamp: TimeInterval
 }

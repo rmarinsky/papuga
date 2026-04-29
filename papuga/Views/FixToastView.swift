@@ -50,7 +50,7 @@ struct FixToastView: View {
 
                 Text("🦜")
                     .font(.system(size: 26))
-                    .rotation3DEffect(.degrees(spin), axis: (x: 1, y: 0, z: 0))
+                    .rotationEffect(.degrees(spin))
                     .scaleEffect(hover ? 1.18 : 1.0)
                     .animation(.spring(response: 0.25, dampingFraction: 0.5), value: hover)
             }
@@ -65,9 +65,9 @@ struct FixToastView: View {
                 scale = 1.0
                 opacity = 1.0
             }
-            // Two slower somersaults over 1.6s.
+            // Full 360° spin around the centre of the block over 1.6s.
             withAnimation(.easeInOut(duration: 1.6)) {
-                spin = 720
+                spin = 360
             }
         }
     }

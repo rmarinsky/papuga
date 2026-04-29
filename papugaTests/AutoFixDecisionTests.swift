@@ -15,10 +15,17 @@ final class AutoFixDecisionTests: XCTestCase {
 
     func test_shouldSkip_word_with_forbidden_chars() {
         XCTAssertEqual(AutoFixDecision.shouldSkipWord("user@host"), .containsForbiddenChars)
-        XCTAssertEqual(AutoFixDecision.shouldSkipWord("path/to/file"), .containsForbiddenChars)
+        XCTAssertEqual(AutoFixDecision.shouldSkipWord("https://x"), .containsForbiddenChars)
         XCTAssertEqual(AutoFixDecision.shouldSkipWord("hostname.com"), .containsForbiddenChars)
         XCTAssertEqual(AutoFixDecision.shouldSkipWord("#hashtag"), .containsForbiddenChars)
         XCTAssertEqual(AutoFixDecision.shouldSkipWord("$variable"), .containsForbiddenChars)
+    }
+
+    func test_shouldSkip_allows_leading_dot_for_layout_mapped_words() {
+        // `.hsq` in EN layout → `.` is `ю` on Ukrainian-PC; the token maps to
+        // `юрій`. Must NOT be blanket-rejected by the skip filter.
+        XCTAssertNil(AutoFixDecision.shouldSkipWord(".hsq"))
+        XCTAssertNil(AutoFixDecision.shouldSkipWord("path/to"))
     }
 
     func test_shouldSkip_passes_normal_words() {
