@@ -30,6 +30,41 @@ struct PapugaDailyStats: Codable, Equatable, Identifiable, Defaults.Serializable
 }
 
 enum PapugaStatsAggregator {
+    /// One-time backfill: when the daily-history schema first ships, the
+    /// legacy `textReplacementCount` / `totalReplacedWords` counters reflect
+    /// activity going back to install date but the new history is empty,
+    /// causing the hero card to show ~0 while the breakdown card shows the
+    /// lifetime total. Stash all the legacy activity into today's bucket so
+    /// the All-time and Month scopes pick it up. Today's bar will be tall
+    /// once after upgrade; from then on, daily entries accumulate naturally.
+    static func migrateLegacyCountersIfNeeded() {
+        guard !Defaults[.dailyStatsHistoryMigrated] else { return }
+        let legacyCount = Defaults[.textReplacementCount]
+        let legacyWords = Defaults[.totalReplacedWords]
+        guard legacyCount > 0 else {
+            Defaults[.dailyStatsHistoryMigrated] = true
+            return
+        }
+        let legacySeconds = Int((Double(legacyWords) * Constants.estimatedManualReplacementSecondsPerWord).rounded())
+        let today = PapugaDailyStats.dayString()
+        var history = Defaults[.dailyStatsHistory]
+        if let idx = history.firstIndex(where: { $0.day == today }) {
+            history[idx].replacementCount += legacyCount
+            history[idx].wordsCount += legacyWords
+            history[idx].secondsSaved += legacySeconds
+        } else {
+            history.append(PapugaDailyStats(
+                day: today,
+                replacementCount: legacyCount,
+                wordsCount: legacyWords,
+                secondsSaved: legacySeconds
+            ))
+        }
+        history.sort { $0.day < $1.day }
+        Defaults[.dailyStatsHistory] = history
+        Defaults[.dailyStatsHistoryMigrated] = true
+    }
+
     static func bumpToday(words: Int, seconds: Int, sign: Int = 1) {
         let today = PapugaDailyStats.dayString()
         var history = Defaults[.dailyStatsHistory]

@@ -101,6 +101,7 @@ extension Defaults.Keys {
     static let analyticsDayStamp = Key<String>("analyticsDayStamp", default: "")
     static let savedSecondsToday = Key<Int>("savedSecondsToday", default: 0)
     static let dailyStatsHistory = Key<[PapugaDailyStats]>("dailyStatsHistory", default: [])
+    static let dailyStatsHistoryMigrated = Key<Bool>("dailyStatsHistoryMigrated", default: false)
     static let clipboardHistoryRetention = Key<String>(
         "clipboardHistoryRetention",
         default: ClipboardHistoryRetentionPreset.oneDay.rawValue
