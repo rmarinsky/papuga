@@ -65,8 +65,8 @@ struct FixToastView: View {
                 scale = 1.0
                 opacity = 1.0
             }
-            // Full 360° spin around the centre of the block over 1.6s.
-            withAnimation(.easeInOut(duration: 1.6)) {
+            // Full 360° spin around the centre of the block.
+            withAnimation(.easeOut(duration: 0.6)) {
                 spin = 360
             }
         }
