@@ -9,6 +9,8 @@ enum AppLogger {
     static let layout = Logger(subsystem: Constants.bundleIdentifier, category: "Layout")
     static let mapper = Logger(subsystem: Constants.bundleIdentifier, category: "Mapper")
     static let ui = Logger(subsystem: Constants.bundleIdentifier, category: "UI")
+    static let autoFix = Logger(subsystem: Constants.bundleIdentifier, category: "AutoFix")
+    static let analytics = Logger(subsystem: Constants.bundleIdentifier, category: "Analytics")
 
     static func pre(_ logger: Logger, _ message: String) {
         logger.debug("\(message, privacy: .public)")

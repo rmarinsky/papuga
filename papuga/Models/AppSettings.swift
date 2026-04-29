@@ -112,6 +112,12 @@ extension Defaults.Keys {
         "clipboardMenuItemLimit",
         default: ClipboardHistoryMenuItemLimitPreset.all.rawValue
     )
+
+    static let autoFixEnabled = Key<Bool>("autoFixEnabled", default: false)
+    static let autoFixAlgorithm = Key<String>("autoFixAlgorithm", default: LanguageScorerAlgorithm.appleNL.rawValue)
+    static let autoFixThreshold = Key<Double>("autoFixThreshold", default: 0.3)
+    static let autoFixUndoWindow = Key<Double>("autoFixUndoWindow", default: 1.5)
+    static let autoFixBlocklist = Key<[String]>("autoFixBlocklist", default: [])
 }
 
 extension KeyboardShortcuts.Name {

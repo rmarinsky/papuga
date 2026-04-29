@@ -135,28 +135,10 @@ final class TextSwitchEngine {
 
     private func updateAnalytics(text: String, operationID: String) {
         AppLogger.pre(logger, "[\(operationID)] updateAnalytics()")
-
-        let wordsInText = max(1, text.split(separator: " ").count)
-        let savedSecondsForCurrentText = Int((Double(wordsInText) * Constants.estimatedManualReplacementSecondsPerWord).rounded())
-        let updatedReplacementCount = Defaults[.textReplacementCount] + 1
-        let updatedWordsTotal = Defaults[.totalReplacedWords] + wordsInText
-
-        let currentDay = Constants.currentDayStamp()
-        if Defaults[.analyticsDayStamp] != currentDay {
-            Defaults[.analyticsDayStamp] = currentDay
-            Defaults[.savedSecondsToday] = 0
-            AppLogger.action(logger, "[\(operationID)] Analytics day changed -> reset today counter for \(currentDay)")
-        }
-
-        let updatedSavedSecondsToday = Defaults[.savedSecondsToday] + savedSecondsForCurrentText
-
-        Defaults[.textReplacementCount] = updatedReplacementCount
-        Defaults[.totalReplacedWords] = updatedWordsTotal
-        Defaults[.savedSecondsToday] = updatedSavedSecondsToday
-
+        AnalyticsCounters.recordReplacement(text: text)
         AppLogger.post(
             logger,
-            "[\(operationID)] Analytics updated: replacements=\(updatedReplacementCount), wordsTotal=\(updatedWordsTotal), wordsInCurrentText=\(wordsInText), savedSecondsCurrent=\(savedSecondsForCurrentText), savedSecondsToday=\(updatedSavedSecondsToday)"
+            "[\(operationID)] Analytics updated: replacements=\(Defaults[.textReplacementCount]), wordsTotal=\(Defaults[.totalReplacedWords]), savedSecondsToday=\(Defaults[.savedSecondsToday])"
         )
     }
 

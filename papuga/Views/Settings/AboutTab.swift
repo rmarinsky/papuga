@@ -4,7 +4,7 @@ struct AboutTab: View {
     @ObservedObject private var updaterManager: UpdaterManager
 
     init() {
-        self.updaterManager = (NSApp.delegate as! AppDelegate).updaterManager
+        self.updaterManager = AppDelegate.shared?.updaterManager ?? UpdaterManager()
     }
 
     var body: some View {

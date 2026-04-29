@@ -6,12 +6,17 @@ struct MenuBarView: View {
     @Default(.totalReplacedWords) private var totalReplacedWords
     @Default(.clipboardMenuTimeRange) private var clipboardMenuTimeRange
     @Default(.clipboardMenuItemLimit) private var clipboardMenuItemLimit
+    @Default(.autoFixEnabled) private var autoFixEnabled
     @Environment(ClipboardHistoryManager.self) private var clipboardHistoryManager
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             compactSummaryText
+
+            Divider()
+
+            Toggle("Автозаміна під час набору", isOn: $autoFixEnabled)
 
             Divider()
 

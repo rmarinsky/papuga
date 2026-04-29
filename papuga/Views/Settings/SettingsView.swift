@@ -16,6 +16,11 @@ struct SettingsView: View {
                     Label("Гарячі клавіші", systemImage: "command")
                 }
 
+            AutoFixTab()
+                .tabItem {
+                    Label("Автозаміна", systemImage: "wand.and.stars")
+                }
+
             AnalyticsTab()
                 .tabItem {
                     Label("Аналітика", systemImage: "chart.bar")

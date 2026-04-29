@@ -1,0 +1,57 @@
+name: Auto-tag on version bump
+
+# Watches main for changes to MARKETING_VERSION in the Xcode project. When the
+# version is bumped to a value that doesn't yet have a matching `vX.Y.Z` tag,
+# the workflow creates and pushes the tag — which then triggers `release.yml`.
+#
+# This means the human flow is just: open a PR that bumps the version, get it
+# reviewed, merge. The tag and release happen automatically.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "papuga.xcodeproj/project.pbxproj"
+
+permissions:
+  contents: write
+
+jobs:
+  maybe-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Read MARKETING_VERSION from pbxproj
+        id: version
+        run: |
+          # Pick the FIRST MARKETING_VERSION (it's the same for Debug and Release
+          # of the app target; test target uses a different value but appears later).
+          VERSION=$(grep -m1 -E 'MARKETING_VERSION = [0-9]+\.[0-9]+(\.[0-9]+)?;' \
+            papuga.xcodeproj/project.pbxproj \
+            | sed -E 's/.*MARKETING_VERSION = ([0-9]+\.[0-9]+(\.[0-9]+)?);.*/\1/')
+          echo "Detected version: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Tag if version is new
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [ -z "$VERSION" ]; then
+            echo "::error::Could not detect MARKETING_VERSION"
+            exit 1
+          fi
+          TAG="v$VERSION"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists, nothing to do."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+          echo "Pushed $TAG → release.yml will run."

@@ -4,10 +4,19 @@ import KeyboardShortcuts
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    static weak var shared: AppDelegate?
+
+    override init() {
+        super.init()
+        AppDelegate.shared = self
+    }
+
     private var hotkeyListener: HotkeyListener?
     private var textSwitchEngine: TextSwitchEngine?
     private var layoutManager: LayoutManager?
     private var clipboardHistoryManager: ClipboardHistoryManager?
+    private var autoFixController: AutoFixController?
+    private let autoFixCharacterMapper = CharacterMapper()
     private var isConfigured = false
     private let logger = AppLogger.lifecycle
     lazy var updaterManager = UpdaterManager()
@@ -26,6 +35,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             clipboardHistoryManager: clipboardHistoryManager
         )
         clipboardHistoryManager.startMonitoring()
+        self.autoFixController = AutoFixController(
+            layoutManager: layoutManager,
+            characterMapper: autoFixCharacterMapper
+        )
+        if Defaults[.autoFixEnabled] {
+            AppLogger.action(logger, "AutoFix enabled at launch -> starting controller")
+            self.autoFixController?.start()
+        }
         isConfigured = true
         AppLogger.post(logger, "configure(layoutManager:) completed")
     }
@@ -33,6 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppLogger.pre(logger, "applicationDidFinishLaunching")
         _ = updaterManager
+        PapugaEventLog.shared.pruneOldEntries()
         setupHotkeyListener()
         setupKeyboardShortcuts()
         AppLogger.action(logger, "Hotkey listener and keyboard shortcuts setup complete")
@@ -45,6 +63,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } else {
                 self?.hotkeyListener?.stop()
                 AppLogger.post(self?.logger ?? AppLogger.lifecycle, "Service disabled -> hotkey listener stopped")
+            }
+        }.tieToLifetime(of: self)
+
+        Defaults.observe(.autoFixEnabled) { [weak self] change in
+            AppLogger.pre(self?.logger ?? AppLogger.lifecycle, "Observed autoFixEnabled change: \(change.newValue)")
+            if change.newValue {
+                self?.autoFixController?.start()
+                AppLogger.post(self?.logger ?? AppLogger.lifecycle, "AutoFix enabled -> controller started")
+            } else {
+                self?.autoFixController?.stop()
+                AppLogger.post(self?.logger ?? AppLogger.lifecycle, "AutoFix disabled -> controller stopped")
             }
         }.tieToLifetime(of: self)
 
@@ -79,6 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         AppLogger.pre(logger, "applicationWillTerminate")
         hotkeyListener?.stop()
+        autoFixController?.stop()
         clipboardHistoryManager?.stopMonitoring()
         AppLogger.post(logger, "Hotkey listener stopped on termination")
     }
