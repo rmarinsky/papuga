@@ -7,8 +7,11 @@ struct AutoFixTab: View {
     @Default(.autoFixThreshold) private var autoFixThreshold
     @Default(.autoFixUndoWindow) private var autoFixUndoWindow
     @Default(.autoFixBlocklist) private var autoFixBlocklist
+    @Default(.autoFixAllowlist) private var autoFixAllowlist
+    @Default(.autoFixToastEnabled) private var autoFixToastEnabled
 
     @State private var showingAddSheet = false
+    @State private var newAllowlistWord = ""
 
     var body: some View {
         Form {
@@ -49,6 +52,42 @@ struct AutoFixTab: View {
                         Text(String(format: "%.1f сек", autoFixUndoWindow)).monospacedDigit()
                     }
                     Slider(value: $autoFixUndoWindow, in: 0.5...3.0, step: 0.1)
+                }
+
+                Toggle("Показувати папугу-сальто біля курсора", isOn: $autoFixToastEnabled)
+                Text("Якщо клікнути по папузі — заміна скасується, а слово запам'ятається у списку «не чіпати»")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Не чіпати ці слова") {
+                if autoFixAllowlist.isEmpty {
+                    Text("Список порожній. Слова додаються автоматично, коли ти клікаєш папугу під час її анімації, або вручну тут.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(autoFixAllowlist, id: \.self) { word in
+                    HStack {
+                        Text(word)
+                        Spacer()
+                        Button {
+                            autoFixAllowlist.removeAll { $0 == word }
+                        } label: {
+                            Image(systemName: "minus.circle.fill")
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                HStack {
+                    TextField("Додати слово вручну", text: $newAllowlistWord)
+                    Button("Додати") {
+                        let trimmed = newAllowlistWord.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty && !autoFixAllowlist.contains(where: { $0.lowercased() == trimmed.lowercased() }) {
+                            autoFixAllowlist.append(trimmed)
+                            newAllowlistWord = ""
+                        }
+                    }
+                    .disabled(newAllowlistWord.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
 

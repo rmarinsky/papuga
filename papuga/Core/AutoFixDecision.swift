@@ -50,4 +50,9 @@ enum AutoFixDecision {
         case containsDigits
         case containsForbiddenChars
     }
+
+    static func isInAllowlist(_ word: String, allowlist: [String]) -> Bool {
+        let normalized = word.lowercased()
+        return allowlist.contains { $0.lowercased() == normalized }
+    }
 }

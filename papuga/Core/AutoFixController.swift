@@ -151,6 +151,19 @@ final class AutoFixController {
         buffer.popLast()
     }
 
+    private func undoAndAddToAllowlist() {
+        guard let pending = lastFix else { return }
+        let normalized = pending.original.lowercased()
+        var list = Defaults[.autoFixAllowlist]
+        if !list.contains(where: { $0.lowercased() == normalized }) {
+            list.append(pending.original)
+            Defaults[.autoFixAllowlist] = list
+            AppLogger.action(logger, "Added '\(pending.original)' to allowlist via toast click")
+        }
+        undo(pending)
+        lastFix = nil
+    }
+
     private func undo(_ pending: PendingUndo) {
         AppLogger.action(logger, "Undoing recent auto-fix: \(pending.replacement) -> \(pending.original)")
         let elapsedMs = Int((ProcessInfo.processInfo.systemUptime - pending.timestamp) * 1000)
@@ -178,6 +191,11 @@ final class AutoFixController {
         let bundleID = AppContextProvider.frontmostBundleID() ?? ""
         if Defaults[.autoFixBlocklist].contains(bundleID) {
             logSkip(.blocklist, word: word, bundleID: bundleID)
+            return
+        }
+
+        if AutoFixDecision.isInAllowlist(word, allowlist: Defaults[.autoFixAllowlist]) {
+            logSkip(.allowlist, word: word, bundleID: bundleID)
             return
         }
 
@@ -275,6 +293,13 @@ final class AutoFixController {
 
         AnalyticsCounters.recordReplacement(text: candidate)
         NotificationCenter.default.post(name: .textReplacementDidComplete, object: nil)
+
+        if Defaults[.autoFixToastEnabled] {
+            let cursor = NSEvent.mouseLocation
+            FixToastCoordinator.shared.show(near: cursor) { [weak self] in
+                self?.undoAndAddToAllowlist()
+            }
+        }
 
         PapugaEventLog.shared.track(AnalyticsEvent(
             kind: AnalyticsKind.autoFixApplied,

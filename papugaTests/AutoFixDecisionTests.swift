@@ -56,6 +56,20 @@ final class AutoFixDecisionTests: XCTestCase {
         XCTAssertFalse(AutoFixDecision.isWordBoundary(keyCode: 0x0E, typedString: "ы"))
     }
 
+    func test_isInAllowlist_case_insensitive() {
+        let allowlist = ["Foo", "лето", "MyVar"]
+        XCTAssertTrue(AutoFixDecision.isInAllowlist("foo", allowlist: allowlist))
+        XCTAssertTrue(AutoFixDecision.isInAllowlist("FOO", allowlist: allowlist))
+        XCTAssertTrue(AutoFixDecision.isInAllowlist("Лето", allowlist: allowlist))
+        XCTAssertTrue(AutoFixDecision.isInAllowlist("myvar", allowlist: allowlist))
+        XCTAssertFalse(AutoFixDecision.isInAllowlist("bar", allowlist: allowlist))
+        XCTAssertFalse(AutoFixDecision.isInAllowlist("foo ", allowlist: allowlist))
+    }
+
+    func test_isInAllowlist_empty_list() {
+        XCTAssertFalse(AutoFixDecision.isInAllowlist("anything", allowlist: []))
+    }
+
     func test_languageHint_recognises_known_layouts() {
         XCTAssertEqual(AutoFixDecision.languageHintForLayoutID("com.apple.keylayout.Ukrainian-PC"), "uk")
         XCTAssertEqual(AutoFixDecision.languageHintForLayoutID("com.apple.keylayout.Russian"), "ru")

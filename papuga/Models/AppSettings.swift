@@ -118,6 +118,8 @@ extension Defaults.Keys {
     static let autoFixThreshold = Key<Double>("autoFixThreshold", default: 0.3)
     static let autoFixUndoWindow = Key<Double>("autoFixUndoWindow", default: 1.5)
     static let autoFixBlocklist = Key<[String]>("autoFixBlocklist", default: [])
+    static let autoFixAllowlist = Key<[String]>("autoFixAllowlist", default: [])
+    static let autoFixToastEnabled = Key<Bool>("autoFixToastEnabled", default: true)
 }
 
 extension KeyboardShortcuts.Name {

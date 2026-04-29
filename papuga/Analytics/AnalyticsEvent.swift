@@ -89,6 +89,7 @@ enum AutoFixSkipReason: String {
     case tooShort = "too_short"
     case containsDigits = "contains_digits"
     case blocklist = "blocklist"
+    case allowlist = "allowlist"
     case recentlyRejected = "recently_rejected"
     case noTargetLayout = "no_target_layout"
     case missingMaps = "missing_maps"
