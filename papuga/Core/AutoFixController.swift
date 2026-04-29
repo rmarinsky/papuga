@@ -101,6 +101,12 @@ final class AutoFixController {
     private func processEvent(type: CGEventType, keyCode: UInt16, flags: CGEventFlags, typedString: String, timestamp: TimeInterval) {
         switch type {
         case .leftMouseDown, .rightMouseDown:
+            // If the click is on our undo toast, let SwiftUI's Button handle it.
+            // Resetting lastFix here would null out the pending undo before the
+            // Button action can fire, defeating the toast.
+            if FixToastCoordinator.shared.isMouseOverToast() {
+                return
+            }
             buffer.reset()
             lastFix = nil
             return

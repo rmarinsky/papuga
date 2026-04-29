@@ -14,35 +14,59 @@ struct FixToastView: View {
     var body: some View {
         Button(action: onClick) {
             ZStack {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(.regularMaterial)
-                    .shadow(color: .black.opacity(0.25), radius: 8, x: 0, y: 3)
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .strokeBorder(
+                                LinearGradient(
+                                    colors: [
+                                        .white.opacity(0.55),
+                                        .white.opacity(0.08),
+                                        .white.opacity(0.35)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 0.8
+                            )
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        .white.opacity(0.18),
+                                        .clear,
+                                        .white.opacity(0.05)
+                                    ],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+                    )
+                    .shadow(color: .black.opacity(0.18), radius: 10, x: 0, y: 4)
+                    .shadow(color: .white.opacity(0.15), radius: 1, x: 0, y: 0.5)
+
                 Text("🦜")
-                    .font(.system(size: 38))
+                    .font(.system(size: 26))
                     .rotation3DEffect(.degrees(spin), axis: (x: 1, y: 0, z: 0))
-                    .scaleEffect(hover ? 1.15 : 1.0)
+                    .scaleEffect(hover ? 1.18 : 1.0)
                     .animation(.spring(response: 0.25, dampingFraction: 0.5), value: hover)
             }
-            .frame(width: 70, height: 70)
+            .frame(width: 50, height: 50)
             .scaleEffect(scale)
             .opacity(opacity)
-            .overlay(alignment: .bottom) {
-                Text("undo")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .padding(.bottom, 4)
-                    .opacity(hover ? 1 : 0.5)
-            }
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
         .onAppear {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.55)) {
+            withAnimation(.spring(response: 0.55, dampingFraction: 0.65)) {
                 scale = 1.0
                 opacity = 1.0
             }
-            // Two full somersaults over 0.8s
-            withAnimation(.easeInOut(duration: 0.8)) {
+            // Two slower somersaults over 1.6s.
+            withAnimation(.easeInOut(duration: 1.6)) {
                 spin = 720
             }
         }
