@@ -19,6 +19,7 @@ enum AnalyticsCounters {
         Defaults[.textReplacementCount] += 1
         Defaults[.totalReplacedWords] += wordsInText
         Defaults[.savedSecondsToday] += savedSeconds
+        PapugaStatsAggregator.bumpToday(words: wordsInText, seconds: savedSeconds, sign: 1)
     }
 
     /// Reverses a previous `recordReplacement` call when the user undoes an auto-fix
@@ -29,5 +30,6 @@ enum AnalyticsCounters {
         Defaults[.textReplacementCount] = max(0, Defaults[.textReplacementCount] - 1)
         Defaults[.totalReplacedWords] = max(0, Defaults[.totalReplacedWords] - wordsInText)
         Defaults[.savedSecondsToday] = max(0, Defaults[.savedSecondsToday] - savedSeconds)
+        PapugaStatsAggregator.bumpToday(words: wordsInText, seconds: savedSeconds, sign: -1)
     }
 }

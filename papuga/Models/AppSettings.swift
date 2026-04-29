@@ -100,6 +100,7 @@ extension Defaults.Keys {
     static let totalReplacedWords = Key<Int>("totalReplacedWords", default: 0)
     static let analyticsDayStamp = Key<String>("analyticsDayStamp", default: "")
     static let savedSecondsToday = Key<Int>("savedSecondsToday", default: 0)
+    static let dailyStatsHistory = Key<[PapugaDailyStats]>("dailyStatsHistory", default: [])
     static let clipboardHistoryRetention = Key<String>(
         "clipboardHistoryRetention",
         default: ClipboardHistoryRetentionPreset.oneDay.rawValue
