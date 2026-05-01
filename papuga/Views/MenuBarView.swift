@@ -9,6 +9,11 @@ struct MenuBarView: View {
     @Default(.autoFixEnabled) private var autoFixEnabled
     @Environment(ClipboardHistoryManager.self) private var clipboardHistoryManager
     @Environment(\.openSettings) private var openSettings
+    @ObservedObject private var updaterManager: UpdaterManager
+
+    init() {
+        self.updaterManager = AppDelegate.shared?.updaterManager ?? UpdaterManager()
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -36,6 +41,11 @@ struct MenuBarView: View {
             }
 
             Divider()
+
+            Button("Перевірити оновлення...") {
+                updaterManager.checkForUpdates()
+            }
+            .disabled(!updaterManager.canCheckForUpdates)
 
             Button("Налаштування...") {
                 openSettings()

@@ -15,6 +15,11 @@
 #   5. Notarization credentials stored:
 #      xcrun notarytool store-credentials "papuga" \
 #        --apple-id <email> --password <app-password> --team-id 8JL9TM5WLG
+#
+# Optional Sparkle appcast update:
+#   SPARKLE_EDDSA_PRIVATE_KEY=<exported-private-key> \
+#   SPARKLE_DOWNLOAD_URL=https://github.com/rmarinsky/papuga/releases/download/v1.3.0/Papuga-1.3.0.dmg \
+#   ./release.sh
 
 set -euo pipefail
 
@@ -32,6 +37,11 @@ BUILD_DIR="${PROJECT_DIR}/build"
 ARCHIVE_PATH="${BUILD_DIR}/${APP_NAME}.xcarchive"
 EXPORT_PATH="${BUILD_DIR}/export"
 APP_PATH="${EXPORT_PATH}/${APP_NAME}.app"
+BUILD_NUMBER="${BUILD_NUMBER:-$(git -C "${PROJECT_DIR}" rev-list --count HEAD)}"
+MARKETING_VERSION_OVERRIDE=()
+if [ -n "${RELEASE_VERSION:-}" ]; then
+    MARKETING_VERSION_OVERRIDE=(MARKETING_VERSION="${RELEASE_VERSION}")
+fi
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -55,6 +65,10 @@ echo "╚═══════════════════════�
 echo -e "${NC}"
 echo -e "  ${BLUE}Scheme:${NC}  ${SCHEME}"
 echo -e "  ${BLUE}Project:${NC} ${PROJECT_FILE}"
+echo -e "  ${BLUE}Build:${NC}   ${BUILD_NUMBER}"
+if [ -n "${RELEASE_VERSION:-}" ]; then
+    echo -e "  ${BLUE}Version:${NC} ${RELEASE_VERSION}"
+fi
 echo ""
 
 # ── Step 1: Clean ────────────────────────────────────────────────────
@@ -93,7 +107,9 @@ xcodebuild archive \
     ONLY_ACTIVE_ARCH=NO \
     CODE_SIGN_STYLE=Manual \
     CODE_SIGN_IDENTITY="Developer ID Application" \
-    DEVELOPMENT_TEAM="${TEAM_ID}"
+    DEVELOPMENT_TEAM="${TEAM_ID}" \
+    CURRENT_PROJECT_VERSION="${BUILD_NUMBER}" \
+    "${MARKETING_VERSION_OVERRIDE[@]}"
 
 if [ ! -d "${ARCHIVE_PATH}" ]; then
     echo -e "${RED}Error: Archive failed${NC}"
@@ -166,6 +182,61 @@ create-dmg \
 shasum -a 256 "${DMG_PATH}" | awk '{print $1}' > "${DMG_PATH%.dmg}.sha256"
 
 echo -e "${GREEN}  DMG created${NC}"
+
+# ── Optional Sparkle appcast update ─────────────────────────────────
+if [ -n "${SPARKLE_EDDSA_PRIVATE_KEY:-}" ] || [ -n "${SPARKLE_DOWNLOAD_URL:-}" ]; then
+    echo -e "${YELLOW}[8/8] Updating Sparkle appcast...${NC}"
+
+    if [ -z "${SPARKLE_EDDSA_PRIVATE_KEY:-}" ]; then
+        echo -e "${RED}Error: SPARKLE_EDDSA_PRIVATE_KEY is required to update the appcast${NC}"
+        exit 1
+    fi
+    if [ -z "${SPARKLE_DOWNLOAD_URL:-}" ]; then
+        echo -e "${RED}Error: SPARKLE_DOWNLOAD_URL is required to update the appcast${NC}"
+        exit 1
+    fi
+
+    KEY_LENGTH=$(printf '%s' "${SPARKLE_EDDSA_PRIVATE_KEY}" | tr -d '\r\n' | wc -c | tr -d ' ')
+    if [ "${KEY_LENGTH}" -lt 80 ]; then
+        echo -e "${RED}Error: SPARKLE_EDDSA_PRIVATE_KEY looks invalid (${KEY_LENGTH} characters)${NC}"
+        exit 1
+    fi
+
+    if [ -n "${SPARKLE_SIGN_UPDATE:-}" ]; then
+        SIGN_UPDATE_TOOL="${SPARKLE_SIGN_UPDATE}"
+    else
+        SIGN_UPDATE_TOOL=$(find "${HOME}/Library/Developer/Xcode/DerivedData" \
+            -path "*/SourcePackages/artifacts/sparkle/Sparkle/bin/sign_update" \
+            -print -quit 2>/dev/null || true)
+    fi
+    if [ -z "${SIGN_UPDATE_TOOL}" ] || [ ! -x "${SIGN_UPDATE_TOOL}" ]; then
+        echo -e "${RED}Error: Sparkle sign_update tool not found. Set SPARKLE_SIGN_UPDATE explicitly.${NC}"
+        exit 1
+    fi
+
+    SIGN_OUTPUT=$(printf '%s\n' "${SPARKLE_EDDSA_PRIVATE_KEY}" | "${SIGN_UPDATE_TOOL}" "${DMG_PATH}" --ed-key-file -)
+    ED_SIGNATURE=$(echo "${SIGN_OUTPUT}" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')
+    ED_LENGTH=$(echo "${SIGN_OUTPUT}" | sed -n 's/.*length="\([^"]*\)".*/\1/p')
+    if [ -z "${ED_SIGNATURE}" ]; then
+        echo -e "${RED}Error: Could not parse Sparkle signature output${NC}"
+        echo "${SIGN_OUTPUT}"
+        exit 1
+    fi
+
+    DMG_SIZE=$(stat -f%z "${DMG_PATH}")
+    python3 "${PROJECT_DIR}/scripts/update_appcast.py" \
+        --appcast "${PROJECT_DIR}/docs/appcast.xml" \
+        --version "${BUILD_NUM}" \
+        --short-version "${VERSION}" \
+        --download-url "${SPARKLE_DOWNLOAD_URL}" \
+        --ed-signature "${ED_SIGNATURE}" \
+        --length "${ED_LENGTH:-$DMG_SIZE}" \
+        --minimum-system-version "14.0.0"
+
+    echo -e "${GREEN}  Appcast updated: ${PROJECT_DIR}/docs/appcast.xml${NC}"
+else
+    echo -e "${YELLOW}[8/8] Skipping Sparkle appcast update (SPARKLE_EDDSA_PRIVATE_KEY/SPARKLE_DOWNLOAD_URL not set)${NC}"
+fi
 
 # ── Summary ──────────────────────────────────────────────────────────
 echo ""

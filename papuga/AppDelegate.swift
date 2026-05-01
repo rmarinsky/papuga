@@ -51,6 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppLogger.pre(logger, "applicationDidFinishLaunching")
         _ = updaterManager
         PapugaEventLog.shared.pruneOldEntries()
+        PapugaStatsAggregator.migrateLegacyCountersIfNeeded()
         setupHotkeyListener()
         setupKeyboardShortcuts()
         AppLogger.action(logger, "Hotkey listener and keyboard shortcuts setup complete")
