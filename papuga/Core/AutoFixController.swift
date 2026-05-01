@@ -256,7 +256,7 @@ final class AutoFixController {
             return
         }
 
-        let algorithm = LanguageScorerAlgorithm(rawValue: Defaults[.autoFixAlgorithm]) ?? .appleNL
+        let algorithm = (LanguageScorerAlgorithm(rawValue: Defaults[.autoFixAlgorithm]) ?? .appleNL).resolvedImplementation
         let scorer = LanguageScorerFactory.make(algorithm)
         let scoreOriginal = scorer.score(word, expecting: currentLang)
         let scoreCandidate = scorer.score(candidate, expecting: targetLang)

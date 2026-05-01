@@ -28,19 +28,25 @@ final class UpdaterManager: NSObject, ObservableObject {
 // MARK: - SPUStandardUserDriverDelegate
 
 extension UpdaterManager: SPUStandardUserDriverDelegate {
-    var supportsGentleScheduledUpdateReminders: Bool { true }
+    nonisolated var supportsGentleScheduledUpdateReminders: Bool { true }
 
-    func standardUserDriverWillShowModalAlert() {
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
+    nonisolated func standardUserDriverWillShowModalAlert() {
+        Task { @MainActor in
+            NSApp.setActivationPolicy(.regular)
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 
-    func standardUserDriverDidReceiveUserAttention(forUpdate _: SUAppcastItem) {
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
+    nonisolated func standardUserDriverDidReceiveUserAttention(forUpdate _: SUAppcastItem) {
+        Task { @MainActor in
+            NSApp.setActivationPolicy(.regular)
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 
-    func standardUserDriverWillFinishUpdateSession() {
-        NSApp.setActivationPolicy(.accessory)
+    nonisolated func standardUserDriverWillFinishUpdateSession() {
+        Task { @MainActor in
+            NSApp.setActivationPolicy(.accessory)
+        }
     }
 }

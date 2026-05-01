@@ -53,6 +53,14 @@ xcodebuild -project papuga.xcodeproj -scheme papuga -configuration Debug build
 ./scripts/dev-install.sh
 ```
 
+## Релізи та автооновлення
+Автооновлення працює через Sparkle і читає appcast з `https://rmarinsky.github.io/papuga/appcast.xml`.
+GitHub Actions workflow `Release` запускається після тегу виду `v1.3.0`, створює signed/notarized DMG, GitHub release, `Papuga-latest.dmg` і оновлює `docs/appcast.xml`.
+Для цього потрібен валідний secret `SPARKLE_EDDSA_PRIVATE_KEY`: саме приватний EdDSA ключ Sparkle, не `SUPublicEDKey` з `Info.plist`.
+Після merge в `main` workflow `auto-tag` створить тег з `MARKETING_VERSION`, якщо такого тегу ще нема.
+
+Локальний `./release.sh` теж виставляє incrementing `CFBundleVersion` через `git rev-list --count HEAD`. Якщо треба локально оновити appcast, передай `SPARKLE_EDDSA_PRIVATE_KEY` і `SPARKLE_DOWNLOAD_URL`.
+
 ## Технічний стек
 - Swift + SwiftUI
 - Defaults

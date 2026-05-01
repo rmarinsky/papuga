@@ -5,6 +5,10 @@ enum LanguageScorerAlgorithm: String, CaseIterable {
     case ngram
     case cld3
 
+    static var implementedCases: [LanguageScorerAlgorithm] {
+        allCases.filter(\.isImplemented)
+    }
+
     var title: String {
         switch self {
         case .appleNL: return "Apple NLLanguageRecognizer"
@@ -31,6 +35,10 @@ enum LanguageScorerAlgorithm: String, CaseIterable {
         case .cld3: return false
         }
     }
+
+    var resolvedImplementation: LanguageScorerAlgorithm {
+        isImplemented ? self : .appleNL
+    }
 }
 
 protocol LanguageScorer {
@@ -39,7 +47,7 @@ protocol LanguageScorer {
 
 enum LanguageScorerFactory {
     static func make(_ algorithm: LanguageScorerAlgorithm) -> LanguageScorer {
-        switch algorithm {
+        switch algorithm.resolvedImplementation {
         case .appleNL: return AppleNLScorer()
         case .ngram: return NGramScorer()
         case .cld3: return CLD3Scorer()

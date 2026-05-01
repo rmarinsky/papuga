@@ -19,7 +19,7 @@ struct AutoFixTab: View {
                 Toggle("Увімкнути автозаміну", isOn: $autoFixEnabled)
 
                 Picker("Алгоритм визначення мови", selection: $autoFixAlgorithm) {
-                    ForEach(LanguageScorerAlgorithm.allCases, id: \.rawValue) { algorithm in
+                    ForEach(LanguageScorerAlgorithm.implementedCases, id: \.rawValue) { algorithm in
                         Text(algorithm.title).tag(algorithm.rawValue)
                     }
                 }
@@ -29,11 +29,6 @@ struct AutoFixTab: View {
                     Text(selected.description)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    if !selected.isImplemented {
-                        Text("Поки використовує Apple NL замість цієї опції.")
-                            .font(.caption2)
-                            .foregroundStyle(.orange)
-                    }
                 }
 
                 VStack(alignment: .leading) {
@@ -123,6 +118,13 @@ struct AutoFixTab: View {
                 blocklist: $autoFixBlocklist,
                 isPresented: $showingAddSheet
             )
+        }
+        .onAppear {
+            if let selected = LanguageScorerAlgorithm(rawValue: autoFixAlgorithm),
+               selected.isImplemented {
+                return
+            }
+            autoFixAlgorithm = LanguageScorerAlgorithm.appleNL.rawValue
         }
     }
 

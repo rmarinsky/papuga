@@ -115,7 +115,7 @@ extension Defaults.Keys {
         default: ClipboardHistoryMenuItemLimitPreset.all.rawValue
     )
 
-    static let autoFixEnabled = Key<Bool>("autoFixEnabled", default: false)
+    static let autoFixEnabled = Key<Bool>("autoFixEnabled", default: true)
     static let autoFixAlgorithm = Key<String>("autoFixAlgorithm", default: LanguageScorerAlgorithm.appleNL.rawValue)
     static let autoFixThreshold = Key<Double>("autoFixThreshold", default: 0.3)
     static let autoFixUndoWindow = Key<Double>("autoFixUndoWindow", default: 1.5)
