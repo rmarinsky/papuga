@@ -79,6 +79,9 @@ jobs:
           fi
 
           SPARKLE_KEY_LENGTH=$(printf '%s' "$SPARKLE_EDDSA_PRIVATE_KEY" | tr -d '\r\n' | wc -c | tr -d ' ')
+          SPARKLE_KEY_SHA256=$(printf '%s' "$SPARKLE_EDDSA_PRIVATE_KEY" | shasum -a 256 | awk '{print $1}')
+          echo "SPARKLE_EDDSA_PRIVATE_KEY length: $SPARKLE_KEY_LENGTH"
+          echo "SPARKLE_EDDSA_PRIVATE_KEY sha256: $SPARKLE_KEY_SHA256"
           if [ "$SPARKLE_KEY_LENGTH" -lt 80 ]; then
             echo "::error::SPARKLE_EDDSA_PRIVATE_KEY looks invalid. Expected the exported Sparkle EdDSA private key, got ${SPARKLE_KEY_LENGTH} characters."
             exit 1
