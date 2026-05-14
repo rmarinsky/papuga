@@ -31,6 +31,30 @@ open papuga.xcodeproj          # Run "papuga" scheme
 xcodebuild -project papuga.xcodeproj -scheme papuga -configuration Debug build
 ```
 
+## Release process
+
+**NEVER push directly to `main`** — not commits, not tags. Everything goes through a PR.
+**NEVER create or push `v*` tags by hand** — CI does that.
+**NEVER hand-edit** `MARKETING_VERSION` in the Xcode project or the Sparkle `appcast.xml`.
+
+To ship a release:
+
+1. Open a PR into `main`.
+2. Add exactly one label: `release:patch` (bug fix / internal), `release:minor`
+   (new user-facing capability), `release:major` (breaking change), or
+   `release:skip` (no release for this PR).
+3. Merge the PR.
+
+CI does the rest: `prepare-release.yml` computes the next version from the
+latest tag, pushes tag `vX.Y.Z`, and dispatches `release.yml`, which builds,
+notarizes, signs, creates the GitHub Release, and updates the Sparkle
+`appcast.xml` on the **`gh-pages`** branch. The app version comes **from the
+git tag** — `MARKETING_VERSION` in the project is only a placeholder.
+
+Workflows: `.github/workflows/release-label-check.yml` (PR gate),
+`prepare-release.yml` (tag on merge), `release.yml` (build + publish).
+Version math: `scripts/next-version.sh`.
+
 ## Architecture
 
 ### Text Switching Flow (End-to-End)

@@ -4,9 +4,15 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  # Prevent duplicate/overlapping release runs for the same ref.
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   APP_NAME: papuga
@@ -253,13 +259,14 @@ jobs:
               --latest
           fi
 
-      - name: Update appcast.xml
+      - name: Publish appcast to gh-pages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           DMG_PATH="build/${DISPLAY_NAME}-${VERSION}.dmg"
           DMG_SIZE=$(stat -f%z "$DMG_PATH")
-          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${GITHUB_REF_NAME}/${DISPLAY_NAME}-${VERSION}.dmg"
+          DOWNLOAD_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${DISPLAY_NAME}-${VERSION}.dmg"
 
-          # Parse edSignature and length from sign_update output
           ED_SIGNATURE=$(echo "$SPARKLE_SIGN_OUTPUT" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')
           ED_LENGTH=$(echo "$SPARKLE_SIGN_OUTPUT" | sed -n 's/.*length="\([^"]*\)".*/\1/p')
 
@@ -269,8 +276,15 @@ jobs:
             exit 1
           fi
 
+          # The Sparkle feed lives on the dedicated, unprotected gh-pages
+          # branch — never on main. A worktree isolates it from the tag checkout.
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin gh-pages:gh-pages
+          git worktree add /tmp/ghpages gh-pages
+
           python3 scripts/update_appcast.py \
-            --appcast docs/appcast.xml \
+            --appcast /tmp/ghpages/appcast.xml \
             --version "$BUILD_NUMBER" \
             --short-version "$VERSION" \
             --download-url "$DOWNLOAD_URL" \
@@ -278,21 +292,14 @@ jobs:
             --length "${ED_LENGTH:-$DMG_SIZE}" \
             --minimum-system-version "14.0.0"
 
-          echo "Updated appcast.xml with version ${VERSION}"
-          cat docs/appcast.xml
-
-      - name: Commit and push appcast.xml
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          cp docs/appcast.xml /tmp/appcast.xml
-          git fetch origin main
-          git checkout -B main origin/main
-          cp /tmp/appcast.xml docs/appcast.xml
-          git add docs/appcast.xml
-          if ! git diff --quiet --cached -- docs/appcast.xml; then
-            git commit -m "Update appcast.xml for ${GITHUB_REF_NAME}"
-            git push origin main
+          cd /tmp/ghpages
+          if git diff --quiet -- appcast.xml; then
+            echo "appcast.xml unchanged — nothing to publish"
+          else
+            git add appcast.xml
+            git commit -m "Update appcast for ${GITHUB_REF_NAME}"
+            git push origin gh-pages
+            echo "Published ${GITHUB_REF_NAME} to the Sparkle feed (gh-pages)"
           fi
 
       - name: Cleanup signing artifacts
