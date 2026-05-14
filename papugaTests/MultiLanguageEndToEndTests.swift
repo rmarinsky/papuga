@@ -31,7 +31,7 @@ final class MultiLanguageEndToEndTests: XCTestCase {
         return s
     }
 
-    private func runEndToEnd(_ tc: AutoFixCase, algorithm: LanguageScorerAlgorithm, threshold: Double = 0.3) throws {
+    private func runEndToEnd(_ tc: AutoFixCase, threshold: Double = 0.3) throws {
         let fromSrc = try source(forID: tc.fromLayoutID)
         let toSrc = try source(forID: tc.toLayoutID)
         mapper.buildMap(for: fromSrc, sourceID: tc.fromLayoutID)
@@ -44,7 +44,7 @@ final class MultiLanguageEndToEndTests: XCTestCase {
             "[\(tc.label)] mapping wrong: '\(tc.typedInWrongLayout)' → '\(candidate)' (expected '\(tc.expectedCorrected)')"
         )
 
-        let scorer = LanguageScorerFactory.make(algorithm)
+        let scorer = AppleNLScorer()
         let fromLang = AutoFixDecision.languageHintForLayoutID(tc.fromLayoutID)
         let toLang = AutoFixDecision.languageHintForLayoutID(tc.toLayoutID)
         let scoreOriginal = scorer.score(tc.typedInWrongLayout, expecting: fromLang)
@@ -59,7 +59,7 @@ final class MultiLanguageEndToEndTests: XCTestCase {
         XCTAssertEqual(
             shouldFix,
             tc.expectedFix,
-            "[\(tc.label)/\(algorithm.rawValue)] decision wrong for '\(tc.typedInWrongLayout)' → '\(candidate)' (scores: orig=\(scoreOriginal) cand=\(scoreCandidate))"
+            "[\(tc.label)] decision wrong for '\(tc.typedInWrongLayout)' → '\(candidate)' (scores: orig=\(scoreOriginal) cand=\(scoreCandidate))"
         )
     }
 
@@ -83,16 +83,8 @@ final class MultiLanguageEndToEndTests: XCTestCase {
                     expectedFix: true)
     ]
 
-    func test_russian_positive_with_appleNL() throws {
-        for tc in Self.russianPositiveCases { try runEndToEnd(tc, algorithm: .appleNL) }
-    }
-
-    func test_russian_positive_with_ngram() throws {
-        for tc in Self.russianPositiveCases { try runEndToEnd(tc, algorithm: .ngram) }
-    }
-
-    func test_russian_positive_with_cld3() throws {
-        for tc in Self.russianPositiveCases { try runEndToEnd(tc, algorithm: .cld3) }
+    func test_russian_positive() throws {
+        for tc in Self.russianPositiveCases { try runEndToEnd(tc) }
     }
 
     // MARK: - Ukrainian (positive: same as RU, very strong signal)
@@ -123,16 +115,8 @@ final class MultiLanguageEndToEndTests: XCTestCase {
                     expectedFix: true)
     ]
 
-    func test_ukrainian_positive_with_appleNL() throws {
-        for tc in Self.ukrainianPositiveCases { try runEndToEnd(tc, algorithm: .appleNL) }
-    }
-
-    func test_ukrainian_positive_with_ngram() throws {
-        for tc in Self.ukrainianPositiveCases { try runEndToEnd(tc, algorithm: .ngram) }
-    }
-
-    func test_ukrainian_positive_with_cld3() throws {
-        for tc in Self.ukrainianPositiveCases { try runEndToEnd(tc, algorithm: .cld3) }
+    func test_ukrainian_positive() throws {
+        for tc in Self.ukrainianPositiveCases { try runEndToEnd(tc) }
     }
 
     // MARK: - Negative: native English phrases must NOT be auto-fixed
@@ -155,7 +139,7 @@ final class MultiLanguageEndToEndTests: XCTestCase {
     /// EN.thank_you_UA case isn't asserted exactly because the only thing that matters
     /// is the decision: don't fix. We override the runner to skip the mapping equality
     /// check by passing the actual mapping back through.
-    private func runNoFixDecisionOnly(_ tc: AutoFixCase, algorithm: LanguageScorerAlgorithm) throws {
+    private func runNoFixDecisionOnly(_ tc: AutoFixCase) throws {
         let fromSrc = try source(forID: tc.fromLayoutID)
         let toSrc = try source(forID: tc.toLayoutID)
         mapper.buildMap(for: fromSrc, sourceID: tc.fromLayoutID)
@@ -163,7 +147,7 @@ final class MultiLanguageEndToEndTests: XCTestCase {
 
         let candidate = mapper.convert(text: tc.typedInWrongLayout, fromSourceID: tc.fromLayoutID, toSourceID: tc.toLayoutID)
 
-        let scorer = LanguageScorerFactory.make(algorithm)
+        let scorer = AppleNLScorer()
         let fromLang = AutoFixDecision.languageHintForLayoutID(tc.fromLayoutID)
         let toLang = AutoFixDecision.languageHintForLayoutID(tc.toLayoutID)
         let scoreOriginal = scorer.score(tc.typedInWrongLayout, expecting: fromLang)
@@ -176,19 +160,11 @@ final class MultiLanguageEndToEndTests: XCTestCase {
         )
         XCTAssertFalse(
             shouldFix,
-            "[\(tc.label)/\(algorithm.rawValue)] should NOT auto-fix '\(tc.typedInWrongLayout)' → '\(candidate)' (orig=\(scoreOriginal) cand=\(scoreCandidate))"
+            "[\(tc.label)] should NOT auto-fix '\(tc.typedInWrongLayout)' → '\(candidate)' (orig=\(scoreOriginal) cand=\(scoreCandidate))"
         )
     }
 
-    func test_english_phrases_not_autofixed_with_appleNL() throws {
-        for tc in Self.englishNegativeCases { try runNoFixDecisionOnly(tc, algorithm: .appleNL) }
-    }
-
-    func test_english_phrases_not_autofixed_with_ngram() throws {
-        for tc in Self.englishNegativeCases { try runNoFixDecisionOnly(tc, algorithm: .ngram) }
-    }
-
-    func test_english_phrases_not_autofixed_with_cld3() throws {
-        for tc in Self.englishNegativeCases { try runNoFixDecisionOnly(tc, algorithm: .cld3) }
+    func test_english_phrases_not_autofixed() throws {
+        for tc in Self.englishNegativeCases { try runNoFixDecisionOnly(tc) }
     }
 }

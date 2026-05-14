@@ -95,4 +95,5 @@ enum AutoFixSkipReason: String {
     case missingMaps = "missing_maps"
     case identicalCandidate = "identical_candidate"
     case originalIsRealWord = "original_is_real_word"
+    case candidateNotRealWord = "candidate_not_real_word"
 }

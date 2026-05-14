@@ -23,24 +23,6 @@ final class LanguageScorerTests: XCTestCase {
         XCTAssertGreaterThan(scoreRU, scoreEN)
     }
 
-    func test_all_algorithms_pick_uk_for_uk_word() {
-        for algo in LanguageScorerAlgorithm.allCases {
-            let scorer = LanguageScorerFactory.make(algo)
-            let scoreUK = scorer.score("Україна та Київ", expecting: "uk")
-            let scoreEN = scorer.score("Україна та Київ", expecting: "en")
-            XCTAssertGreaterThan(scoreUK, scoreEN, "Algorithm \(algo.rawValue) failed to favour Ukrainian")
-        }
-    }
-
-    func test_all_algorithms_pick_en_for_real_en_word() {
-        for algo in LanguageScorerAlgorithm.allCases {
-            let scorer = LanguageScorerFactory.make(algo)
-            let scoreEN = scorer.score("hello", expecting: "en")
-            let scoreUK = scorer.score("hello", expecting: "uk")
-            XCTAssertGreaterThanOrEqual(scoreEN, scoreUK, "Algorithm \(algo.rawValue) should not favour Ukrainian for 'hello'")
-        }
-    }
-
     func test_empty_text_returns_zero() {
         let scorer = AppleNLScorer()
         XCTAssertEqual(scorer.score("", expecting: "en"), 0)

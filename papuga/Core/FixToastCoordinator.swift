@@ -13,20 +13,25 @@ final class FixToastCoordinator {
 
     private init() {}
 
-    func show(near point: NSPoint, duration: TimeInterval = 2.5, onClick: @escaping () -> Void) {
+    func show(
+        near point: NSPoint,
+        duration: TimeInterval = 2.5,
+        replacement: String? = nil,
+        onClick: @escaping () -> Void
+    ) {
         dismissTask?.cancel()
 
         let panel = panel ?? makePanel()
         self.panel = panel
 
-        let view = FixToastView { [weak self] in
+        let view = FixToastView(replacement: replacement) { [weak self] in
             self?.dismiss()
             onClick()
         }
         panel.contentView = NSHostingView(rootView: view)
 
-        let size = NSSize(width: 50, height: 50)
-        let origin = NSPoint(x: point.x + 14, y: point.y - size.height - 6)
+        let size = FixToastView.size
+        let origin = NSPoint(x: point.x, y: point.y)
         panel.setFrame(NSRect(origin: origin, size: size), display: true)
         panel.orderFrontRegardless()
 
@@ -58,7 +63,7 @@ final class FixToastCoordinator {
 
     private func makePanel() -> ToastPanel {
         let panel = ToastPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 50, height: 50),
+            contentRect: NSRect(origin: .zero, size: FixToastView.size),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false

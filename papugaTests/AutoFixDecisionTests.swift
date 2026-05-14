@@ -3,9 +3,16 @@ import XCTest
 
 final class AutoFixDecisionTests: XCTestCase {
     func test_shouldSkip_short_word() {
+        // Single-char tokens are always skipped (no possible fix signal). Two-char
+        // tokens are now eligible — they're handled via the dictionary path in the
+        // controller rather than statistical scoring.
         XCTAssertEqual(AutoFixDecision.shouldSkipWord("a"), .tooShort)
-        XCTAssertEqual(AutoFixDecision.shouldSkipWord("ab"), .tooShort)
+        XCTAssertNil(AutoFixDecision.shouldSkipWord("ab"))
         XCTAssertNil(AutoFixDecision.shouldSkipWord("abc"))
+    }
+
+    func test_shortTokenMaxLength_covers_two_and_three_char_tokens() {
+        XCTAssertEqual(AutoFixDecision.shortTokenMaxLength, 3)
     }
 
     func test_shouldSkip_word_with_digits() {
@@ -93,5 +100,74 @@ final class AutoFixDecisionTests: XCTestCase {
         XCTAssertEqual(AutoFixDecision.languageHintForLayoutID("com.apple.keylayout.US"), "en")
         XCTAssertEqual(AutoFixDecision.languageHintForLayoutID("com.apple.keylayout.German"), "de")
         XCTAssertEqual(AutoFixDecision.languageHintForLayoutID("com.apple.keylayout.UnknownLang"), "en")
+    }
+
+    // MARK: - Typo correction
+
+    func test_levenshtein_basic_distances() {
+        XCTAssertEqual(AutoFixDecision.levenshtein("", "", limit: 5), 0)
+        XCTAssertEqual(AutoFixDecision.levenshtein("hello", "hello", limit: 5), 0)
+        XCTAssertEqual(AutoFixDecision.levenshtein("hellp", "hello", limit: 5), 1) // substitution
+        XCTAssertEqual(AutoFixDecision.levenshtein("helo", "hello", limit: 5), 1)  // insertion
+        XCTAssertEqual(AutoFixDecision.levenshtein("helllo", "hello", limit: 5), 1) // deletion
+        XCTAssertEqual(AutoFixDecision.levenshtein("kitten", "sitting", limit: 5), 3)
+    }
+
+    func test_levenshtein_short_circuits_when_over_limit() {
+        // When the cap is exceeded, levenshtein returns limit+1 (any sentinel
+        // > limit is fine — callers compare against `<= limit`).
+        let result = AutoFixDecision.levenshtein("abcdef", "ghijkl", limit: 1)
+        XCTAssertGreaterThan(result, 1)
+    }
+
+    func test_acceptableCorrection_rejects_big_length_changes() {
+        // Suggestion that adds/removes >1 char from the candidate is rejected
+        // wholesale — too easy to invent a different word.
+        XCTAssertFalse(AutoFixDecision.acceptableCorrection(of: "hellp", to: "helping"))
+        XCTAssertFalse(AutoFixDecision.acceptableCorrection(of: "hellp", to: "he"))
+    }
+
+    func test_acceptableCorrection_distance_caps_by_length() {
+        // ≤5 chars: max 1 edit.
+        XCTAssertTrue(AutoFixDecision.acceptableCorrection(of: "hellp", to: "hello"))
+        XCTAssertFalse(AutoFixDecision.acceptableCorrection(of: "abcd", to: "wxyz"))
+        // ≥6 chars: max 2 edits.
+        XCTAssertTrue(AutoFixDecision.acceptableCorrection(of: "helllo!", to: "hello!!"))
+        XCTAssertFalse(AutoFixDecision.acceptableCorrection(of: "abcdefg", to: "wxyzefg"))
+    }
+
+    func test_correctTypo_fixes_known_misspelling_in_english() {
+        let result = AutoFixDecision.correctTypo(in: "hellp", language: "en")
+        XCTAssertNotNil(result, "NSSpellChecker should suggest a correction for 'hellp'")
+        if let result {
+            XCTAssertTrue(
+                AutoFixDecision.acceptableCorrection(of: "hellp", to: result),
+                "Top suggestion should be near-miss to 'hellp', got '\(result)'"
+            )
+        }
+    }
+
+    func test_correctTypo_returns_nil_for_already_correct_word() {
+        // NSSpellChecker.guesses on a correctly spelled word may return the
+        // word itself or no useful alternatives — in either case the helper
+        // must NOT propose a "correction" that's the same word.
+        let result = AutoFixDecision.correctTypo(in: "hello", language: "en")
+        if let result {
+            XCTAssertNotEqual(result.lowercased(), "hello",
+                              "Helper must skip suggestions equal to the input")
+        }
+    }
+
+    func test_correctTypo_returns_nil_or_unacceptable_for_pure_gibberish() {
+        // Random consonant cluster — either no guesses or no near-miss
+        // acceptable correction. Either path is fine; what we don't want is
+        // an acceptable correction popping out of nowhere.
+        let result = AutoFixDecision.correctTypo(in: "qzxqzx", language: "en")
+        if let result {
+            XCTAssertFalse(
+                AutoFixDecision.acceptableCorrection(of: "qzxqzx", to: result),
+                "Gibberish should not yield an acceptable near-miss correction"
+            )
+        }
     }
 }

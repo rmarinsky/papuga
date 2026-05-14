@@ -3,12 +3,12 @@ import Defaults
 
 struct AutoFixTab: View {
     @Default(.autoFixEnabled) private var autoFixEnabled
-    @Default(.autoFixAlgorithm) private var autoFixAlgorithm
     @Default(.autoFixThreshold) private var autoFixThreshold
     @Default(.autoFixUndoWindow) private var autoFixUndoWindow
     @Default(.autoFixBlocklist) private var autoFixBlocklist
     @Default(.autoFixAllowlist) private var autoFixAllowlist
     @Default(.autoFixToastEnabled) private var autoFixToastEnabled
+    @Default(.autoFixTypoCorrection) private var autoFixTypoCorrection
 
     @State private var showingAddSheet = false
     @State private var newAllowlistWord = ""
@@ -17,19 +17,6 @@ struct AutoFixTab: View {
         Form {
             Section("Автозаміна під час набору") {
                 Toggle("Увімкнути автозаміну", isOn: $autoFixEnabled)
-
-                Picker("Алгоритм визначення мови", selection: $autoFixAlgorithm) {
-                    ForEach(LanguageScorerAlgorithm.implementedCases, id: \.rawValue) { algorithm in
-                        Text(algorithm.title).tag(algorithm.rawValue)
-                    }
-                }
-                .pickerStyle(.menu)
-
-                if let selected = LanguageScorerAlgorithm(rawValue: autoFixAlgorithm) {
-                    Text(selected.description)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
 
                 VStack(alignment: .leading) {
                     HStack {
@@ -51,6 +38,11 @@ struct AutoFixTab: View {
 
                 Toggle("Показувати папугу-сальто біля курсора", isOn: $autoFixToastEnabled)
                 Text("Якщо клікнути по папузі — заміна скасується, а слово запам'ятається у списку «не чіпати»")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Toggle("Виправляти друкарські помилки після зміни розкладки", isOn: $autoFixTypoCorrection)
+                Text("Якщо після зміни розкладки слово все одно з помилкою — замінити його на найближче коректне (наприклад, «руддз» → «hello»).")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -118,13 +110,6 @@ struct AutoFixTab: View {
                 blocklist: $autoFixBlocklist,
                 isPresented: $showingAddSheet
             )
-        }
-        .onAppear {
-            if let selected = LanguageScorerAlgorithm(rawValue: autoFixAlgorithm),
-               selected.isImplemented {
-                return
-            }
-            autoFixAlgorithm = LanguageScorerAlgorithm.appleNL.rawValue
         }
     }
 

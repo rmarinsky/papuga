@@ -109,7 +109,7 @@ xcodebuild archive \
     CODE_SIGN_IDENTITY="Developer ID Application" \
     DEVELOPMENT_TEAM="${TEAM_ID}" \
     CURRENT_PROJECT_VERSION="${BUILD_NUMBER}" \
-    "${MARKETING_VERSION_OVERRIDE[@]}"
+    ${MARKETING_VERSION_OVERRIDE[@]+"${MARKETING_VERSION_OVERRIDE[@]}"}
 
 if [ ! -d "${ARCHIVE_PATH}" ]; then
     echo -e "${RED}Error: Archive failed${NC}"
@@ -129,6 +129,27 @@ if [ ! -d "${APP_PATH}" ]; then
     exit 1
 fi
 echo -e "${GREEN}  App exported${NC}"
+
+# ── Step 4.5: Strip unused localizations ────────────────────────────
+echo -e "${YELLOW}[*] Stripping unused localizations...${NC}"
+KEEP_LANGS="Base en uk"
+find "${APP_PATH}" -name "*.lproj" -type d | while read -r lproj; do
+    lang="$(basename "$lproj" .lproj)"
+    case " ${KEEP_LANGS} " in
+        *" ${lang} "*) ;;
+        *) rm -rf "$lproj" ;;
+    esac
+done
+# Removing resources from inside Sparkle.framework breaks its signature,
+# so re-sign the framework, then the outer .app (preserving entitlements).
+codesign --force --options runtime --timestamp \
+    --sign "Developer ID Application" \
+    "${APP_PATH}/Contents/Frameworks/Sparkle.framework"
+codesign --force --options runtime --timestamp \
+    --preserve-metadata=entitlements,requirements,flags \
+    --sign "Developer ID Application" \
+    "${APP_PATH}"
+echo -e "${GREEN}  Localizations stripped, app re-signed${NC}"
 
 # ── Step 5: Verify ──────────────────────────────────────────────────
 echo -e "${YELLOW}[5/7] Verifying build...${NC}"
@@ -161,6 +182,9 @@ fi
 VERSION=$(defaults read "${APP_PATH}/Contents/Info.plist" CFBundleShortVersionString)
 BUILD_NUM=$(defaults read "${APP_PATH}/Contents/Info.plist" CFBundleVersion)
 DMG_PATH="${BUILD_DIR}/${DISPLAY_NAME}-${VERSION}.dmg"
+
+# Clean export artifacts that shouldn't be in the DMG
+rm -f "${EXPORT_PATH}"/*.plist "${EXPORT_PATH}"/*.log
 
 echo -e "${YELLOW}[7/7] Creating DMG...${NC}"
 

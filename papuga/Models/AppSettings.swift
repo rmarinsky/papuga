@@ -116,12 +116,12 @@ extension Defaults.Keys {
     )
 
     static let autoFixEnabled = Key<Bool>("autoFixEnabled", default: true)
-    static let autoFixAlgorithm = Key<String>("autoFixAlgorithm", default: LanguageScorerAlgorithm.appleNL.rawValue)
     static let autoFixThreshold = Key<Double>("autoFixThreshold", default: 0.3)
     static let autoFixUndoWindow = Key<Double>("autoFixUndoWindow", default: 1.5)
     static let autoFixBlocklist = Key<[String]>("autoFixBlocklist", default: [])
     static let autoFixAllowlist = Key<[String]>("autoFixAllowlist", default: [])
     static let autoFixToastEnabled = Key<Bool>("autoFixToastEnabled", default: true)
+    static let autoFixTypoCorrection = Key<Bool>("autoFixTypoCorrection", default: true)
 }
 
 extension KeyboardShortcuts.Name {

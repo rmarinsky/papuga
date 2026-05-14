@@ -17,10 +17,10 @@ Papuga is a macOS menu bar utility that converts already-typed text between keyb
 # Open in Xcode (no XcodeGen needed — uses .xcodeproj directly)
 open papuga.xcodeproj          # Run "papuga" scheme
 
-# Dev install (reset TCC, build, install to /Applications)
+# Dev install (build, install to /Applications, open app)
 ./scripts/dev-install.sh
 ./scripts/dev-install.sh --build-only        # Build only
-./scripts/dev-install.sh --no-reset-tcc      # Skip TCC reset
+./scripts/dev-install.sh --reset-tcc         # Reset TCC permissions
 ./scripts/dev-install.sh --install-name name # Custom app name
 
 # Release

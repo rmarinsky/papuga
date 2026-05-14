@@ -256,8 +256,65 @@ final class AutoFixController {
             return
         }
 
-        let algorithm = (LanguageScorerAlgorithm(rawValue: Defaults[.autoFixAlgorithm]) ?? .appleNL).resolvedImplementation
-        let scorer = LanguageScorerFactory.make(algorithm)
+        // Short tokens (2–3 chars) bypass the statistical scorer entirely: at
+        // that length neither Apple NL nor any char-n-gram model produces a
+        // reliable signal. Dictionary membership is the only useful evidence.
+        // The original-side dict guard above already ruled out "real word in
+        // source", so we only need a positive signal on the target side.
+        if word.count <= AutoFixDecision.shortTokenMaxLength {
+            let candidateIsReal = AutoFixDecision.isCorrectlySpelled(candidate, language: targetLang)
+            AppLogger.post(logger, "Short-token eval word=\(word) -> \(candidate); candidate_in_dict=\(candidateIsReal)")
+            guard candidateIsReal else {
+                logSkip(.candidateNotRealWord, word: word, bundleID: bundleID, extra: [
+                    "from_lang": .string(currentLang),
+                    "to_lang": .string(targetLang)
+                ])
+                return
+            }
+            applyFix(
+                original: word,
+                candidate: candidate,
+                boundary: boundary,
+                fromLayoutID: currentID,
+                targetLayoutID: targetID,
+                scoreOriginal: 0,
+                scoreCandidate: 1,
+                currentLang: currentLang,
+                targetLang: targetLang,
+                bundleID: bundleID,
+                typoCorrected: false
+            )
+            return
+        }
+
+        // Typo + wrong-layout: if the layout-converted candidate is itself
+        // misspelled, ask NSSpellChecker for the closest valid word in the
+        // target language. Only accept tight near-misses (1–2 edits) so we
+        // don't invent words. When no correction is acceptable, fall through
+        // to the statistical scorer below — the existing path remains the
+        // safety net for non-typo cases.
+        if Defaults[.autoFixTypoCorrection],
+           !AutoFixDecision.isCorrectlySpelled(candidate, language: targetLang),
+           let corrected = AutoFixDecision.correctTypo(in: candidate, language: targetLang),
+           AutoFixDecision.acceptableCorrection(of: candidate, to: corrected) {
+            AppLogger.post(logger, "Typo-correction word=\(word) -> raw=\(candidate) -> corrected=\(corrected)")
+            applyFix(
+                original: word,
+                candidate: corrected,
+                boundary: boundary,
+                fromLayoutID: currentID,
+                targetLayoutID: targetID,
+                scoreOriginal: 0,
+                scoreCandidate: 1,
+                currentLang: currentLang,
+                targetLang: targetLang,
+                bundleID: bundleID,
+                typoCorrected: true
+            )
+            return
+        }
+
+        let scorer = AppleNLScorer()
         let scoreOriginal = scorer.score(word, expecting: currentLang)
         let scoreCandidate = scorer.score(candidate, expecting: targetLang)
         let threshold = Defaults[.autoFixThreshold]
@@ -268,7 +325,6 @@ final class AutoFixController {
             logSkip(.belowThreshold, word: word, bundleID: bundleID, extra: [
                 "score_original": .double(scoreOriginal),
                 "score_candidate": .double(scoreCandidate),
-                "algorithm": .string(algorithm.rawValue),
                 "from_lang": .string(currentLang),
                 "to_lang": .string(targetLang)
             ])
@@ -283,10 +339,10 @@ final class AutoFixController {
             targetLayoutID: targetID,
             scoreOriginal: scoreOriginal,
             scoreCandidate: scoreCandidate,
-            algorithm: algorithm,
             currentLang: currentLang,
             targetLang: targetLang,
-            bundleID: bundleID
+            bundleID: bundleID,
+            typoCorrected: false
         )
     }
 
@@ -298,12 +354,12 @@ final class AutoFixController {
         targetLayoutID: String,
         scoreOriginal: Double,
         scoreCandidate: Double,
-        algorithm: LanguageScorerAlgorithm,
         currentLang: String,
         targetLang: String,
-        bundleID: String
+        bundleID: String,
+        typoCorrected: Bool
     ) {
-        AppLogger.action(logger, "Auto-fix applying: \(original) -> \(candidate)")
+        AppLogger.action(logger, "Auto-fix applying: \(original) -> \(candidate)\(typoCorrected ? " (typo-corrected)" : "")")
         // Word + boundary char already typed. Delete the original word and the
         // boundary, then re-type the candidate followed by the same boundary so
         // Enter/Tab keep their semantics (newline, focus shift, indent).
@@ -326,7 +382,7 @@ final class AutoFixController {
 
         if Defaults[.autoFixToastEnabled] {
             let cursor = NSEvent.mouseLocation
-            FixToastCoordinator.shared.show(near: cursor) { [weak self] in
+            FixToastCoordinator.shared.show(near: cursor, replacement: candidate) { [weak self] in
                 self?.undoAndAddToAllowlist()
             }
         }
@@ -340,9 +396,9 @@ final class AutoFixController {
                 "replacement_length": .int(candidate.count),
                 "score_original": .double(scoreOriginal),
                 "score_candidate": .double(scoreCandidate),
-                "algorithm": .string(algorithm.rawValue),
                 "from_lang": .string(currentLang),
-                "to_lang": .string(targetLang)
+                "to_lang": .string(targetLang),
+                "typo_corrected": .bool(typoCorrected)
             ]
         ))
     }

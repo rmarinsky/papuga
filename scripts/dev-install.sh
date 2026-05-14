@@ -3,13 +3,14 @@
 # Build and install Papuga DEV to /Applications for fast permission/feature testing.
 # Default behavior:
 # - kills running app
-# - resets TCC grants for DEV bundle id
 # - builds Debug with DEV bundle id
 # - installs app as /Applications/papuga-dev.app
+# - opens installed app
 #
 # Usage:
 #   ./scripts/dev-install.sh
 #   ./scripts/dev-install.sh --build-only
+#   ./scripts/dev-install.sh --reset-tcc
 #   ./scripts/dev-install.sh --install-name papuga-dev-local
 #   ./scripts/dev-install.sh --help
 
@@ -37,7 +38,7 @@ INSTALL_PATH="/Applications/${INSTALL_APP_NAME}.app"
 DESTINATION="platform=macOS,arch=$(uname -m)"
 LOG_PATH="$BUILD_DIR/xcodebuild.log"
 
-RESET_TCC=true
+RESET_TCC=false
 BUILD_ONLY=false
 
 usage() {
@@ -47,7 +48,7 @@ Usage: $0 [options]
 Options:
   --build-only   Build only, skip install to /Applications.
   --install-name Override installed app folder name (default: papuga-dev).
-  --no-reset-tcc Skip TCC reset (default is reset).
+  --reset-tcc    Reset TCC permissions for the DEV bundle id.
   --help         Show this help.
 EOF
 }
@@ -71,8 +72,8 @@ while [[ $# -gt 0 ]]; do
             INSTALL_PATH="/Applications/${INSTALL_APP_NAME}.app"
             shift 2
             ;;
-        --no-reset-tcc)
-            RESET_TCC=false
+        --reset-tcc)
+            RESET_TCC=true
             shift
             ;;
         --help|-h)
@@ -183,9 +184,8 @@ xattr -cr "$INSTALL_PATH"
 echo ""
 echo "=== Done ==="
 echo "Installed: $INSTALL_PATH"
-echo ""
-echo "Launch command:"
-echo "  open \"$INSTALL_PATH\""
+echo "Opening app..."
+open "$INSTALL_PATH"
 echo ""
 echo "If permissions got stuck, run:"
 echo "  tccutil reset Accessibility \"$BUNDLE_ID\""
