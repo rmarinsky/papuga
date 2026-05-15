@@ -1,8 +1,16 @@
-<?xml version="1.0" encoding="utf-8"?>
-<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+<?xml version='1.0' encoding='utf-8'?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
   <channel>
     <title>Papuga Updates</title>
     <description>Most recent changes with links to updates.</description>
     <language>en</language>
+    <item>
+      <title>Version 1.3.2</title>
+      <pubDate>Fri, 15 May 2026 14:26:51 GMT</pubDate>
+      <sparkle:version>42</sparkle:version>
+      <sparkle:shortVersionString>1.3.2</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0.0</sparkle:minimumSystemVersion>
+      <enclosure url="https://github.com/rmarinsky/papuga/releases/download/v1.3.2/Papuga-1.3.2.dmg" sparkle:edSignature="zeP3C9F6soPw2HpjnGgyn/whTl6POatWE3Hpecc3QurfNoGwsXu1luW7xOsdGBFAj86k06h5PJK8X8bnulcTAg==" length="1969058" type="application/octet-stream" />
+    </item>
   </channel>
 </rss>
