@@ -55,6 +55,10 @@ Workflows: `.github/workflows/release-label-check.yml` (PR gate),
 `prepare-release.yml` (tag on merge), `release.yml` (build + publish).
 Version math: `scripts/next-version.sh`.
 
+Sparkle EdDSA: `SPARKLE_EDDSA_PRIVATE_KEY` secret holds the raw 44-char
+base64 seed exported via Sparkle's `generate_keys`. Do not add a length
+guard — `sign_update` is the source of truth for key validity.
+
 ## Architecture
 
 ### Text Switching Flow (End-to-End)
