@@ -197,6 +197,14 @@ jobs:
         run: |
           brew install create-dmg
 
+          # Stage ONLY the .app — never point create-dmg at $EXPORT_DIR
+          # itself, because xcodebuild also drops DistributionSummary.plist,
+          # ExportOptions.plist and Packaging.log there.
+          STAGE_DIR="build/dmg-stage"
+          rm -rf "$STAGE_DIR"
+          mkdir -p "$STAGE_DIR"
+          cp -R "$EXPORT_DIR/$APP_BUNDLE_NAME" "$STAGE_DIR/"
+
           create-dmg \
             --volname "$DISPLAY_NAME" \
             --window-pos 200 120 \
@@ -205,7 +213,7 @@ jobs:
             --icon "$APP_BUNDLE_NAME" 175 190 \
             --app-drop-link 425 190 \
             "build/${DISPLAY_NAME}-${VERSION}.dmg" \
-            "$EXPORT_DIR/"
+            "$STAGE_DIR/"
 
           shasum -a 256 "build/${DISPLAY_NAME}-${VERSION}.dmg" | awk '{print $1}' > "build/${DISPLAY_NAME}-${VERSION}.sha256"
           cp "build/${DISPLAY_NAME}-${VERSION}.dmg" "build/${DISPLAY_NAME}-latest.dmg"
