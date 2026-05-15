@@ -54,12 +54,20 @@ xcodebuild -project papuga.xcodeproj -scheme papuga -configuration Debug build
 ```
 
 ## Релізи та автооновлення
-Автооновлення працює через Sparkle і читає appcast з `https://rmarinsky.github.io/papuga/appcast.xml`.
-GitHub Actions workflow `Release` запускається після тегу виду `v1.3.0`, створює signed/notarized DMG, GitHub release, `Papuga-latest.dmg` і оновлює `docs/appcast.xml`.
-Для цього потрібен валідний secret `SPARKLE_EDDSA_PRIVATE_KEY`: саме приватний EdDSA ключ Sparkle, не `SUPublicEDKey` з `Info.plist`.
-Після merge в `main` workflow `auto-tag` створить тег з `MARKETING_VERSION`, якщо такого тегу ще нема.
 
-Локальний `./release.sh` теж виставляє incrementing `CFBundleVersion` через `git rev-list --count HEAD`. Якщо треба локально оновити appcast, передай `SPARKLE_EDDSA_PRIVATE_KEY` і `SPARKLE_DOWNLOAD_URL`.
+Автооновлення працює через Sparkle і читає appcast з `https://rmarinsky.github.io/papuga/appcast.xml`.
+
+Реліз триггериться **label-driven** з PR:
+
+1. Відкрий PR у `main`.
+2. Додай рівно один лейбл: `release:patch`, `release:minor`, `release:major` або `release:skip`.
+3. Змерджи PR.
+
+Далі CI сам: `prepare-release.yml` рахує наступну версію з останнього тега, пушить `vX.Y.Z`, далі `release.yml` білдить + нотаризує + підписує, створює GitHub Release і оновлює `appcast.xml` на гілці `gh-pages`. Версія застосунку береться **з тега** — `MARKETING_VERSION` у проекті лише плейсхолдер.
+
+Ніколи не пушити в `main` напряму, не створювати теги `v*` руками, не редагувати `MARKETING_VERSION` чи `appcast.xml` вручну.
+
+Локальний `./release.sh` бере версію з `git describe --tags` або зі змінної `RELEASE_VERSION`; для appcast потрібні `SPARKLE_EDDSA_PRIVATE_KEY` і `SPARKLE_DOWNLOAD_URL`.
 
 ## Технічний стек
 - Swift + SwiftUI
