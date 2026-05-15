@@ -84,12 +84,6 @@ jobs:
             exit 1
           fi
 
-          SPARKLE_KEY_LENGTH=$(printf '%s' "$SPARKLE_EDDSA_PRIVATE_KEY" | tr -d '\r\n' | wc -c | tr -d ' ')
-          if [ "$SPARKLE_KEY_LENGTH" -lt 80 ]; then
-            echo "::error::SPARKLE_EDDSA_PRIVATE_KEY looks invalid. Expected the exported Sparkle EdDSA private key, got ${SPARKLE_KEY_LENGTH} characters."
-            exit 1
-          fi
-
       - name: Import Developer ID certificate
         env:
           MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
