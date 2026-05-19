@@ -34,18 +34,9 @@ Papuga - це менюбар-утиліта для macOS, яка рятує те
 
 ## Встановлення
 
-### Через Homebrew tap
-```bash
-brew tap rmarinsky/tap
-brew install --cask papuga
-```
+Завантаж останній DMG зі сторінки [GitHub Releases](https://github.com/rmarinsky/papuga/releases/latest), перетягни `papuga.app` в `/Applications`, запусти й дай дозволи `Accessibility` та `Input Monitoring`.
 
-### Без tap (прямо з формули репо)
-```bash
-brew install --cask rmarinsky/tap/papuga
-```
-
-> Після встановлення оновлення підтягуються через Sparkle усередині застосунку, тож версія в cask може відставати на одну-дві мінорки — це нормально, перший запуск підтягне останній реліз сам.
+Подальші оновлення підтягуються автоматично через Sparkle — нічого додатково робити не треба.
 
 ## Локальний запуск для розробки
 ```bash
