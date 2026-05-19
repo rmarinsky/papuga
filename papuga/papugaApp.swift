@@ -30,10 +30,5 @@ struct PapugaApp: App {
                     configureIfNeeded()
                 }
         }
-
-        Settings {
-            SettingsView()
-                .environment(layoutManager)
-        }
     }
 }

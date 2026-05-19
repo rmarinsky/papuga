@@ -1,0 +1,202 @@
+import Defaults
+import Foundation
+import OSLog
+
+@Observable
+final class ReplacementHistoryStore {
+    static let shared = ReplacementHistoryStore()
+
+    private(set) var entries: [ReplacementHistoryEntry] = []
+
+    private let ioQueue = DispatchQueue(label: "ua.com.rmarinsky.papuga.replacement-history", qos: .utility)
+    private let fileURL: URL
+    private let logger = Logger(subsystem: Constants.bundleIdentifier, category: "History")
+
+    private let memoryCap = 5000
+    private let fileSizeCap = 50 * 1024 * 1024
+
+    private let encoder: JSONEncoder = {
+        let e = JSONEncoder()
+        e.dateEncodingStrategy = .iso8601
+        e.outputFormatting = [.withoutEscapingSlashes]
+        return e
+    }()
+
+    private let decoder: JSONDecoder = {
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .iso8601
+        return d
+    }()
+
+    private init() {
+        let fm = FileManager.default
+        let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let dir = appSupport.appendingPathComponent("papuga", isDirectory: true)
+        if !fm.fileExists(atPath: dir.path) {
+            try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        self.fileURL = dir.appendingPathComponent("replacement-history.jsonl")
+    }
+
+    func bootstrap() {
+        ioQueue.async { [weak self] in
+            guard let self else { return }
+            let loaded = self.loadEntriesFromDisk()
+            DispatchQueue.main.async {
+                self.entries = loaded
+                self.logger.notice("ReplacementHistoryStore bootstrapped with \(loaded.count, privacy: .public) entries")
+            }
+            self.pruneSync()
+        }
+    }
+
+    func record(_ entry: ReplacementHistoryEntry) {
+        guard Defaults[.replacementHistoryEnabled] else { return }
+
+        if Thread.isMainThread {
+            self.entries.insert(entry, at: 0)
+            self.enforceMemoryCap()
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.entries.insert(entry, at: 0)
+                self.enforceMemoryCap()
+            }
+        }
+
+        ioQueue.async { [weak self] in
+            self?.appendToDisk(entry)
+        }
+    }
+
+    func clearAll() {
+        entries = []
+        ioQueue.async { [weak self] in
+            guard let self else { return }
+            try? FileManager.default.removeItem(at: self.fileURL)
+            self.logger.notice("ReplacementHistoryStore cleared")
+        }
+    }
+
+    func pruneByRetentionAsync() {
+        ioQueue.async { [weak self] in
+            self?.pruneSync()
+        }
+    }
+
+    func entries(filter kind: ReplacementHistoryEntry.Kind? = nil, since: Date? = nil) -> [ReplacementHistoryEntry] {
+        entries.filter { entry in
+            if let kind, entry.kind != kind { return false }
+            if let since, entry.timestamp < since { return false }
+            return true
+        }
+    }
+
+    private func enforceMemoryCap() {
+        guard entries.count > memoryCap else { return }
+        entries.removeLast(entries.count - memoryCap)
+    }
+
+    private func appendToDisk(_ entry: ReplacementHistoryEntry) {
+        do {
+            let data = try encoder.encode(entry)
+            var line = data
+            line.append(0x0A)
+
+            let fm = FileManager.default
+            if !fm.fileExists(atPath: fileURL.path) {
+                try line.write(to: fileURL)
+            } else {
+                let handle = try FileHandle(forWritingTo: fileURL)
+                defer { try? handle.close() }
+                try handle.seekToEnd()
+                try handle.write(contentsOf: line)
+            }
+        } catch {
+            logger.warning("ReplacementHistoryStore append failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func loadEntriesFromDisk() -> [ReplacementHistoryEntry] {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: fileURL.path),
+              let data = try? Data(contentsOf: fileURL),
+              let text = String(data: data, encoding: .utf8) else {
+            return []
+        }
+
+        var result: [ReplacementHistoryEntry] = []
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            guard let lineData = line.data(using: .utf8),
+                  let entry = try? decoder.decode(ReplacementHistoryEntry.self, from: lineData) else {
+                continue
+            }
+            result.append(entry)
+        }
+        result.sort { $0.timestamp > $1.timestamp }
+        if result.count > memoryCap {
+            result = Array(result.prefix(memoryCap))
+        }
+        return result
+    }
+
+    private func pruneSync() {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: fileURL.path) else { return }
+
+        let retention = ReplacementHistoryRetention(rawValue: Defaults[.replacementHistoryRetention]) ?? .oneMonth
+        let cutoff = retention.timeInterval.map { Date().addingTimeInterval(-$0) }
+
+        let attrs = try? fm.attributesOfItem(atPath: fileURL.path)
+        let size = (attrs?[.size] as? NSNumber)?.intValue ?? 0
+        if cutoff == nil && size < fileSizeCap {
+            return
+        }
+
+        guard let data = try? Data(contentsOf: fileURL),
+              let text = String(data: data, encoding: .utf8) else {
+            return
+        }
+
+        var keptLines: [String] = []
+        var keptEntries: [ReplacementHistoryEntry] = []
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            guard let lineData = line.data(using: .utf8),
+                  let entry = try? decoder.decode(ReplacementHistoryEntry.self, from: lineData) else {
+                continue
+            }
+            if let cutoff, entry.timestamp < cutoff { continue }
+            keptLines.append(String(line))
+            keptEntries.append(entry)
+        }
+
+        if size > fileSizeCap {
+            let target = fileSizeCap / 2
+            var totalBytes = 0
+            var trimmed: [String] = []
+            var trimmedEntries: [ReplacementHistoryEntry] = []
+            for (line, entry) in zip(keptLines, keptEntries).reversed() {
+                totalBytes += line.utf8.count + 1
+                if totalBytes > target { break }
+                trimmed.append(line)
+                trimmedEntries.append(entry)
+            }
+            keptLines = trimmed.reversed()
+            keptEntries = trimmedEntries.reversed()
+        }
+
+        let newContent = keptLines.joined(separator: "\n") + (keptLines.isEmpty ? "" : "\n")
+        do {
+            try newContent.write(to: fileURL, atomically: true, encoding: .utf8)
+            keptEntries.sort { $0.timestamp > $1.timestamp }
+            let snapshot = keptEntries
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.entries = snapshot
+            }
+            logger.notice("ReplacementHistoryStore pruned: kept \(keptLines.count, privacy: .public) entries")
+        } catch {
+            logger.warning("ReplacementHistoryStore prune failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+}

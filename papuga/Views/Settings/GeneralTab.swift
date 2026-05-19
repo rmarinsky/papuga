@@ -7,8 +7,12 @@ struct GeneralTab: View {
     @Default(.clipboardHistoryRetention) private var clipboardHistoryRetention
     @Default(.clipboardMenuTimeRange) private var clipboardMenuTimeRange
     @Default(.clipboardMenuItemLimit) private var clipboardMenuItemLimit
+    @Default(.replacementHistoryEnabled) private var replacementHistoryEnabled
+    @Default(.replacementHistoryRetention) private var replacementHistoryRetention
+    @Default(.openHistoryOnAppLaunch) private var openHistoryOnAppLaunch
     @State private var accessibilityGranted = false
     @State private var inputMonitoringGranted = false
+    @State private var showingClearHistoryConfirmation = false
 
     var body: some View {
         Form {
@@ -38,6 +42,38 @@ struct GeneralTab: View {
                     }
                 }
                 .pickerStyle(.menu)
+            }
+
+            Section("Історія замін") {
+                Toggle("Зберігати історію замін", isOn: $replacementHistoryEnabled)
+
+                Picker("Зберігати", selection: $replacementHistoryRetention) {
+                    ForEach(ReplacementHistoryRetention.allCases, id: \.rawValue) { preset in
+                        Text(preset.title).tag(preset.rawValue)
+                    }
+                }
+                .pickerStyle(.menu)
+                .disabled(!replacementHistoryEnabled)
+
+                Toggle("Відкривати вікно «Історія» при запуску", isOn: $openHistoryOnAppLaunch)
+
+                Button(role: .destructive) {
+                    showingClearHistoryConfirmation = true
+                } label: {
+                    Label("Очистити історію замін…", systemImage: "trash")
+                }
+                .confirmationDialog(
+                    "Очистити історію замін?",
+                    isPresented: $showingClearHistoryConfirmation,
+                    titleVisibility: .visible
+                ) {
+                    Button("Очистити", role: .destructive) {
+                        ReplacementHistoryStore.shared.clearAll()
+                    }
+                    Button("Скасувати", role: .cancel) {}
+                } message: {
+                    Text("Усі записи про ручні перемикання та події AutoFix буде видалено.")
+                }
             }
 
             Section("Дозволи") {

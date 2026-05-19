@@ -9,9 +9,12 @@ struct AutoFixTab: View {
     @Default(.autoFixBlocklist) private var autoFixBlocklist
     @Default(.autoFixAllowlist) private var autoFixAllowlist
     @Default(.autoFixToastEnabled) private var autoFixToastEnabled
+    @Default(.customAutoReplaceRules) private var customAutoReplaceRules
 
     @State private var showingAddSheet = false
     @State private var newAllowlistWord = ""
+    @State private var newRuleSource = ""
+    @State private var newRuleTarget = ""
 
     var body: some View {
         Form {
@@ -83,6 +86,56 @@ struct AutoFixTab: View {
                         }
                     }
                     .disabled(newAllowlistWord.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+
+            Section("Власні правила автозаміни") {
+                if customAutoReplaceRules.isEmpty {
+                    Text("Тут з'являться твої правила, коли ти приймеш рекомендацію, або додаси їх вручну.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(customAutoReplaceRules) { rule in
+                    HStack {
+                        Text(rule.source).font(.system(.body, design: .monospaced))
+                        Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.secondary)
+                        Text(rule.target).font(.system(.body, design: .monospaced))
+                        Spacer()
+                        if rule.createdFromRecommendation {
+                            Text("із поради")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        Button {
+                            customAutoReplaceRules.removeAll { $0.id == rule.id }
+                        } label: {
+                            Image(systemName: "minus.circle.fill")
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                HStack {
+                    TextField("Замінити", text: $newRuleSource)
+                    Image(systemName: "arrow.right").foregroundStyle(.secondary)
+                    TextField("На", text: $newRuleTarget)
+                    Button("Додати") {
+                        let src = newRuleSource.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let tgt = newRuleTarget.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !src.isEmpty, !tgt.isEmpty else { return }
+                        guard !customAutoReplaceRules.contains(where: {
+                            $0.source.lowercased() == src.lowercased()
+                                && $0.target.lowercased() == tgt.lowercased()
+                        }) else { return }
+                        customAutoReplaceRules.append(
+                            CustomAutoReplaceRule(source: src, target: tgt)
+                        )
+                        newRuleSource = ""
+                        newRuleTarget = ""
+                    }
+                    .disabled(
+                        newRuleSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                        newRuleTarget.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    )
                 }
             }
 

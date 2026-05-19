@@ -187,15 +187,27 @@ final class AutoFixController {
         }
         AnalyticsCounters.reverseReplacement(text: pending.replacement)
 
+        let bundleID = AppContextProvider.frontmostBundleID()
         PapugaEventLog.shared.track(AnalyticsEvent(
             kind: AnalyticsKind.autoFixUndone,
-            frontmostBundleID: AppContextProvider.frontmostBundleID(),
+            frontmostBundleID: bundleID,
             inputLayout: layoutManager.getCurrentLayoutID(),
             properties: [
                 "original_length": .int(pending.original.count),
                 "time_to_undo_ms": .int(elapsedMs)
             ]
         ))
+
+        ReplacementHistoryStore.shared.record(
+            ReplacementHistoryEntry(
+                kind: .autoFixUndone,
+                original: pending.original,
+                converted: pending.replacement,
+                sourceLayoutID: pending.fromLayoutID,
+                targetLayoutID: nil,
+                bundleID: bundleID
+            )
+        )
     }
 
     private func evaluateAndMaybeFix(boundary: String) {
@@ -210,6 +222,11 @@ final class AutoFixController {
 
         if AutoFixDecision.isInAllowlist(word, allowlist: Defaults[.autoFixAllowlist]) {
             logSkip(.allowlist, word: word, bundleID: bundleID)
+            return
+        }
+
+        if let rule = Defaults[.customAutoReplaceRules].first(where: { $0.matches(word) }) {
+            applyCustomRule(rule: rule, original: word, boundary: boundary, bundleID: bundleID)
             return
         }
 
@@ -345,6 +362,72 @@ final class AutoFixController {
                 "to_lang": .string(targetLang)
             ]
         ))
+
+        ReplacementHistoryStore.shared.record(
+            ReplacementHistoryEntry(
+                kind: .autoFixApplied,
+                original: original,
+                converted: candidate,
+                sourceLayoutID: fromLayoutID,
+                targetLayoutID: targetLayoutID,
+                bundleID: bundleID
+            )
+        )
+    }
+
+    private func applyCustomRule(
+        rule: CustomAutoReplaceRule,
+        original: String,
+        boundary: String,
+        bundleID: String
+    ) {
+        AppLogger.action(logger, "Custom rule applying: \(rule.source) -> \(rule.target)")
+        let fromLayoutID = layoutManager.getCurrentLayoutID()
+        let boundaryToReplay = boundary.isEmpty ? " " : boundary
+        let totalToDelete = original.count + boundaryToReplay.count
+        deleteCharacters(count: totalToDelete)
+        typeText(rule.target + boundaryToReplay)
+
+        lastFix = PendingUndo(
+            original: original,
+            replacement: rule.target,
+            boundary: boundaryToReplay,
+            fromLayoutID: fromLayoutID,
+            timestamp: ProcessInfo.processInfo.systemUptime
+        )
+
+        AnalyticsCounters.recordReplacement(text: rule.target)
+        NotificationCenter.default.post(name: .textReplacementDidComplete, object: nil)
+
+        if Defaults[.autoFixToastEnabled] {
+            let cursor = NSEvent.mouseLocation
+            FixToastCoordinator.shared.show(near: cursor) { [weak self] in
+                self?.undoAndAddToAllowlist()
+            }
+        }
+
+        PapugaEventLog.shared.track(AnalyticsEvent(
+            kind: AnalyticsKind.autoFixApplied,
+            frontmostBundleID: bundleID,
+            inputLayout: fromLayoutID,
+            properties: [
+                "original_length": .int(original.count),
+                "replacement_length": .int(rule.target.count),
+                "rule_origin": .string(rule.createdFromRecommendation ? "recommendation" : "manual"),
+                "source": .string("custom_rule")
+            ]
+        ))
+
+        ReplacementHistoryStore.shared.record(
+            ReplacementHistoryEntry(
+                kind: .autoFixApplied,
+                original: original,
+                converted: rule.target,
+                sourceLayoutID: fromLayoutID,
+                targetLayoutID: nil,
+                bundleID: bundleID
+            )
+        )
     }
 
     private func logSkip(
