@@ -13,8 +13,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var hotkeyListener: HotkeyListener?
     private var textSwitchEngine: TextSwitchEngine?
-    private var layoutManager: LayoutManager?
-    private var clipboardHistoryManager: ClipboardHistoryManager?
+    private(set) var layoutManager: LayoutManager?
+    private(set) var clipboardHistoryManager: ClipboardHistoryManager?
     private var autoFixController: AutoFixController?
     private let autoFixCharacterMapper = CharacterMapper()
     private var isConfigured = false
@@ -45,6 +45,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         isConfigured = true
         AppLogger.post(logger, "configure(layoutManager:) completed")
+
+        if !OnboardingManager.shared.shouldShowOnboarding && Defaults[.openHistoryOnAppLaunch] {
+            AppLogger.action(logger, "Opening history window after configuration")
+            HistoryWindowController.shared.showHistory()
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -52,6 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = updaterManager
         PapugaEventLog.shared.pruneOldEntries()
         PapugaStatsAggregator.migrateLegacyCountersIfNeeded()
+        ReplacementHistoryStore.shared.bootstrap()
         setupHotkeyListener()
         setupKeyboardShortcuts()
         AppLogger.action(logger, "Hotkey listener and keyboard shortcuts setup complete")
@@ -102,8 +108,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         } else {
             AppLogger.post(logger, "Onboarding is not required")
+            // History window is opened from configure(...) once the SwiftUI scene has
+            // materialized layoutManager / clipboardHistoryManager — opening here would
+            // race ahead of MenuBarExtra.onAppear and inject nil environment values.
         }
         AppLogger.post(logger, "applicationDidFinishLaunching completed")
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard !flag else { return true }
+        AppLogger.pre(logger, "applicationShouldHandleReopen (no visible windows)")
+        if OnboardingManager.shared.shouldShowOnboarding {
+            OnboardingWindowController.shared.showOnboarding {
+                PermissionManager.shared.refreshStatus()
+            }
+        } else {
+            HistoryWindowController.shared.showHistory()
+        }
+        return true
     }
 
     func applicationWillTerminate(_ notification: Notification) {

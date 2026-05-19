@@ -8,7 +8,6 @@ struct MenuBarView: View {
     @Default(.clipboardMenuItemLimit) private var clipboardMenuItemLimit
     @Default(.autoFixEnabled) private var autoFixEnabled
     @Environment(ClipboardHistoryManager.self) private var clipboardHistoryManager
-    @Environment(\.openSettings) private var openSettings
     @ObservedObject private var updaterManager: UpdaterManager
 
     init() {
@@ -47,18 +46,12 @@ struct MenuBarView: View {
             }
             .disabled(!updaterManager.canCheckForUpdates)
 
+            Button("Історія та рекомендації...") {
+                HistoryWindowController.shared.showHistory(initialSection: .clipboard)
+            }
+
             Button("Налаштування...") {
-                openSettings()
-
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(120))
-                    NSApp.activate(ignoringOtherApps: true)
-
-                    if let settingsWindow = NSApp.windows.first(where: { $0.identifier?.rawValue == "ua.com.rmarinsky.papuga.settings" }) {
-                        settingsWindow.orderFrontRegardless()
-                        settingsWindow.makeKeyAndOrderFront(nil)
-                    }
-                }
+                HistoryWindowController.shared.showHistory(initialSection: .settingsGeneral)
             }
 
             Divider()

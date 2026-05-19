@@ -93,6 +93,16 @@ final class TextSwitchEngine {
             }
 
             updateAnalytics(text: text, operationID: operationID)
+            ReplacementHistoryStore.shared.record(
+                ReplacementHistoryEntry(
+                    kind: .manualSwitch,
+                    original: text,
+                    converted: converted,
+                    sourceLayoutID: currentID,
+                    targetLayoutID: targetID,
+                    bundleID: AppContextProvider.frontmostBundleID()
+                )
+            )
             AppLogger.action(logger, "[\(operationID)] Emitting textReplacementDidComplete notification")
             NotificationCenter.default.post(name: .textReplacementDidComplete, object: nil)
 

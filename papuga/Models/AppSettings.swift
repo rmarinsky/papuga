@@ -122,6 +122,15 @@ extension Defaults.Keys {
     static let autoFixBlocklist = Key<[String]>("autoFixBlocklist", default: [])
     static let autoFixAllowlist = Key<[String]>("autoFixAllowlist", default: [])
     static let autoFixToastEnabled = Key<Bool>("autoFixToastEnabled", default: true)
+
+    static let replacementHistoryEnabled = Key<Bool>("replacementHistoryEnabled", default: true)
+    static let replacementHistoryRetention = Key<String>(
+        "replacementHistoryRetention",
+        default: ReplacementHistoryRetention.oneMonth.rawValue
+    )
+    static let openHistoryOnAppLaunch = Key<Bool>("openHistoryOnAppLaunch", default: true)
+    static let customAutoReplaceRules = Key<[CustomAutoReplaceRule]>("customAutoReplaceRules", default: [])
+    static let dismissedRecommendations = Key<[String]>("dismissedRecommendations", default: [])
 }
 
 extension KeyboardShortcuts.Name {
