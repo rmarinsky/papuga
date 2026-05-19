@@ -73,7 +73,7 @@ enum RecommendationEngine {
                 let key = entry.original.lowercased()
                 undoneByWord[key, default: 0] += 1
                 if let bundleID = entry.bundleID, !bundleID.isEmpty {
-                    undoneByBundle[bundleID, default: 0] += 1
+                    undoneByBundle[bundleID.lowercased(), default: 0] += 1
                 }
             case .manualSwitch:
                 guard !entry.originalTruncated, !entry.convertedTruncated else { continue }
@@ -102,7 +102,7 @@ enum RecommendationEngine {
                 undoCount: count,
                 tier: tier(for: count)
             )
-            if dismissedSet.contains(rec.dedupKey) && count < fibonacciThresholds.last! { continue }
+            if dismissedSet.contains(rec.dedupKey) { continue }
             recs.append(rec)
         }
 
@@ -114,18 +114,18 @@ enum RecommendationEngine {
                 count: info.count,
                 tier: tier(for: info.count)
             )
-            if dismissedSet.contains(rec.dedupKey) && info.count < fibonacciThresholds.last! { continue }
+            if dismissedSet.contains(rec.dedupKey) { continue }
             recs.append(rec)
         }
 
         for (bundleID, count) in undoneByBundle where count >= minBlocklistThreshold {
-            if blocklistLower.contains(bundleID.lowercased()) { continue }
+            if blocklistLower.contains(bundleID) { continue }
             let rec = Recommendation.addAppToBlocklist(
                 bundleID: bundleID,
                 undoCount: count,
                 tier: tier(for: count)
             )
-            if dismissedSet.contains(rec.dedupKey) && count < fibonacciThresholds.last! { continue }
+            if dismissedSet.contains(rec.dedupKey) { continue }
             recs.append(rec)
         }
 

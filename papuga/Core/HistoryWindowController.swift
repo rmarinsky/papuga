@@ -127,6 +127,17 @@ private func historyRootView(initialSection: HistorySection) -> some View {
             .environment(layoutManager)
             .environment(clipboardHistoryManager)
     } else {
-        HistoryWindowView(initialSection: initialSection)
+        // The window is only opened from AppDelegate.configure(...) and from menu-bar
+        // actions, both of which run after the SwiftUI scene has produced the managers.
+        // If we ever land here, surface the misuse instead of crashing on a missing
+        // environment value inside HistoryWindowView's subviews.
+        VStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.largeTitle)
+                .foregroundStyle(.orange)
+            Text("Не вдалось відкрити вікно: ще не ініціалізовано середовище.")
+                .multilineTextAlignment(.center)
+        }
+        .padding()
     }
 }

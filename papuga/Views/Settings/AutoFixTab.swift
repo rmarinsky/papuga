@@ -122,9 +122,10 @@ struct AutoFixTab: View {
                         let src = newRuleSource.trimmingCharacters(in: .whitespacesAndNewlines)
                         let tgt = newRuleTarget.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !src.isEmpty, !tgt.isEmpty else { return }
+                        // Reject any rule whose source already exists — at runtime only the
+                        // first match fires, so a duplicate-source rule would be dead weight.
                         guard !customAutoReplaceRules.contains(where: {
                             $0.source.lowercased() == src.lowercased()
-                                && $0.target.lowercased() == tgt.lowercased()
                         }) else { return }
                         customAutoReplaceRules.append(
                             CustomAutoReplaceRule(source: src, target: tgt)

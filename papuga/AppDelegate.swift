@@ -45,6 +45,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         isConfigured = true
         AppLogger.post(logger, "configure(layoutManager:) completed")
+
+        if !OnboardingManager.shared.shouldShowOnboarding && Defaults[.openHistoryOnAppLaunch] {
+            AppLogger.action(logger, "Opening history window after configuration")
+            HistoryWindowController.shared.showHistory()
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -103,10 +108,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         } else {
             AppLogger.post(logger, "Onboarding is not required")
-            if Defaults[.openHistoryOnAppLaunch] {
-                AppLogger.action(logger, "Opening history window on launch")
-                HistoryWindowController.shared.showHistory()
-            }
+            // History window is opened from configure(...) once the SwiftUI scene has
+            // materialized layoutManager / clipboardHistoryManager — opening here would
+            // race ahead of MenuBarExtra.onAppear and inject nil environment values.
         }
         AppLogger.post(logger, "applicationDidFinishLaunching completed")
     }

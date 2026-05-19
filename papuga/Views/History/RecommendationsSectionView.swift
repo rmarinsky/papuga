@@ -67,7 +67,6 @@ struct RecommendationsSectionView: View {
         case .createCustomRule(let source, let target, _, _):
             if !customAutoReplaceRules.contains(where: {
                 $0.source.lowercased() == source.lowercased()
-                    && $0.target.lowercased() == target.lowercased()
             }) {
                 customAutoReplaceRules.append(
                     CustomAutoReplaceRule(
@@ -78,8 +77,9 @@ struct RecommendationsSectionView: View {
                 )
             }
         case .addAppToBlocklist(let bundleID, _, _):
-            if !autoFixBlocklist.contains(bundleID) {
-                autoFixBlocklist.append(bundleID)
+            let normalized = bundleID.lowercased()
+            if !autoFixBlocklist.contains(where: { $0.lowercased() == normalized }) {
+                autoFixBlocklist.append(normalized)
             }
         }
         if !dismissedRecommendations.contains(rec.dedupKey) {

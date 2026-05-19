@@ -62,7 +62,8 @@ struct ReplacementHistoryEntry: Codable, Identifiable, Equatable {
 
     static func truncated(_ text: String) -> (String, Bool) {
         guard text.count > maxStoredCharCount else { return (text, false) }
-        let prefix = String(text.prefix(maxStoredCharCount))
+        let visibleCount = max(0, maxStoredCharCount - 1)
+        let prefix = String(text.prefix(visibleCount))
         return (prefix + "…", true)
     }
 }
