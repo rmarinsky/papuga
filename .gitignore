@@ -7,6 +7,9 @@
 # Claude Code
 .claude/
 
+# Local Playwright/MCP inspection artifacts
+.playwright-mcp/
+
 # Xcode user-specific data
 **/xcuserdata/
 *.xcuserstate
