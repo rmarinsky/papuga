@@ -29,9 +29,22 @@
 		5FAA000200000000000000A2 /* papugaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = papugaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		4FD00A022F6C000000B1C2D3 /* Exceptions for "papuga" folder in "papuga" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 4FC369932F3D01B000A5A52D /* papuga */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		4FC369962F3D01B000A5A52D /* papuga */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				4FD00A022F6C000000B1C2D3 /* Exceptions for "papuga" folder in "papuga" target */,
+			);
 			path = papuga;
 			sourceTree = "<group>";
 		};
