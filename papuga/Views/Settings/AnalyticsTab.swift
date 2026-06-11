@@ -240,12 +240,13 @@ struct AnalyticsTab: View {
             )
     }
 
-    // MARK: - Chart (weekly with ramp/ghost/avg)
+    // MARK: - Chart (fixes per day, derived from the same log as the History tab)
 
     private var chartCard: some View {
-        let series = PapugaStatsAggregator.dailySeries(lastDays: 7, history: history)
-        let maxSeconds = series.map(\.seconds).max() ?? 1
-        let avgSeconds = series.isEmpty ? 0 : series.map(\.seconds).reduce(0, +) / series.count
+        let series = weeklyFixCounts()
+        let maxCount = series.map(\.count).max() ?? 0
+        let total = series.reduce(0) { $0 + $1.count }
+        let avgCount = series.isEmpty ? 0 : Int((Double(total) / Double(series.count)).rounded())
         let today = Calendar.current.startOfDay(for: Date())
 
         return VStack(alignment: .leading, spacing: 8) {
@@ -253,13 +254,13 @@ struct AnalyticsTab: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Заміни цього тижня")
                         .font(.system(size: 13, weight: .semibold))
-                    Text("зекономлено за день")
+                    Text("замін за день")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                if avgSeconds > 0 {
-                    Text("сер. \(formatSecondsShort(avgSeconds))")
+                if avgCount > 0 {
+                    Text("сер. \(avgCount)")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
@@ -268,18 +269,18 @@ struct AnalyticsTab: View {
             Chart {
                 ForEach(series, id: \.date) { point in
                     let isToday = Calendar.current.startOfDay(for: point.date) == today
-                    let isPeak = point.seconds == maxSeconds && point.seconds > 0
-                    if point.seconds > 0 {
-                        let opacity = isToday ? 1.0 : max(0.25, 0.25 + 0.6 * Double(point.seconds) / Double(max(maxSeconds, 1)))
+                    let isPeak = point.count == maxCount && point.count > 0
+                    if point.count > 0 {
+                        let opacity = isToday ? 1.0 : max(0.25, 0.25 + 0.6 * Double(point.count) / Double(max(maxCount, 1)))
                         BarMark(
                             x: .value("День", point.date, unit: .day),
-                            y: .value("Секунди", point.seconds)
+                            y: .value("Замін", Double(point.count))
                         )
                         .foregroundStyle(Color("BrandAccent").opacity(opacity))
                         .cornerRadius(4, style: .continuous)
                         .annotation(position: .top, alignment: .center, spacing: 2) {
                             if isPeak {
-                                Text(formatSecondsShort(point.seconds))
+                                Text("\(point.count)")
                                     .font(.system(size: 9, weight: .bold, design: .rounded))
                                     .foregroundStyle(.white)
                                     .padding(.horizontal, 4)
@@ -291,10 +292,10 @@ struct AnalyticsTab: View {
                             }
                         }
                     } else {
-                        // Ghost bar for zero days
+                        // Faint stub for zero days so the weekday slot still reads
                         BarMark(
                             x: .value("День", point.date, unit: .day),
-                            y: .value("Секунди", max(maxSeconds / 20, 1))
+                            y: .value("Замін", max(Double(maxCount) * 0.06, 0.2))
                         )
                         .foregroundStyle(Color.secondary.opacity(0.12))
                         .cornerRadius(4, style: .continuous)
@@ -302,8 +303,8 @@ struct AnalyticsTab: View {
                 }
 
                 // Dashed average line
-                if avgSeconds > 0 {
-                    RuleMark(y: .value("Середнє", avgSeconds))
+                if avgCount > 0 {
+                    RuleMark(y: .value("Середнє", Double(avgCount)))
                         .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
                         .foregroundStyle(Color.secondary.opacity(0.4))
                 }
@@ -328,6 +329,26 @@ struct AnalyticsTab: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(.background.tertiary)
         )
+    }
+
+    /// Last 7 days of applied fixes (manual switch + auto-fix), grouped by day from
+    /// the same replacement log the History tab renders — so the chart and the
+    /// History list can never disagree. Entries are newest-first, so we can stop
+    /// once we pass the window.
+    private func weeklyFixCounts() -> [(date: Date, count: Int)] {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        let windowStart = cal.date(byAdding: .day, value: -6, to: today) ?? today
+        var counts: [Date: Int] = [:]
+        for entry in historyStore.entries {
+            if entry.timestamp < windowStart { break }
+            guard entry.kind == .manualSwitch || entry.kind == .autoFixApplied else { continue }
+            counts[cal.startOfDay(for: entry.timestamp), default: 0] += 1
+        }
+        return (0..<7).reversed().compactMap { offset in
+            guard let date = cal.date(byAdding: .day, value: -offset, to: today) else { return nil }
+            return (date, counts[date] ?? 0)
+        }
     }
 
     // MARK: - Bottom row (Suggestions preview + Recent fixes)
@@ -604,11 +625,5 @@ struct AnalyticsTab: View {
         let h = seconds / 3600
         let m = (seconds % 3600) / 60
         return m == 0 ? "\(h) год" : "\(h) год \(m) хв"
-    }
-
-    private func formatSecondsShort(_ seconds: Int) -> String {
-        if seconds < 60 { return "\(seconds)с" }
-        if seconds < 3600 { return "\(seconds / 60)хв" }
-        return "\(seconds / 3600)г"
     }
 }

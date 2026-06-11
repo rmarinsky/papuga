@@ -56,6 +56,10 @@ final class HistoryWindowController {
             selectedSection = initialSection
         }
 
+        // Promote to a regular app while the window is up so Papuga shows in the
+        // Dock and the ⌘-Tab switcher; we drop back to .accessory on close.
+        NSApp.setActivationPolicy(.regular)
+
         if let window {
             NotificationCenter.default.post(
                 name: .historyWindowSectionRequest,
@@ -112,6 +116,8 @@ private final class HistoryWindowDelegate: NSObject, NSWindowDelegate {
 
     func windowWillClose(_: Notification) {
         onClose()
+        // Back to a menu-bar-only agent once the window is gone.
+        NSApp.setActivationPolicy(.accessory)
     }
 }
 
