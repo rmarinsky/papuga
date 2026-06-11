@@ -46,8 +46,8 @@ struct MenuBarView: View {
             }
             .disabled(!updaterManager.canCheckForUpdates)
 
-            Button("Історія та рекомендації...") {
-                HistoryWindowController.shared.showHistory(initialSection: .clipboard)
+            Button("Відкрити Papuga...") {
+                HistoryWindowController.shared.showHistory(initialSection: .overview)
             }
 
             Button("Налаштування...") {

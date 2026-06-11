@@ -3,8 +3,6 @@ import Defaults
 
 struct AutoFixTab: View {
     @Default(.autoFixEnabled) private var autoFixEnabled
-    @Default(.autoFixAlgorithm) private var autoFixAlgorithm
-    @Default(.autoFixThreshold) private var autoFixThreshold
     @Default(.autoFixUndoWindow) private var autoFixUndoWindow
     @Default(.autoFixBlocklist) private var autoFixBlocklist
     @Default(.autoFixAllowlist) private var autoFixAllowlist
@@ -20,28 +18,6 @@ struct AutoFixTab: View {
         Form {
             Section("Автозаміна під час набору") {
                 Toggle("Увімкнути автозаміну", isOn: $autoFixEnabled)
-
-                Picker("Алгоритм визначення мови", selection: $autoFixAlgorithm) {
-                    ForEach(LanguageScorerAlgorithm.implementedCases, id: \.rawValue) { algorithm in
-                        Text(algorithm.title).tag(algorithm.rawValue)
-                    }
-                }
-                .pickerStyle(.menu)
-
-                if let selected = LanguageScorerAlgorithm(rawValue: autoFixAlgorithm) {
-                    Text(selected.description)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                VStack(alignment: .leading) {
-                    HStack {
-                        Text("Поріг впевненості")
-                        Spacer()
-                        Text(String(format: "%.2f", autoFixThreshold)).monospacedDigit()
-                    }
-                    Slider(value: $autoFixThreshold, in: 0.1...0.9, step: 0.05)
-                }
 
                 VStack(alignment: .leading) {
                     HStack {
@@ -172,13 +148,6 @@ struct AutoFixTab: View {
                 blocklist: $autoFixBlocklist,
                 isPresented: $showingAddSheet
             )
-        }
-        .onAppear {
-            if let selected = LanguageScorerAlgorithm(rawValue: autoFixAlgorithm),
-               selected.isImplemented {
-                return
-            }
-            autoFixAlgorithm = LanguageScorerAlgorithm.appleNL.rawValue
         }
     }
 

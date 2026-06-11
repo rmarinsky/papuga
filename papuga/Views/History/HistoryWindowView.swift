@@ -32,24 +32,59 @@ struct HistoryWindowView: View {
         }
     }
 
+    // MARK: - Sidebar
+
     @ViewBuilder
     private var sidebar: some View {
-        List(selection: $selection) {
-            Section("Дані") {
-                row(.clipboard)
-                row(.replacements)
-                row(.recommendations, badge: activeRecommendations.count)
-            }
+        VStack(spacing: 0) {
+            brandTile
+            Divider()
+            List(selection: $selection) {
+                row(.overview)
+                row(.history)
+                row(.suggestions, badge: activeRecommendations.count)
 
-            Section("Налаштування") {
-                row(.settingsGeneral)
-                row(.settingsHotkeys)
-                row(.settingsAutoFix)
-                row(.settingsAnalytics)
-                row(.settingsAbout)
+                Section("Налаштування") {
+                    row(.settingsGeneral)
+                    row(.settingsLanguages)
+                    row(.settingsRules)
+                    row(.settingsShortcuts)
+                    row(.settingsAccount)
+                }
             }
+            .listStyle(.sidebar)
+            .tint(Color("BrandAccentDeep"))
         }
-        .listStyle(.sidebar)
+    }
+
+    private var brandTile: some View {
+        HStack(spacing: 10) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color("BrandAccent"), Color("BrandAccentDeep")],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 30, height: 30)
+                Image(systemName: "bird.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            Text("Papuga")
+                .font(.system(size: 13, weight: .semibold))
+            Spacer()
+            Text("PRO")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(Color("ProBadgeText"))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Capsule().fill(Color("ProBadgeBg")))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
     }
 
     @ViewBuilder
@@ -63,30 +98,32 @@ struct HistoryWindowView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(Capsule().fill(Color.accentColor))
+                    .background(Capsule().fill(Color("BrandAccent")))
             }
         }
         .tag(section)
     }
 
+    // MARK: - Detail
+
     @ViewBuilder
     private var detailView: some View {
         switch selection {
-        case .clipboard:
-            ClipboardHistorySectionView()
-        case .replacements:
-            ReplacementsHistorySectionView()
-        case .recommendations:
+        case .overview:
+            AnalyticsTab()
+        case .history:
+            HistoryDetailView()
+        case .suggestions:
             RecommendationsSectionView(recommendations: activeRecommendations)
         case .settingsGeneral:
             GeneralTab()
-        case .settingsHotkeys:
-            HotkeysTab()
-        case .settingsAutoFix:
+        case .settingsLanguages:
+            LanguagesSettingsTab()
+        case .settingsRules:
             AutoFixTab()
-        case .settingsAnalytics:
-            AnalyticsTab()
-        case .settingsAbout:
+        case .settingsShortcuts:
+            HotkeysTab()
+        case .settingsAccount:
             AboutTab()
         }
     }
@@ -99,5 +136,49 @@ struct HistoryWindowView: View {
             customRules: customAutoReplaceRules,
             dismissed: dismissedRecommendations
         )
+    }
+}
+
+// MARK: - History internal switcher
+
+private struct HistoryDetailView: View {
+    enum HistoryKind: String, CaseIterable, Identifiable {
+        case replacements, clipboard
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .replacements: return "Заміни"
+            case .clipboard: return "Копіопасти"
+            }
+        }
+    }
+
+    @State private var kind: HistoryKind = .replacements
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Picker("", selection: $kind) {
+                    ForEach(HistoryKind.allCases) { k in
+                        Text(k.title).tag(k)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(maxWidth: 240)
+                Spacer()
+            }
+            .padding(12)
+
+            Divider()
+
+            switch kind {
+            case .replacements:
+                ReplacementsHistorySectionView()
+            case .clipboard:
+                ClipboardHistorySectionView()
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }

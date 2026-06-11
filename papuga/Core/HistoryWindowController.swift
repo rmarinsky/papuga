@@ -2,40 +2,40 @@ import AppKit
 import SwiftUI
 
 enum HistorySection: String, Identifiable, CaseIterable {
-    case clipboard
-    case replacements
-    case recommendations
+    case overview
+    case history
+    case suggestions
     case settingsGeneral
-    case settingsHotkeys
-    case settingsAutoFix
-    case settingsAnalytics
-    case settingsAbout
+    case settingsLanguages
+    case settingsRules
+    case settingsShortcuts
+    case settingsAccount
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .clipboard: return "Буфер обміну"
-        case .replacements: return "Заміни"
-        case .recommendations: return "Рекомендації"
+        case .overview: return "Огляд"
+        case .history: return "Історія"
+        case .suggestions: return "Поради"
         case .settingsGeneral: return "Загальні"
-        case .settingsHotkeys: return "Гарячі клавіші"
-        case .settingsAutoFix: return "Автозаміна"
-        case .settingsAnalytics: return "Аналітика"
-        case .settingsAbout: return "Про програму"
+        case .settingsLanguages: return "Мови"
+        case .settingsRules: return "Правила"
+        case .settingsShortcuts: return "Клавіші"
+        case .settingsAccount: return "Аккаунт"
         }
     }
 
     var systemImage: String {
         switch self {
-        case .clipboard: return "doc.on.clipboard"
-        case .replacements: return "arrow.left.arrow.right"
-        case .recommendations: return "sparkles"
+        case .overview: return "square.grid.2x2"
+        case .history: return "clock.arrow.circlepath"
+        case .suggestions: return "sparkles"
         case .settingsGeneral: return "gear"
-        case .settingsHotkeys: return "command"
-        case .settingsAutoFix: return "wand.and.stars"
-        case .settingsAnalytics: return "chart.bar"
-        case .settingsAbout: return "info.circle"
+        case .settingsLanguages: return "globe"
+        case .settingsRules: return "wand.and.stars"
+        case .settingsShortcuts: return "command"
+        case .settingsAccount: return "person.circle"
         }
     }
 }
@@ -47,7 +47,7 @@ final class HistoryWindowController {
     private var window: NSWindow?
     private var hostingView: NSHostingView<AnyView>?
     private var windowDelegate: HistoryWindowDelegate?
-    private var selectedSection: HistorySection = .clipboard
+    private var selectedSection: HistorySection = .overview
 
     private init() {}
 
@@ -74,7 +74,7 @@ final class HistoryWindowController {
         self.hostingView = hostingView
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 920, height: 640),
+            contentRect: NSRect(x: 0, y: 0, width: 1000, height: 680),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
@@ -82,8 +82,9 @@ final class HistoryWindowController {
 
         window.title = "Papuga"
         window.contentView = hostingView
-        window.minSize = NSSize(width: 760, height: 520)
-        window.setContentSize(NSSize(width: 920, height: 640))
+        window.minSize = NSSize(width: 800, height: 560)
+        window.setContentSize(NSSize(width: 1000, height: 680))
+        window.setFrameAutosaveName("papuga.main")
         window.center()
         window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("ua.com.rmarinsky.papuga.history")
@@ -127,10 +128,6 @@ private func historyRootView(initialSection: HistorySection) -> some View {
             .environment(layoutManager)
             .environment(clipboardHistoryManager)
     } else {
-        // The window is only opened from AppDelegate.configure(...) and from menu-bar
-        // actions, both of which run after the SwiftUI scene has produced the managers.
-        // If we ever land here, surface the misuse instead of crashing on a missing
-        // environment value inside HistoryWindowView's subviews.
         VStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.largeTitle)
