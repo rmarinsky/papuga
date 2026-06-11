@@ -1,13 +1,7 @@
-import Defaults
 import SwiftUI
 
 struct RecommendationsSectionView: View {
     let recommendations: [Recommendation]
-
-    @Default(.autoFixAllowlist) private var autoFixAllowlist
-    @Default(.autoFixBlocklist) private var autoFixBlocklist
-    @Default(.customAutoReplaceRules) private var customAutoReplaceRules
-    @Default(.dismissedRecommendations) private var dismissedRecommendations
 
     var body: some View {
         ScrollView {
@@ -59,38 +53,11 @@ struct RecommendationsSectionView: View {
     }
 
     private func accept(_ rec: Recommendation) {
-        switch rec {
-        case .addWordToAllowlist(let word, _, _):
-            if !autoFixAllowlist.contains(where: { $0.lowercased() == word.lowercased() }) {
-                autoFixAllowlist.append(word)
-            }
-        case .createCustomRule(let source, let target, _, _):
-            if !customAutoReplaceRules.contains(where: {
-                $0.source.lowercased() == source.lowercased()
-            }) {
-                customAutoReplaceRules.append(
-                    CustomAutoReplaceRule(
-                        source: source,
-                        target: target,
-                        createdFromRecommendation: true
-                    )
-                )
-            }
-        case .addAppToBlocklist(let bundleID, _, _):
-            let normalized = bundleID.lowercased()
-            if !autoFixBlocklist.contains(where: { $0.lowercased() == normalized }) {
-                autoFixBlocklist.append(normalized)
-            }
-        }
-        if !dismissedRecommendations.contains(rec.dedupKey) {
-            dismissedRecommendations.append(rec.dedupKey)
-        }
+        RecommendationEngine.apply(rec)
     }
 
     private func dismiss(_ rec: Recommendation) {
-        if !dismissedRecommendations.contains(rec.dedupKey) {
-            dismissedRecommendations.append(rec.dedupKey)
-        }
+        RecommendationEngine.dismiss(rec)
     }
 }
 
@@ -188,27 +155,9 @@ private struct RecommendationCard: View {
         }
     }
 
-    private var title: String {
-        switch recommendation {
-        case .addWordToAllowlist(let word, _, _):
-            return "Додати «\(word)» у allowlist"
-        case .createCustomRule(let source, let target, _, _):
-            return "Додати правило: \(source) → \(target)"
-        case .addAppToBlocklist(let bundleID, _, _):
-            return "Вимкнути автозаміну у \(bundleID)"
-        }
-    }
+    private var title: String { recommendation.displayTitle }
 
-    private var subtitle: String {
-        switch recommendation {
-        case .addWordToAllowlist(_, let n, _):
-            return "AutoFix скасовувалася \(n) \(pluralizeTimes(n)). Папуга більше не чіпатиме це слово."
-        case .createCustomRule(let source, let target, let n, _):
-            return "Ти вже \(n) \(pluralizeTimes(n)) ручно конвертував «\(source)» у «\(target)». Зроби це автоматичним."
-        case .addAppToBlocklist(_, let n, _):
-            return "У цьому застосунку було \(n) скасованих автозамін. Імовірно, краще його виключити."
-        }
-    }
+    private var subtitle: String { recommendation.displaySubtitle }
 
     private var acceptTitle: String {
         switch recommendation {
@@ -224,13 +173,5 @@ private struct RecommendationCard: View {
         case .createCustomRule: return "wand.and.rays"
         case .addAppToBlocklist: return "app.badge.checkmark"
         }
-    }
-
-    private func pluralizeTimes(_ n: Int) -> String {
-        let mod10 = n % 10
-        let mod100 = n % 100
-        if mod10 == 1 && mod100 != 11 { return "раз" }
-        if (2...4).contains(mod10) && !(12...14).contains(mod100) { return "рази" }
-        return "разів"
     }
 }

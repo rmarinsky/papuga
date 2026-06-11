@@ -1,4 +1,5 @@
 import Defaults
+import KeyboardShortcuts
 import SwiftUI
 
 struct HistoryWindowView: View {
@@ -13,6 +14,10 @@ struct HistoryWindowView: View {
     @Default(.autoFixBlocklist) private var autoFixBlocklist
     @Default(.customAutoReplaceRules) private var customAutoReplaceRules
     @Default(.dismissedRecommendations) private var dismissedRecommendations
+
+    @Default(.isServiceRunning) private var isServiceRunning
+    @Default(.useDoublePress) private var useDoublePress
+    @Default(.doublePressShortcut) private var doublePressShortcut
 
     init(initialSection: HistorySection) {
         _selection = State(initialValue: initialSection)
@@ -68,6 +73,9 @@ struct HistoryWindowView: View {
             }
             .listStyle(.sidebar)
             .tint(Color("BrandAccentDeep"))
+
+            Divider()
+            statusPill
         }
     }
 
@@ -90,15 +98,40 @@ struct HistoryWindowView: View {
             Text("Papuga")
                 .font(.system(size: 13, weight: .semibold))
             Spacer()
-            Text("PRO")
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(Color("ProBadgeText"))
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Capsule().fill(Color("ProBadgeBg")))
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    private var statusPill: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(isServiceRunning ? Color("BrandAccent") : Color.secondary)
+                .frame(width: 8, height: 8)
+            Text(isServiceRunning ? "Слухаю" : "Вимкнено")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(isServiceRunning ? .primary : .secondary)
+            Spacer()
+            Text(shortcutHint)
+                .font(.system(size: 11, weight: .medium, design: .rounded))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                )
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    private var shortcutHint: String {
+        if useDoublePress {
+            let preset = DoublePressShortcutPreset(rawValue: doublePressShortcut) ?? .optionShift
+            return "\(preset.title) ×2"
+        }
+        return KeyboardShortcuts.getShortcut(for: .switchForward)?.description ?? "Своя комбінація"
     }
 
     @ViewBuilder
@@ -124,7 +157,7 @@ struct HistoryWindowView: View {
     private var detailView: some View {
         switch selection {
         case .overview:
-            AnalyticsTab()
+            AnalyticsTab(recommendations: cachedRecommendations)
         case .history:
             HistoryDetailView()
         case .suggestions:
