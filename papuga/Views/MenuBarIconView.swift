@@ -59,30 +59,23 @@ private enum RotatingIconFrames {
     private static func renderFrame(angle: CGFloat) -> NSImage {
         let size = NSSize(width: 18, height: 18)
         let image = NSImage(size: size)
-
         image.lockFocus()
         defer { image.unlockFocus() }
 
-        guard let context = NSGraphicsContext.current?.cgContext else {
-            return image
-        }
+        guard let context = NSGraphicsContext.current?.cgContext else { return image }
 
         context.translateBy(x: size.width / 2, y: size.height / 2)
         context.rotate(by: angle * .pi / 180)
 
-        let icon = "🦜" as NSString
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 14)
-        ]
-        let textSize = icon.size(withAttributes: attributes)
-        let drawRect = CGRect(
-            x: -textSize.width / 2,
-            y: -textSize.height / 2,
-            width: textSize.width,
-            height: textSize.height
-        )
+        let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
+            .applying(.preferringMonochrome())
+        if let sym = NSImage(systemSymbolName: "bird.fill", accessibilityDescription: nil)?
+                .withSymbolConfiguration(config) {
+            let s = sym.size
+            sym.draw(in: NSRect(x: -s.width / 2, y: -s.height / 2, width: s.width, height: s.height))
+        }
 
-        icon.draw(in: drawRect, withAttributes: attributes)
+        image.isTemplate = true
         return image
     }
 }
