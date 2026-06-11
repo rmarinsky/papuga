@@ -44,7 +44,7 @@ struct AnalyticsTab: View {
             VStack(spacing: 6) {
                 Text(formatSeconds(seconds))
                     .font(.system(size: 44, weight: .bold, design: .rounded))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(.primary)
                     .contentTransition(.numericText())
                     .animation(.snappy, value: seconds)
 
@@ -72,16 +72,12 @@ struct AnalyticsTab: View {
         return HStack(spacing: 4) {
             Image(systemName: isUp ? "arrow.up.right" : "arrow.down.right")
                 .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(isUp ? Color.green : Color.secondary)
             Text(isUp ? "+\(percent)% проти попереднього місяця"
                       : "\(percent)% проти попереднього місяця")
                 .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
         }
-        .foregroundStyle(isUp ? Color.green : Color.secondary)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
-        .background(
-            Capsule().fill((isUp ? Color.green : Color.secondary).opacity(0.12))
-        )
     }
 
     // MARK: - Chart
@@ -153,7 +149,7 @@ struct AnalyticsTab: View {
             Spacer()
             Text("\(value)")
                 .font(.system(size: 12, weight: .semibold, design: .rounded))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(.primary)
                 .monospacedDigit()
                 .contentTransition(.numericText())
                 .animation(.snappy, value: value)

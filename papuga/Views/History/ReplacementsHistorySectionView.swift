@@ -184,8 +184,8 @@ private struct ReplacementRow: View {
 
     private var color: Color {
         switch entry.kind {
-        case .manualSwitch: return .blue
-        case .autoFixApplied: return .green
+        case .manualSwitch: return Color("BrandAccentDeep")
+        case .autoFixApplied: return Color("BrandAccentDeep")
         case .autoFixUndone: return .orange
         }
     }

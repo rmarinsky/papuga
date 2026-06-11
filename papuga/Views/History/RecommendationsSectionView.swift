@@ -148,7 +148,7 @@ private struct RecommendationCard: View {
         case 5: return .red
         case 4: return .orange
         case 3: return .yellow
-        case 2: return .blue
+        case 2: return .teal
         default: return .gray
         }
     }
