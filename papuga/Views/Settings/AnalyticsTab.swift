@@ -511,9 +511,8 @@ struct AnalyticsTab: View {
 
     @ViewBuilder
     private func appIcon(for bundleID: String?) -> some View {
-        if let bundleID, !bundleID.isEmpty,
-           let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
-            Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
+        if let bundleID, !bundleID.isEmpty, let icon = AppContextProvider.icon(forBundleID: bundleID) {
+            Image(nsImage: icon)
                 .resizable()
                 .interpolation(.high)
                 .frame(width: 15, height: 15)
@@ -592,13 +591,7 @@ struct AnalyticsTab: View {
 
     private func appName(for bundleID: String?) -> String? {
         guard let bundleID, !bundleID.isEmpty else { return nil }
-        if let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.localizedName {
-            return running
-        }
-        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
-            return FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: "")
-        }
-        return bundleID.split(separator: ".").last.map(String.init)?.capitalized
+        return AppContextProvider.displayName(forBundleID: bundleID)
     }
 
     private func compactNumber(_ n: Int) -> String {

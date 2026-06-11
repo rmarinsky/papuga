@@ -140,10 +140,9 @@ private struct ReplacementRow: View {
     let entry: ReplacementHistoryEntry
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: entry.kind.systemImage)
-                .frame(width: 22)
-                .foregroundStyle(color)
+        HStack(alignment: .center, spacing: 12) {
+            appGlyph
+                .frame(width: 18, height: 18)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
@@ -175,19 +174,49 @@ private struct ReplacementRow: View {
                         .padding(.vertical, 2)
                         .background(RoundedRectangle(cornerRadius: 4).fill(color.opacity(0.15)))
                         .foregroundStyle(color)
-                    if let bundleID = entry.bundleID, !bundleID.isEmpty {
-                        Text(bundleID).font(.caption2).foregroundStyle(.secondary)
+                    if let appName {
+                        Text(appName).font(.caption2).foregroundStyle(.secondary)
                     }
                 }
             }
 
             Spacer()
 
-            Text(Self.timeFormatter.string(from: entry.timestamp))
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
+            VStack(alignment: .trailing, spacing: 1) {
+                Text(Self.timeFormatter.string(from: entry.timestamp))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                Text(relativeDay)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
         }
         .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private var appGlyph: some View {
+        if let bundleID = entry.bundleID, !bundleID.isEmpty,
+           let icon = AppContextProvider.icon(forBundleID: bundleID) {
+            Image(nsImage: icon)
+                .resizable()
+                .interpolation(.high)
+        } else {
+            Image(systemName: entry.kind.systemImage)
+                .foregroundStyle(color)
+        }
+    }
+
+    private var appName: String? {
+        guard let bundleID = entry.bundleID, !bundleID.isEmpty else { return nil }
+        return AppContextProvider.displayName(forBundleID: bundleID)
+    }
+
+    private var relativeDay: String {
+        let cal = Calendar.current
+        if cal.isDateInToday(entry.timestamp) { return "Сьогодні" }
+        if cal.isDateInYesterday(entry.timestamp) { return "Вчора" }
+        return entry.timestamp.formatted(.dateTime.weekday(.abbreviated))
     }
 
     private var color: Color {
@@ -201,7 +230,7 @@ private struct ReplacementRow: View {
     private static let timeFormatter: DateFormatter = {
         let f = DateFormatter()
         f.locale = .current
-        f.setLocalizedDateFormatFromTemplate("dd.MM HH:mm")
+        f.setLocalizedDateFormatFromTemplate("HH:mm")
         return f
     }()
 }
