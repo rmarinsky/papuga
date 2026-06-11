@@ -4,6 +4,7 @@ import SwiftUI
 struct HistoryWindowView: View {
     @State private var selection: HistorySection
     @State private var historyStore = ReplacementHistoryStore.shared
+    @State private var cachedRecommendations: [Recommendation] = []
 
     @Environment(LayoutManager.self) private var layoutManager
     @Environment(ClipboardHistoryManager.self) private var clipboardHistoryManager
@@ -17,6 +18,10 @@ struct HistoryWindowView: View {
         _selection = State(initialValue: initialSection)
     }
 
+    private var recommendationCacheKey: String {
+        "\(historyStore.entries.count)|\(autoFixAllowlist.joined())|\(autoFixBlocklist.joined())|\(customAutoReplaceRules.count)|\(dismissedRecommendations.joined())"
+    }
+
     var body: some View {
         NavigationSplitView {
             sidebar
@@ -25,6 +30,15 @@ struct HistoryWindowView: View {
             detailView
         }
         .navigationTitle(selection.title)
+        .task(id: recommendationCacheKey) {
+            cachedRecommendations = RecommendationEngine.compute(
+                from: historyStore.entries,
+                allowlist: autoFixAllowlist,
+                blocklist: autoFixBlocklist,
+                customRules: customAutoReplaceRules,
+                dismissed: dismissedRecommendations
+            )
+        }
         .onReceive(NotificationCenter.default.publisher(for: .historyWindowSectionRequest)) { note in
             if let section = note.userInfo?["section"] as? HistorySection {
                 selection = section
@@ -42,7 +56,7 @@ struct HistoryWindowView: View {
             List(selection: $selection) {
                 row(.overview)
                 row(.history)
-                row(.suggestions, badge: activeRecommendations.count)
+                row(.suggestions, badge: cachedRecommendations.count)
 
                 Section("Налаштування") {
                     row(.settingsGeneral)
@@ -114,7 +128,7 @@ struct HistoryWindowView: View {
         case .history:
             HistoryDetailView()
         case .suggestions:
-            RecommendationsSectionView(recommendations: activeRecommendations)
+            RecommendationsSectionView(recommendations: cachedRecommendations)
         case .settingsGeneral:
             GeneralTab()
         case .settingsLanguages:
@@ -128,15 +142,6 @@ struct HistoryWindowView: View {
         }
     }
 
-    private var activeRecommendations: [Recommendation] {
-        RecommendationEngine.compute(
-            from: historyStore.entries,
-            allowlist: autoFixAllowlist,
-            blocklist: autoFixBlocklist,
-            customRules: customAutoReplaceRules,
-            dismissed: dismissedRecommendations
-        )
-    }
 }
 
 // MARK: - History internal switcher

@@ -108,6 +108,10 @@ private struct RecommendationCard: View {
                     Text(subtitle)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                    if case .createCustomRule(let src, let tgt, _, _) = recommendation {
+                        conversionChips(source: src, target: tgt)
+                            .padding(.top, 4)
+                    }
                 }
                 Spacer()
             }
@@ -130,8 +134,39 @@ private struct RecommendationCard: View {
         .background(RoundedRectangle(cornerRadius: 10).fill(Color(.windowBackgroundColor)))
         .overlay(
             RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(Color.secondary.opacity(0.2))
+                .strokeBorder(Color("BrandTintBorder"), lineWidth: 1)
         )
+    }
+
+    private func conversionChips(source: String, target: String) -> some View {
+        HStack(spacing: 8) {
+            Text(source)
+                .font(.system(.caption, design: .monospaced))
+                .strikethrough(true, color: Color("BrandAccentDeep").opacity(0.7))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(Color("BrandTintSoft"))
+                )
+            Image(systemName: "arrow.right")
+                .font(.system(size: 10))
+                .foregroundStyle(Color("BrandAccentDeep"))
+            Text(target)
+                .font(.system(.caption, design: .monospaced).weight(.medium))
+                .foregroundStyle(Color("BrandAccentDeep"))
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(Color("BrandTintSoft"))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .strokeBorder(Color("BrandTintBorder"), lineWidth: 1)
+                        )
+                )
+        }
     }
 
     private var tierBadge: some View {
