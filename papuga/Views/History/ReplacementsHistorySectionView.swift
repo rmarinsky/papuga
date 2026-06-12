@@ -165,6 +165,9 @@ struct ReplacementsHistorySectionView: View {
 private struct ReplacementRow: View {
     let entry: ReplacementHistoryEntry
 
+    @Default(.autoFixAllowlist) private var allowlist
+    @Default(.customAutoReplaceRules) private var customRules
+
     var body: some View {
         HStack(spacing: 12) {
             appGlyph
@@ -205,8 +208,88 @@ private struct ReplacementRow: View {
                     .foregroundStyle(.tertiary)
             }
             .frame(width: 56, alignment: .trailing)
+
+            if canMakeWordAction {
+                Menu {
+                    rowActions
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .foregroundStyle(.secondary)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Дії із цим словом")
+            }
         }
         .padding(.vertical, 6)
+        .contextMenu {
+            if canMakeWordAction {
+                rowActions
+            }
+        }
+    }
+
+    // MARK: - Per-row actions ("don't fix this" / "always replace this → that")
+
+    @ViewBuilder
+    private var rowActions: some View {
+        if isAllowlisted {
+            Label("«\(trimmedOriginal)» вже у списку «не чіпати»", systemImage: "checkmark")
+        } else {
+            Button {
+                allowlist.append(trimmedOriginal)
+            } label: {
+                Label("Не заміняти «\(trimmedOriginal)»", systemImage: "hand.raised")
+            }
+        }
+
+        if canMakeRule {
+            Divider()
+            if hasRule {
+                Label("Правило для «\(trimmedOriginal)» вже існує", systemImage: "checkmark")
+            } else {
+                Button {
+                    customRules.append(
+                        CustomAutoReplaceRule(source: trimmedOriginal, target: trimmedConverted, createdFromRecommendation: false)
+                    )
+                } label: {
+                    Label("Завжди заміняти: \(trimmedOriginal) → \(trimmedConverted)", systemImage: "wand.and.rays")
+                }
+            }
+        }
+    }
+
+    private var trimmedOriginal: String {
+        entry.original.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedConverted: String {
+        entry.converted.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Allowlisting/rules act on a single typed word — the unit auto-fix evaluates.
+    /// Multi-word or truncated entries can't be expressed as a word/rule.
+    private var canMakeWordAction: Bool {
+        !entry.originalTruncated
+            && trimmedOriginal.count >= 2
+            && !trimmedOriginal.contains(where: { $0.isWhitespace })
+    }
+
+    private var canMakeRule: Bool {
+        canMakeWordAction
+            && !entry.convertedTruncated
+            && !trimmedConverted.isEmpty
+            && !trimmedConverted.contains(where: { $0.isWhitespace })
+            && trimmedConverted.lowercased() != trimmedOriginal.lowercased()
+    }
+
+    private var isAllowlisted: Bool {
+        allowlist.contains { $0.lowercased() == trimmedOriginal.lowercased() }
+    }
+
+    private var hasRule: Bool {
+        customRules.contains { $0.source.lowercased() == trimmedOriginal.lowercased() }
     }
 
     @ViewBuilder
