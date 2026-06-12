@@ -168,6 +168,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.textSwitchEngine?.performSwitch(direction: .forward)
             AppLogger.post(self?.logger ?? AppLogger.lifecycle, "Custom shortcut switch request dispatched")
         }
+
+        KeyboardShortcuts.onKeyUp(for: .toggleAutoFix) { [weak self] in
+            Defaults[.autoFixEnabled].toggle()
+            AppLogger.action(self?.logger ?? AppLogger.lifecycle, "Toggled auto-fix via shortcut -> \(Defaults[.autoFixEnabled])")
+        }
+
+        KeyboardShortcuts.onKeyUp(for: .openPapuga) { [weak self] in
+            AppLogger.action(self?.logger ?? AppLogger.lifecycle, "Open Papuga via shortcut")
+            HistoryWindowController.shared.showHistory()
+        }
+
+        KeyboardShortcuts.onKeyUp(for: .undoLastFix) { [weak self] in
+            AppLogger.action(self?.logger ?? AppLogger.lifecycle, "Undo last fix via shortcut")
+            self?.autoFixController?.undoLastFix()
+        }
+
         AppLogger.post(logger, "setupKeyboardShortcuts completed")
     }
 }

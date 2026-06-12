@@ -94,6 +94,7 @@ extension Defaults.Keys {
     static let doublePressInterval = Key<Double>("doublePressInterval", default: 0.4)
     static let doublePressShortcut = Key<String>("doublePressShortcut", default: DoublePressShortcutPreset.optionShift.rawValue)
     static let layoutOrder = Key<[String]>("layoutOrder", default: [])
+    static let disabledLayouts = Key<[String]>("disabledLayouts", default: [])
     static let showMenuBarIcon = Key<Bool>("showMenuBarIcon", default: true)
     static let switchResultMode = Key<String>("switchResultMode", default: SwitchResultMode.copyAndPaste.rawValue)
     static let textReplacementCount = Key<Int>("textReplacementCount", default: 0)
@@ -118,6 +119,7 @@ extension Defaults.Keys {
     static let autoFixEnabled = Key<Bool>("autoFixEnabled", default: true)
     static let autoFixAlgorithm = Key<String>("autoFixAlgorithm", default: LanguageScorerAlgorithm.appleNL.rawValue)
     static let autoFixThreshold = Key<Double>("autoFixThreshold", default: 0.3)
+    static let autoFixMinWordLength = Key<Int>("autoFixMinWordLength", default: 3)
     static let autoFixUndoWindow = Key<Double>("autoFixUndoWindow", default: 1.5)
     static let autoFixBlocklist = Key<[String]>("autoFixBlocklist", default: [])
     static let autoFixAllowlist = Key<[String]>("autoFixAllowlist", default: [])
@@ -135,4 +137,7 @@ extension Defaults.Keys {
 
 extension KeyboardShortcuts.Name {
     static let switchForward = Self("switchForward")
+    static let toggleAutoFix = Self("toggleAutoFix")
+    static let openPapuga = Self("openPapuga")
+    static let undoLastFix = Self("undoLastFix")
 }

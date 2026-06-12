@@ -46,8 +46,22 @@ struct HotkeysTab: View {
                     }
                 }
             }
+
+            Section("Дії") {
+                shortcutRow("Скасувати останню заміну", name: .undoLastFix)
+                shortcutRow("Увімкнути / вимкнути автозаміну", name: .toggleAutoFix)
+                shortcutRow("Відкрити Papuga", name: .openPapuga)
+            }
         }
         .formStyle(.grouped)
+    }
+
+    private func shortcutRow(_ title: String, name: KeyboardShortcuts.Name) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            KeyboardShortcuts.Recorder(for: name)
+        }
     }
 
     private var selectedPreset: DoublePressShortcutPreset {

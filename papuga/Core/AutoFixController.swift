@@ -71,6 +71,17 @@ final class AutoFixController {
         AppLogger.post(logger, "AutoFixController stopped")
     }
 
+    /// Undo the most recent auto-fix on demand (e.g. from a global shortcut),
+    /// if one is still pending. Restores the original word and layout.
+    func undoLastFix() {
+        guard let pending = lastFix else {
+            AppLogger.post(logger, "undoLastFix() ignored: no pending fix")
+            return
+        }
+        undo(pending, boundaryAlreadyConsumed: false)
+        lastFix = nil
+    }
+
     fileprivate nonisolated func handleEvent(type: CGEventType, event: CGEvent) {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             DispatchQueue.main.async { [weak self] in
@@ -230,7 +241,7 @@ final class AutoFixController {
             return
         }
 
-        if let skip = AutoFixDecision.shouldSkipWord(word) {
+        if let skip = AutoFixDecision.shouldSkipWord(word, minLength: Defaults[.autoFixMinWordLength]) {
             switch skip {
             case .tooShort:
                 logSkip(.tooShort, word: word, bundleID: bundleID); return

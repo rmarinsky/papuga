@@ -118,12 +118,15 @@ final class LayoutManager {
     func orderedLayouts() -> [String] {
         AppLogger.pre(logger, "orderedLayouts()")
         let order = Defaults[.layoutOrder]
+        let disabled = Set(Defaults[.disabledLayouts])
         if order.isEmpty {
-            let fallback = availableLayouts.map(\.id)
+            let fallback = availableLayouts.map(\.id).filter { !disabled.contains($0) }
             AppLogger.post(logger, "orderedLayouts() fallback to available list count=\(fallback.count)")
             return fallback
         }
-        let result = order.filter { id in availableLayouts.contains(where: { $0.id == id }) }
+        let result = order.filter { id in
+            availableLayouts.contains(where: { $0.id == id }) && !disabled.contains(id)
+        }
         AppLogger.post(logger, "orderedLayouts() -> \(result.count) items")
         return result
     }

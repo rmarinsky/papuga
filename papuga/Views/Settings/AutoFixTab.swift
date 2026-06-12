@@ -8,6 +8,11 @@ struct AutoFixTab: View {
     @Default(.autoFixAllowlist) private var autoFixAllowlist
     @Default(.autoFixToastEnabled) private var autoFixToastEnabled
     @Default(.customAutoReplaceRules) private var customAutoReplaceRules
+    @Default(.autoFixAlgorithm) private var autoFixAlgorithm
+    @Default(.autoFixThreshold) private var autoFixThreshold
+    @Default(.autoFixMinWordLength) private var autoFixMinWordLength
+
+    private let minWordLengthOptions = [2, 3, 4, 5]
 
     @State private var showingAddSheet = false
     @State private var newAllowlistWord = ""
@@ -32,6 +37,40 @@ struct AutoFixTab: View {
                 Text("Якщо клікнути по папузі — заміна скасується, а слово запам'ятається у списку «не чіпати»")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            Section("Визначення мови") {
+                Picker("Мінімальна довжина слова", selection: $autoFixMinWordLength) {
+                    ForEach(minWordLengthOptions, id: \.self) { n in
+                        Text("\(n) симв.").tag(n)
+                    }
+                }
+                .pickerStyle(.menu)
+                Text("Коротші слова автозаміна ігнорує, щоб не чіпати випадкові фрагменти.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Picker("Алгоритм визначення мови", selection: $autoFixAlgorithm) {
+                    ForEach(LanguageScorerAlgorithm.implementedCases, id: \.rawValue) { algorithm in
+                        Text(algorithm.title).tag(algorithm.rawValue)
+                    }
+                }
+                .pickerStyle(.menu)
+
+                if let selected = LanguageScorerAlgorithm(rawValue: autoFixAlgorithm) {
+                    Text(selected.description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                VStack(alignment: .leading) {
+                    HStack {
+                        Text("Поріг впевненості")
+                        Spacer()
+                        Text(String(format: "%.2f", autoFixThreshold)).monospacedDigit()
+                    }
+                    Slider(value: $autoFixThreshold, in: 0.1...0.9, step: 0.05)
+                }
             }
 
             Section("Не чіпати ці слова") {
@@ -148,6 +187,12 @@ struct AutoFixTab: View {
                 blocklist: $autoFixBlocklist,
                 isPresented: $showingAddSheet
             )
+        }
+        .onAppear {
+            if let selected = LanguageScorerAlgorithm(rawValue: autoFixAlgorithm), selected.isImplemented {
+                return
+            }
+            autoFixAlgorithm = LanguageScorerAlgorithm.appleNL.rawValue
         }
     }
 
