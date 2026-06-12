@@ -6,7 +6,10 @@ struct RecommendationsSectionView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                headerCaption
+                Text("Папуга помітив ці патерни. Застосуй один — і далі він виправлятиме автоматично.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 if recommendations.isEmpty {
                     emptyView
@@ -14,25 +17,15 @@ struct RecommendationsSectionView: View {
                     ForEach(recommendations) { rec in
                         RecommendationCard(
                             recommendation: rec,
-                            onAccept: { accept(rec) },
-                            onDismiss: { dismiss(rec) }
+                            onAccept: { RecommendationEngine.apply(rec) },
+                            onDismiss: { RecommendationEngine.dismiss(rec) }
                         )
                     }
                 }
             }
-            .padding(16)
+            .padding(20)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    }
-
-    private var headerCaption: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Розумні поради")
-                .font(.title3.weight(.semibold))
-            Text("Аналізуємо твою історію за порогами 3 → 5 → 8 → 13 → 21 повторень. Сильніший рівень — більш термінова порада.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
     }
 
     private var emptyView: some View {
@@ -51,14 +44,6 @@ struct RecommendationsSectionView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 40)
     }
-
-    private func accept(_ rec: Recommendation) {
-        RecommendationEngine.apply(rec)
-    }
-
-    private func dismiss(_ rec: Recommendation) {
-        RecommendationEngine.dismiss(rec)
-    }
 }
 
 private struct RecommendationCard: View {
@@ -67,111 +52,59 @@ private struct RecommendationCard: View {
     let onDismiss: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 10) {
-                tierBadge
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(.headline)
-                    Text(subtitle)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    if case .createCustomRule(let src, let tgt, _, _) = recommendation {
-                        conversionChips(source: src, target: tgt)
-                            .padding(.top, 4)
-                    }
-                }
-                Spacer()
+        HStack(alignment: .center, spacing: 12) {
+            iconTile
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(recommendation.displayTitle)
+                    .font(.system(size: 14, weight: .semibold))
+                Text(recommendation.displaySubtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
-            HStack(spacing: 8) {
-                Button(action: onAccept) {
-                    Label(acceptTitle, systemImage: acceptIcon)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.regular)
+            Spacer(minLength: 12)
 
-                Button(role: .cancel, action: onDismiss) {
-                    Text("Відхилити")
-                }
-                .buttonStyle(.bordered)
+            Button(role: .cancel, action: onDismiss) {
+                Text("Відхилити")
             }
+            .buttonStyle(.bordered)
+
+            Button(action: onAccept) {
+                Text("Застосувати")
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Color("BrandAccentDeep"))
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color(.windowBackgroundColor)))
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.background.tertiary)
+        )
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(Color("BrandTintBorder"), lineWidth: 1)
         )
     }
 
-    private func conversionChips(source: String, target: String) -> some View {
-        HStack(spacing: 8) {
-            Text(source)
-                .font(.system(.caption, design: .monospaced))
-                .strikethrough(true, color: Color("BrandAccentDeep").opacity(0.7))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3)
-                .background(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(Color("BrandTintSoft"))
-                )
-            Image(systemName: "arrow.right")
-                .font(.system(size: 10))
+    private var iconTile: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color("BrandTintSoft"))
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(Color("BrandAccentDeep"))
-            Text(target)
-                .font(.system(.caption, design: .monospaced).weight(.medium))
-                .foregroundStyle(Color("BrandAccentDeep"))
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3)
-                .background(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(Color("BrandTintSoft"))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                .strokeBorder(Color("BrandTintBorder"), lineWidth: 1)
-                        )
-                )
         }
+        .frame(width: 30, height: 30)
     }
 
-    private var tierBadge: some View {
-        Text("\(recommendation.tier)")
-            .font(.title3.weight(.bold))
-            .foregroundStyle(.white)
-            .frame(width: 32, height: 32)
-            .background(Circle().fill(tierColor))
-            .accessibilityLabel("Рівень \(recommendation.tier)")
-    }
-
-    private var tierColor: Color {
-        switch recommendation.tier {
-        case 5: return .red
-        case 4: return .orange
-        case 3: return .yellow
-        case 2: return .teal
-        default: return .gray
-        }
-    }
-
-    private var title: String { recommendation.displayTitle }
-
-    private var subtitle: String { recommendation.displaySubtitle }
-
-    private var acceptTitle: String {
-        switch recommendation {
-        case .addWordToAllowlist: return "Додати у allowlist"
-        case .createCustomRule: return "Створити правило"
-        case .addAppToBlocklist: return "Додати у blocklist"
-        }
-    }
-
-    private var acceptIcon: String {
+    private var icon: String {
         switch recommendation {
         case .addWordToAllowlist: return "checkmark.shield"
         case .createCustomRule: return "wand.and.rays"
-        case .addAppToBlocklist: return "app.badge.checkmark"
+        case .addAppToBlocklist: return "nosign"
         }
     }
 }

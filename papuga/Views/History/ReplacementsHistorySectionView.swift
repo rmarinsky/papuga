@@ -3,30 +3,21 @@ import SwiftUI
 
 struct ReplacementsHistorySectionView: View {
     @State private var store = ReplacementHistoryStore.shared
-    @State private var filter: FilterOption = .all
+    @State private var range: TimeRange = .all
+    @State private var query: String = ""
     @State private var showingClearConfirmation = false
 
     @Default(.replacementHistoryEnabled) private var historyEnabled
 
-    enum FilterOption: String, CaseIterable, Identifiable {
-        case all, manual, autoFix, autoFixUndone
+    enum TimeRange: String, CaseIterable, Identifiable {
+        case all, today, week
         var id: String { rawValue }
 
         var title: String {
             switch self {
             case .all: return "Усі"
-            case .manual: return "Ручні"
-            case .autoFix: return "AutoFix"
-            case .autoFixUndone: return "Скасоване AutoFix"
-            }
-        }
-
-        var kind: ReplacementHistoryEntry.Kind? {
-            switch self {
-            case .all: return nil
-            case .manual: return .manualSwitch
-            case .autoFix: return .autoFixApplied
-            case .autoFixUndone: return .autoFixUndone
+            case .today: return "Сьогодні"
+            case .week: return "Цей тиждень"
             }
         }
     }
@@ -34,14 +25,15 @@ struct ReplacementsHistorySectionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
+            Divider()
 
             if !historyEnabled {
                 disabledView
-            } else if filteredEntries.isEmpty {
+            } else if visibleEntries.isEmpty {
                 emptyView
             } else {
                 List {
-                    ForEach(filteredEntries) { entry in
+                    ForEach(visibleEntries) { entry in
                         ReplacementRow(entry: entry)
                     }
                 }
@@ -52,44 +44,65 @@ struct ReplacementsHistorySectionView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Picker("Фільтр", selection: $filter) {
-                    ForEach(FilterOption.allCases) { option in
-                        Text(option.title).tag(option)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(maxWidth: 480)
-
-                Spacer()
-
-                Button(role: .destructive) {
-                    showingClearConfirmation = true
-                } label: {
-                    Label("Очистити", systemImage: "trash")
-                }
-                .disabled(store.entries.isEmpty)
-                .confirmationDialog(
-                    "Очистити історію замін?",
-                    isPresented: $showingClearConfirmation,
-                    titleVisibility: .visible
-                ) {
-                    Button("Очистити", role: .destructive) {
-                        store.clearAll()
-                    }
-                    Button("Скасувати", role: .cancel) {}
-                } message: {
-                    Text("Цю дію не можна скасувати.")
-                }
+        HStack(spacing: 10) {
+            HStack(spacing: 6) {
+                ForEach(TimeRange.allCases) { chip($0) }
             }
 
-            Text(summaryText)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            Spacer()
+
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField("Пошук", text: $query)
+                    .textFieldStyle(.plain)
+                    .frame(width: 150)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(.background.tertiary)
+            )
+
+            Button(role: .destructive) {
+                showingClearConfirmation = true
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .help("Очистити історію")
+            .disabled(store.entries.isEmpty)
+            .confirmationDialog(
+                "Очистити історію замін?",
+                isPresented: $showingClearConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Очистити", role: .destructive) { store.clearAll() }
+                Button("Скасувати", role: .cancel) {}
+            } message: {
+                Text("Цю дію не можна скасувати.")
+            }
         }
         .padding(12)
+    }
+
+    private func chip(_ r: TimeRange) -> some View {
+        let selected = range == r
+        return Button {
+            range = r
+        } label: {
+            Text(r.title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(selected ? .white : .secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
+                .background(
+                    Capsule().fill(selected ? Color("BrandAccent") : Color(nsColor: .controlBackgroundColor))
+                )
+        }
+        .buttonStyle(.plain)
     }
 
     private var disabledView: some View {
@@ -110,29 +123,42 @@ struct ReplacementsHistorySectionView: View {
 
     private var emptyView: some View {
         VStack(spacing: 8) {
-            Image(systemName: "tray")
+            Image(systemName: query.isEmpty ? "tray" : "magnifyingglass")
                 .font(.system(size: 36))
                 .foregroundStyle(.tertiary)
-            Text("Поки немає записів")
+            Text(query.isEmpty ? "Поки немає записів" : "Нічого не знайдено")
                 .font(.headline)
-            Text("Зроби перше перемикання або зачекай, поки спрацює автозаміна.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            if query.isEmpty {
+                Text("Зроби перше перемикання або зачекай, поки спрацює автозаміна.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private var filteredEntries: [ReplacementHistoryEntry] {
-        guard let kind = filter.kind else { return store.entries }
-        return store.entries.filter { $0.kind == kind }
-    }
+    private var visibleEntries: [ReplacementHistoryEntry] {
+        let cal = Calendar.current
+        let weekAgo = cal.date(byAdding: .day, value: -6, to: cal.startOfDay(for: Date()))
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
 
-    private var summaryText: String {
-        let total = store.entries.count
-        let manual = store.entries.filter { $0.kind == .manualSwitch }.count
-        let applied = store.entries.filter { $0.kind == .autoFixApplied }.count
-        let undone = store.entries.filter { $0.kind == .autoFixUndone }.count
-        return "Усього: \(total)  •  ручних: \(manual)  •  AutoFix: \(applied)  •  скасованих: \(undone)"
+        return store.entries.filter { entry in
+            switch range {
+            case .all:
+                break
+            case .today:
+                if !cal.isDateInToday(entry.timestamp) { return false }
+            case .week:
+                if let weekAgo, entry.timestamp < weekAgo { return false }
+            }
+
+            if !q.isEmpty {
+                let inText = entry.original.lowercased().contains(q) || entry.converted.lowercased().contains(q)
+                let inApp = entry.bundleID.map { AppContextProvider.displayName(forBundleID: $0).lowercased().contains(q) } ?? false
+                if !inText && !inApp { return false }
+            }
+            return true
+        }
     }
 }
 
@@ -140,47 +166,35 @@ private struct ReplacementRow: View {
     let entry: ReplacementHistoryEntry
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
+        HStack(spacing: 12) {
             appGlyph
                 .frame(width: 18, height: 18)
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(entry.original)
-                        .font(.system(.body, design: .monospaced))
-                        .strikethrough(true, color: Color("BrandAccentDeep").opacity(0.7))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(
-                            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                .fill(Color("BrandTintSoft"))
-                        )
-                    Image(systemName: "arrow.right")
-                        .font(.caption2)
-                        .foregroundStyle(Color("BrandAccentDeep"))
-                    Text(entry.converted)
-                        .font(.system(.body, design: .monospaced).weight(.medium))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                HStack(spacing: 8) {
-                    Text(entry.kind.displayName)
-                        .font(.caption2)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(RoundedRectangle(cornerRadius: 4).fill(color.opacity(0.15)))
-                        .foregroundStyle(color)
-                    if let appName {
-                        Text(appName).font(.caption2).foregroundStyle(.secondary)
-                    }
-                }
-            }
+            Text(entry.original)
+                .font(.system(.body, design: .monospaced))
+                .strikethrough(true, color: Color("BrandAccentDeep").opacity(0.7))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
 
-            Spacer()
+            Image(systemName: "arrow.right")
+                .font(.caption2)
+                .foregroundStyle(Color("BrandAccentDeep"))
+
+            Text(entry.converted)
+                .font(.system(.body, design: .monospaced).weight(.medium))
+                .foregroundStyle(entry.kind == .autoFixUndone ? .secondary : .primary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            Spacer(minLength: 12)
+
+            if let appName {
+                Text(appName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
 
             VStack(alignment: .trailing, spacing: 1) {
                 Text(Self.timeFormatter.string(from: entry.timestamp))
@@ -190,8 +204,9 @@ private struct ReplacementRow: View {
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
+            .frame(width: 56, alignment: .trailing)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
     }
 
     @ViewBuilder
@@ -203,7 +218,7 @@ private struct ReplacementRow: View {
                 .interpolation(.high)
         } else {
             Image(systemName: entry.kind.systemImage)
-                .foregroundStyle(color)
+                .foregroundStyle(entry.kind == .autoFixUndone ? .orange : Color("BrandAccentDeep"))
         }
     }
 
@@ -217,14 +232,6 @@ private struct ReplacementRow: View {
         if cal.isDateInToday(entry.timestamp) { return "Сьогодні" }
         if cal.isDateInYesterday(entry.timestamp) { return "Вчора" }
         return entry.timestamp.formatted(.dateTime.weekday(.abbreviated))
-    }
-
-    private var color: Color {
-        switch entry.kind {
-        case .manualSwitch: return Color("BrandAccentDeep")
-        case .autoFixApplied: return Color("BrandAccentDeep")
-        case .autoFixUndone: return .orange
-        }
     }
 
     private static let timeFormatter: DateFormatter = {

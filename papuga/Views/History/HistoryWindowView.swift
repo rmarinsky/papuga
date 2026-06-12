@@ -159,7 +159,7 @@ struct HistoryWindowView: View {
         case .overview:
             AnalyticsTab(recommendations: cachedRecommendations)
         case .history:
-            HistoryDetailView()
+            ReplacementsHistorySectionView()
         case .suggestions:
             RecommendationsSectionView(recommendations: cachedRecommendations)
         case .settingsGeneral:
@@ -175,48 +175,4 @@ struct HistoryWindowView: View {
         }
     }
 
-}
-
-// MARK: - History internal switcher
-
-private struct HistoryDetailView: View {
-    enum HistoryKind: String, CaseIterable, Identifiable {
-        case replacements, clipboard
-        var id: String { rawValue }
-        var title: String {
-            switch self {
-            case .replacements: return "Заміни"
-            case .clipboard: return "Копіопасти"
-            }
-        }
-    }
-
-    @State private var kind: HistoryKind = .replacements
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Picker("", selection: $kind) {
-                    ForEach(HistoryKind.allCases) { k in
-                        Text(k.title).tag(k)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(maxWidth: 240)
-                Spacer()
-            }
-            .padding(12)
-
-            Divider()
-
-            switch kind {
-            case .replacements:
-                ReplacementsHistorySectionView()
-            case .clipboard:
-                ClipboardHistorySectionView()
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    }
 }
