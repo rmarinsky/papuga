@@ -8,6 +8,7 @@ enum HistorySection: String, Identifiable, CaseIterable {
     case settingsGeneral
     case settingsLanguages
     case settingsRules
+    case settingsDictionary
     case settingsShortcuts
     case settingsAccount
 
@@ -21,6 +22,7 @@ enum HistorySection: String, Identifiable, CaseIterable {
         case .settingsGeneral: return "Загальні"
         case .settingsLanguages: return "Мови"
         case .settingsRules: return "Правила"
+        case .settingsDictionary: return "Словник"
         case .settingsShortcuts: return "Клавіші"
         case .settingsAccount: return "Аккаунт"
         }
@@ -34,6 +36,7 @@ enum HistorySection: String, Identifiable, CaseIterable {
         case .settingsGeneral: return "gear"
         case .settingsLanguages: return "globe"
         case .settingsRules: return "wand.and.stars"
+        case .settingsDictionary: return "character.book.closed"
         case .settingsShortcuts: return "command"
         case .settingsAccount: return "person.circle"
         }

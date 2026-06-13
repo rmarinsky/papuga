@@ -67,6 +67,7 @@ struct HistoryWindowView: View {
                     row(.settingsGeneral)
                     row(.settingsLanguages)
                     row(.settingsRules)
+                    row(.settingsDictionary)
                     row(.settingsShortcuts)
                     row(.settingsAccount)
                 }
@@ -168,6 +169,8 @@ struct HistoryWindowView: View {
             LanguagesSettingsTab()
         case .settingsRules:
             AutoFixTab()
+        case .settingsDictionary:
+            DictionaryTab()
         case .settingsShortcuts:
             HotkeysTab()
         case .settingsAccount:

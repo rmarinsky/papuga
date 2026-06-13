@@ -3,51 +3,85 @@ import SwiftUI
 
 struct ReplacementsHistorySectionView: View {
     @State private var store = ReplacementHistoryStore.shared
-    @State private var range: TimeRange = .all
+    @State private var range: TimeRange = .week
+    @State private var viewMode: ViewMode = .dashboard
     @State private var query: String = ""
     @State private var showingClearConfirmation = false
+    @State private var editorSeed: RuleEditorSeed?
 
     @Default(.replacementHistoryEnabled) private var historyEnabled
 
+    enum ViewMode { case dashboard, list }
+
     enum TimeRange: String, CaseIterable, Identifiable {
-        case all, today, week
+        case today, week, all
         var id: String { rawValue }
 
         var title: String {
             switch self {
-            case .all: return "Усі"
             case .today: return "Сьогодні"
-            case .week: return "Цей тиждень"
+            case .week: return "Тиждень"
+            case .all: return "Весь час"
             }
         }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
-            Divider()
-
-            if !historyEnabled {
-                disabledView
-            } else if visibleEntries.isEmpty {
-                emptyView
-            } else {
-                List {
-                    ForEach(visibleEntries) { entry in
-                        ReplacementRow(entry: entry)
-                    }
-                }
-                .listStyle(.inset)
+            switch viewMode {
+            case .dashboard: dashboardHeader
+            case .list: listHeader
             }
+            Divider()
+            content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .sheet(item: $editorSeed) { seed in
+            RuleEditorSheet(seed: seed) { editorSeed = nil }
+        }
     }
 
-    private var header: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 6) {
-                ForEach(TimeRange.allCases) { chip($0) }
+    @ViewBuilder
+    private var content: some View {
+        if !historyEnabled {
+            disabledView
+        } else {
+            switch viewMode {
+            case .dashboard:
+                if rangeEntries.isEmpty { emptyView } else { dashboard }
+            case .list:
+                listContent
             }
+        }
+    }
+
+    // MARK: - Headers
+
+    private var dashboardHeader: some View {
+        HStack(spacing: 10) {
+            Text("Історія")
+                .font(.system(size: 17, weight: .semibold))
+            Spacer()
+            Picker("", selection: $range) {
+                ForEach(TimeRange.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+        }
+        .padding(12)
+    }
+
+    private var listHeader: some View {
+        HStack(spacing: 10) {
+            Button { viewMode = .dashboard } label: {
+                Image(systemName: "chevron.left")
+            }
+            .buttonStyle(.borderless)
+            .help("Назад до огляду")
+
+            Text("Усі заміни")
+                .font(.system(size: 15, weight: .semibold))
 
             Spacer()
 
@@ -88,22 +122,116 @@ struct ReplacementsHistorySectionView: View {
         .padding(12)
     }
 
-    private func chip(_ r: TimeRange) -> some View {
-        let selected = range == r
-        return Button {
-            range = r
-        } label: {
-            Text(r.title)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(selected ? .white : .secondary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 5)
-                .background(
-                    Capsule().fill(selected ? Color("BrandAccent") : Color(nsColor: .controlBackgroundColor))
-                )
+    // MARK: - Dashboard
+
+    private var dashboard: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top, spacing: 16) {
+                    mostCommonCard
+                    firstSeenCard
+                }
+                byAppCard
+                footer
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .buttonStyle(.plain)
     }
+
+    private var mostCommonCard: some View {
+        SectionCard(eyebrow: "ЧАСТО", title: "Найчастіші помилки") {
+            if mostCommon.isEmpty {
+                hint("Поки що немає повторюваних помилок у цьому періоді.")
+            } else {
+                VStack(spacing: 9) {
+                    ForEach(mostCommon) { pair in
+                        CommonPairRow(pair: pair, maxCount: maxCommonCount) {
+                            editorSeed = RuleEditorSeed(source: pair.source, target: pair.target, mode: .replace)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var firstSeenCard: some View {
+        SectionCard(eyebrow: "ВПЕРШЕ", title: "Нові помилки") {
+            if firstSeen.isEmpty {
+                hint("Тут з'являться помилки, які Papuga побачить уперше.")
+            } else {
+                VStack(spacing: 9) {
+                    ForEach(firstSeen) { pair in
+                        FirstSeenRow(pair: pair) {
+                            editorSeed = RuleEditorSeed(source: pair.source, target: pair.target, mode: .replace)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var byAppCard: some View {
+        SectionCard(
+            eyebrow: "ПО ЗАСТОСУНКАХ",
+            title: "Де ти помиляєшся найчастіше"
+        ) {
+            if byApp.isEmpty {
+                hint("Поки немає даних по застосунках.")
+            } else {
+                VStack(spacing: 10) {
+                    ForEach(byApp) { app in
+                        AppRow(app: app, maxCount: maxAppCount)
+                    }
+                }
+            }
+        }
+    }
+
+    private var footer: some View {
+        HStack {
+            Text("Наведи на пару, щоб зробити з неї правило.")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+            Spacer()
+            Button { viewMode = .list } label: {
+                HStack(spacing: 4) {
+                    Text("Показати всі заміни")
+                    Image(systemName: "arrow.right")
+                }
+                .font(.system(size: 12, weight: .medium))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color("BrandAccentDeep"))
+        }
+        .padding(.top, 2)
+    }
+
+    private func hint(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: - Full chronological list
+
+    @ViewBuilder
+    private var listContent: some View {
+        if visibleEntries.isEmpty {
+            emptyView
+        } else {
+            List {
+                ForEach(visibleEntries) { entry in
+                    ReplacementRow(entry: entry) { seed in editorSeed = seed }
+                }
+            }
+            .listStyle(.inset)
+        }
+    }
+
+    // MARK: - Empty / disabled states
 
     private var disabledView: some View {
         VStack(spacing: 8) {
@@ -137,36 +265,282 @@ struct ReplacementsHistorySectionView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private var visibleEntries: [ReplacementHistoryEntry] {
+    // MARK: - Derived data
+
+    private var rangeEntries: [ReplacementHistoryEntry] {
         let cal = Calendar.current
         let weekAgo = cal.date(byAdding: .day, value: -6, to: cal.startOfDay(for: Date()))
-        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-
         return store.entries.filter { entry in
             switch range {
             case .all:
-                break
+                return true
             case .today:
-                if !cal.isDateInToday(entry.timestamp) { return false }
+                return cal.isDateInToday(entry.timestamp)
             case .week:
-                if let weekAgo, entry.timestamp < weekAgo { return false }
+                if let weekAgo { return entry.timestamp >= weekAgo }
+                return true
             }
+        }
+    }
 
-            if !q.isEmpty {
-                let inText = entry.original.lowercased().contains(q) || entry.converted.lowercased().contains(q)
-                let inApp = entry.bundleID.map { AppContextProvider.displayName(forBundleID: $0).lowercased().contains(q) } ?? false
-                if !inText && !inApp { return false }
+    private var visibleEntries: [ReplacementHistoryEntry] {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return rangeEntries }
+        return rangeEntries.filter { entry in
+            let inText = entry.original.lowercased().contains(q) || entry.converted.lowercased().contains(q)
+            let inApp = entry.bundleID.map { AppContextProvider.displayName(forBundleID: $0).lowercased().contains(q) } ?? false
+            return inText || inApp
+        }
+    }
+
+    private var mostCommon: [AggregatedPair] {
+        Array(
+            aggregatePairs(rangeEntries)
+                .filter { $0.count >= 2 }
+                .sorted { $0.count > $1.count }
+                .prefix(6)
+        )
+    }
+
+    private var maxCommonCount: Int { mostCommon.map(\.count).max() ?? 1 }
+
+    private var firstSeen: [AggregatedPair] {
+        Array(
+            aggregatePairs(rangeEntries)
+                .sorted { $0.firstSeen > $1.firstSeen }
+                .prefix(6)
+        )
+    }
+
+    private var byApp: [AppCount] {
+        var counts: [String: Int] = [:]
+        for entry in rangeEntries where isMistakeEntry(entry) {
+            counts[entry.bundleID ?? "—", default: 0] += 1
+        }
+        return Array(
+            counts.map { key, count -> AppCount in
+                let bundleID = key == "—" ? nil : key
+                let name = bundleID.map { AppContextProvider.displayName(forBundleID: $0) } ?? "Без застосунку"
+                return AppCount(id: key, name: name, bundleID: bundleID, count: count)
             }
-            return true
+            .sorted { $0.count > $1.count }
+            .prefix(6)
+        )
+    }
+
+    private var maxAppCount: Int { byApp.map(\.count).max() ?? 1 }
+}
+
+// MARK: - Aggregation
+
+private struct AggregatedPair: Identifiable {
+    let id: String
+    let source: String
+    let target: String
+    let count: Int
+    let firstSeen: Date
+    let lastBundleID: String?
+}
+
+private struct AppCount: Identifiable {
+    let id: String
+    let name: String
+    let bundleID: String?
+    let count: Int
+}
+
+/// A "mistake" worth aggregating: an applied switch/fix with both sides intact.
+/// Undone auto-fixes (false positives) and truncated entries are excluded.
+private func isMistakeEntry(_ entry: ReplacementHistoryEntry) -> Bool {
+    entry.kind != .autoFixUndone
+        && !entry.originalTruncated
+        && !entry.convertedTruncated
+        && !entry.original.isEmpty
+        && !entry.converted.isEmpty
+}
+
+private func aggregatePairs(_ entries: [ReplacementHistoryEntry]) -> [AggregatedPair] {
+    struct Acc {
+        var count: Int
+        var first: ReplacementHistoryEntry
+        var last: ReplacementHistoryEntry
+    }
+    var map: [String: Acc] = [:]
+    for entry in entries where isMistakeEntry(entry) {
+        let key = entry.original.lowercased() + "\u{2192}" + entry.converted.lowercased()
+        if var acc = map[key] {
+            acc.count += 1
+            if entry.timestamp < acc.first.timestamp { acc.first = entry }
+            if entry.timestamp > acc.last.timestamp { acc.last = entry }
+            map[key] = acc
+        } else {
+            map[key] = Acc(count: 1, first: entry, last: entry)
+        }
+    }
+    return map.map { key, acc in
+        AggregatedPair(
+            id: key,
+            source: acc.last.original,
+            target: acc.last.converted,
+            count: acc.count,
+            firstSeen: acc.first.timestamp,
+            lastBundleID: acc.last.bundleID
+        )
+    }
+}
+
+// MARK: - Dashboard rows
+
+private struct CommonPairRow: View {
+    let pair: AggregatedPair
+    let maxCount: Int
+    let onMakeRule: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ReplacementReceipt(source: pair.source, target: pair.target, strikethroughSource: true)
+            Spacer(minLength: 6)
+            VolumeBar(ratio: Double(pair.count) / Double(max(1, maxCount)))
+                .frame(width: 40)
+            Text("×\(pair.count)")
+                .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(minWidth: 26, alignment: .trailing)
+            MakeRuleButton(visible: hovering, action: onMakeRule)
+        }
+        .padding(.vertical, 1)
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+    }
+}
+
+private struct FirstSeenRow: View {
+    let pair: AggregatedPair
+    let onMakeRule: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ReplacementReceipt(source: pair.source, target: pair.target, strikethroughSource: true)
+            if isNew { NewBadge() }
+            Spacer(minLength: 6)
+            Text(meta)
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+            MakeRuleButton(visible: hovering, action: onMakeRule)
+        }
+        .padding(.vertical, 1)
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+    }
+
+    private var isNew: Bool {
+        pair.firstSeen > Date().addingTimeInterval(-24 * 3600)
+    }
+
+    private var meta: String {
+        let when = Self.relativeFormatter.localizedString(for: pair.firstSeen, relativeTo: Date())
+        if let bundleID = pair.lastBundleID {
+            return "\(when) · \(AppContextProvider.displayName(forBundleID: bundleID))"
+        }
+        return when
+    }
+
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .abbreviated
+        return f
+    }()
+}
+
+private struct AppRow: View {
+    let app: AppCount
+    let maxCount: Int
+
+    var body: some View {
+        HStack(spacing: 10) {
+            iconView
+                .frame(width: 18, height: 18)
+            Text(app.name)
+                .font(.system(size: 13))
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            VolumeBar(ratio: Double(app.count) / Double(max(1, maxCount)))
+                .frame(maxWidth: 160)
+            Text("\(app.count)")
+                .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(minWidth: 28, alignment: .trailing)
+        }
+    }
+
+    @ViewBuilder
+    private var iconView: some View {
+        if let bundleID = app.bundleID, let icon = AppContextProvider.icon(forBundleID: bundleID) {
+            Image(nsImage: icon)
+                .resizable()
+                .interpolation(.high)
+        } else {
+            Image(systemName: "app.dashed")
+                .foregroundStyle(.secondary)
         }
     }
 }
 
+// MARK: - Small shared bits
+
+private struct VolumeBar: View {
+    let ratio: Double
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(.quaternary)
+                Capsule()
+                    .fill(Color("BrandAccent"))
+                    .frame(width: max(3, geo.size.width * min(1, max(0, ratio))))
+            }
+        }
+        .frame(height: 6)
+    }
+}
+
+private struct NewBadge: View {
+    var body: some View {
+        Text("Нове")
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(Capsule().fill(Color("BrandAccent")))
+    }
+}
+
+private struct MakeRuleButton: View {
+    let visible: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "wand.and.stars")
+                .font(.system(size: 12, weight: .medium))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Color("BrandAccentDeep"))
+        .opacity(visible ? 1 : 0)
+        .allowsHitTesting(visible)
+        .frame(width: 16)
+        .help("Зробити правило з цієї пари")
+    }
+}
+
+// MARK: - Chronological row
+
 private struct ReplacementRow: View {
     let entry: ReplacementHistoryEntry
-
-    @Default(.autoFixAllowlist) private var allowlist
-    @Default(.customAutoReplaceRules) private var customRules
+    let onEdit: (RuleEditorSeed) -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -230,33 +604,21 @@ private struct ReplacementRow: View {
         }
     }
 
-    // MARK: - Per-row actions ("don't fix this" / "always replace this → that")
+    // MARK: - Per-row actions (route through the rule editor modal)
 
     @ViewBuilder
     private var rowActions: some View {
-        if isAllowlisted {
-            Label("«\(trimmedOriginal)» вже у списку «не чіпати»", systemImage: "checkmark")
-        } else {
+        if canMakeRule {
             Button {
-                allowlist.append(trimmedOriginal)
+                onEdit(RuleEditorSeed(source: trimmedOriginal, target: trimmedConverted, mode: .replace))
             } label: {
-                Label("Не заміняти «\(trimmedOriginal)»", systemImage: "hand.raised")
+                Label("Зробити правило…", systemImage: "wand.and.stars")
             }
         }
-
-        if canMakeRule {
-            Divider()
-            if hasRule {
-                Label("Правило для «\(trimmedOriginal)» вже існує", systemImage: "checkmark")
-            } else {
-                Button {
-                    customRules.append(
-                        CustomAutoReplaceRule(source: trimmedOriginal, target: trimmedConverted, createdFromRecommendation: false)
-                    )
-                } label: {
-                    Label("Завжди заміняти: \(trimmedOriginal) → \(trimmedConverted)", systemImage: "wand.and.rays")
-                }
-            }
+        Button {
+            onEdit(RuleEditorSeed(source: trimmedOriginal, mode: .leaveAlone))
+        } label: {
+            Label("Не чіпати «\(trimmedOriginal)»", systemImage: "hand.raised")
         }
     }
 
@@ -282,14 +644,6 @@ private struct ReplacementRow: View {
             && !trimmedConverted.isEmpty
             && !trimmedConverted.contains(where: { $0.isWhitespace })
             && trimmedConverted.lowercased() != trimmedOriginal.lowercased()
-    }
-
-    private var isAllowlisted: Bool {
-        allowlist.contains { $0.lowercased() == trimmedOriginal.lowercased() }
-    }
-
-    private var hasRule: Bool {
-        customRules.contains { $0.source.lowercased() == trimmedOriginal.lowercased() }
     }
 
     @ViewBuilder

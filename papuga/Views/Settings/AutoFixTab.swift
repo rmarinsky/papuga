@@ -5,9 +5,7 @@ struct AutoFixTab: View {
     @Default(.autoFixEnabled) private var autoFixEnabled
     @Default(.autoFixUndoWindow) private var autoFixUndoWindow
     @Default(.autoFixBlocklist) private var autoFixBlocklist
-    @Default(.autoFixAllowlist) private var autoFixAllowlist
     @Default(.autoFixToastEnabled) private var autoFixToastEnabled
-    @Default(.customAutoReplaceRules) private var customAutoReplaceRules
     @Default(.autoFixAlgorithm) private var autoFixAlgorithm
     @Default(.autoFixThreshold) private var autoFixThreshold
     @Default(.autoFixMinWordLength) private var autoFixMinWordLength
@@ -15,9 +13,6 @@ struct AutoFixTab: View {
     private let minWordLengthOptions = [2, 3, 4, 5]
 
     @State private var showingAddSheet = false
-    @State private var newAllowlistWord = ""
-    @State private var newRuleSource = ""
-    @State private var newRuleTarget = ""
 
     var body: some View {
         Form {
@@ -73,86 +68,13 @@ struct AutoFixTab: View {
                 }
             }
 
-            Section("Не чіпати ці слова") {
-                if autoFixAllowlist.isEmpty {
-                    Text("Список порожній. Слова додаються автоматично, коли ти клікаєш папугу під час її анімації, або вручну тут.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                ForEach(autoFixAllowlist, id: \.self) { word in
-                    HStack {
-                        Text(word)
-                        Spacer()
-                        Button {
-                            autoFixAllowlist.removeAll { $0 == word }
-                        } label: {
-                            Image(systemName: "minus.circle.fill")
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                HStack {
-                    TextField("Додати слово вручну", text: $newAllowlistWord)
-                    Button("Додати") {
-                        let trimmed = newAllowlistWord.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !trimmed.isEmpty && !autoFixAllowlist.contains(where: { $0.lowercased() == trimmed.lowercased() }) {
-                            autoFixAllowlist.append(trimmed)
-                            newAllowlistWord = ""
-                        }
-                    }
-                    .disabled(newAllowlistWord.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-
-            Section("Власні правила автозаміни") {
-                if customAutoReplaceRules.isEmpty {
-                    Text("Тут з'являться твої правила, коли ти приймеш рекомендацію, або додаси їх вручну.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                ForEach(customAutoReplaceRules) { rule in
-                    HStack {
-                        Text(rule.source).font(.system(.body, design: .monospaced))
-                        Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.secondary)
-                        Text(rule.target).font(.system(.body, design: .monospaced))
-                        Spacer()
-                        if rule.createdFromRecommendation {
-                            Text("із поради")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                        Button {
-                            customAutoReplaceRules.removeAll { $0.id == rule.id }
-                        } label: {
-                            Image(systemName: "minus.circle.fill")
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                HStack {
-                    TextField("Замінити", text: $newRuleSource)
-                    Image(systemName: "arrow.right").foregroundStyle(.secondary)
-                    TextField("На", text: $newRuleTarget)
-                    Button("Додати") {
-                        let src = newRuleSource.trimmingCharacters(in: .whitespacesAndNewlines)
-                        let tgt = newRuleTarget.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !src.isEmpty, !tgt.isEmpty else { return }
-                        // Reject any rule whose source already exists — at runtime only the
-                        // first match fires, so a duplicate-source rule would be dead weight.
-                        guard !customAutoReplaceRules.contains(where: {
-                            $0.source.lowercased() == src.lowercased()
-                        }) else { return }
-                        customAutoReplaceRules.append(
-                            CustomAutoReplaceRule(source: src, target: tgt)
-                        )
-                        newRuleSource = ""
-                        newRuleTarget = ""
-                    }
-                    .disabled(
-                        newRuleSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                        newRuleTarget.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    )
-                }
+            Section("Слова та правила") {
+                Label(
+                    "Списки «не чіпати» та власні правила заміни переїхали у вкладку «Словник».",
+                    systemImage: "character.book.closed"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
 
             Section("Не застосовувати у цих застосунках") {
