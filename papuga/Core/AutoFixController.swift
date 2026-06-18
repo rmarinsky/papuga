@@ -3,6 +3,7 @@ import Carbon.HIToolbox
 import CoreGraphics
 import Defaults
 import Foundation
+import os
 
 @MainActor
 final class AutoFixController {
@@ -10,64 +11,76 @@ final class AutoFixController {
     private let characterMapper: CharacterMapper
     private let logger = AppLogger.autoFix
 
-    private var eventTap: CFMachPort?
-    private var runLoopSource: CFRunLoopSource?
+    /// The event tap runs on its own high-priority thread (not the main run loop) so its callback
+    /// is never starved by main-thread UI work — which would delay keystroke pass-through to the
+    /// frontmost app and risk the window server disabling the tap (tapDisabledByTimeout).
+    /// `let` so the nonisolated tap callback can reach it without an actor hop / data race.
+    private let eventTapRunner = AutoFixEventTap(mask: AutoFixController.eventMask)
+
+    private static let eventMask: CGEventMask =
+        (1 << CGEventType.keyDown.rawValue) |
+        (1 << CGEventType.flagsChanged.rawValue) |
+        (1 << CGEventType.leftMouseDown.rawValue) |
+        (1 << CGEventType.rightMouseDown.rawValue)
 
     private var buffer = WordBuffer()
     private var lastFix: PendingUndo?
     private var sessionRejected = Set<String>()
+    private var editingGuard = AutoFixEditingGuard()
+    private var phraseBuffer = PhraseBuffer(maxWords: 6)
+    private let mistakeEngine: MistakeObservationEngine
+    private let manualCorrectionTracker = ManualCorrectionTracker()
+    private let targetValidator = AutoFixTargetValidator()
+    private var appActivationObserver: NSObjectProtocol?
+    private var consecutiveReplacementDirection: AutoFixReplacementDirection?
+    /// Cached language scorer, reused across word boundaries (rebuilt only if the algorithm
+    /// changes). Avoids per-word scorer/NLLanguageRecognizer allocation. Safe: only touched on the
+    /// main actor inside evaluateAndMaybeFix.
+    private var cachedScorer: (algorithm: LanguageScorerAlgorithm, scorer: LanguageScorer)?
+    /// Reused for synthetic delete/type keystroke bursts instead of allocating a CGEventSource per
+    /// fix/undo. Only used on the main actor.
+    private lazy var syntheticEventSource = CGEventSource(stateID: .hidSystemState)
+    /// Cached copy of the Defaults-backed rule list. Avoids a JSON decode on every word boundary;
+    /// kept in sync whenever createRuleFromProposal writes the key.
+    private var cachedCustomRules: [CustomAutoReplaceRule] = Defaults[.customAutoReplaceRules]
 
-    init(layoutManager: LayoutManager, characterMapper: CharacterMapper) {
+    init(
+        layoutManager: LayoutManager,
+        characterMapper: CharacterMapper,
+        mistakeEngine: MistakeObservationEngine = .shared
+    ) {
         self.layoutManager = layoutManager
         self.characterMapper = characterMapper
+        self.mistakeEngine = mistakeEngine
     }
 
     func start() {
         AppLogger.pre(logger, "AutoFixController.start()")
-        guard eventTap == nil else {
+        guard !eventTapRunner.isActive else {
             AppLogger.warn(logger, "start() skipped: tap already active")
             return
         }
 
-        let mask: CGEventMask =
-            (1 << CGEventType.keyDown.rawValue) |
-            (1 << CGEventType.flagsChanged.rawValue) |
-            (1 << CGEventType.leftMouseDown.rawValue) |
-            (1 << CGEventType.rightMouseDown.rawValue)
-
+        // Pass an unretained pointer to self; the controller outlives the tap (app lifetime) and
+        // stop() tears the tap down before deinit.
         let userInfo = Unmanaged.passUnretained(self).toOpaque()
-        guard let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .listenOnly,
-            eventsOfInterest: mask,
-            callback: autoFixCallback,
-            userInfo: userInfo
-        ) else {
+        guard eventTapRunner.start(userInfo: userInfo, callback: autoFixCallback) else {
             AppLogger.error(logger, "CGEvent.tapCreate failed for AutoFixController")
             return
         }
 
-        eventTap = tap
-        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-        runLoopSource = source
-        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
-        CGEvent.tapEnable(tap: tap, enable: true)
-        AppLogger.post(logger, "AutoFixController tap attached")
+        installAppActivationObserverIfNeeded()
+        AppLogger.post(logger, "AutoFixController tap attached (dedicated thread)")
     }
 
     func stop() {
         AppLogger.pre(logger, "AutoFixController.stop()")
-        if let tap = eventTap {
-            CGEvent.tapEnable(tap: tap, enable: false)
-            if let source = runLoopSource {
-                CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
-            }
+        eventTapRunner.stop()
+        if let observer = appActivationObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+            appActivationObserver = nil
         }
-        eventTap = nil
-        runLoopSource = nil
-        buffer.reset()
-        lastFix = nil
+        resetTypingState(clearLastFix: true)
         AppLogger.post(logger, "AutoFixController stopped")
     }
 
@@ -82,12 +95,36 @@ final class AutoFixController {
         lastFix = nil
     }
 
+    private func installAppActivationObserverIfNeeded() {
+        guard appActivationObserver == nil else { return }
+        appActivationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.resetTypingState(clearLastFix: false)
+            }
+        }
+    }
+
+    private func resetTypingState(clearLastFix: Bool) {
+        AutoFixProposalCoordinator.shared.dismiss()
+        buffer.reset()
+        if clearLastFix {
+            lastFix = nil
+        }
+        editingGuard.reset()
+        phraseBuffer.reset()
+        manualCorrectionTracker.resetEditingState()
+        targetValidator.reset()
+        consecutiveReplacementDirection = nil
+    }
+
     fileprivate nonisolated func handleEvent(type: CGEventType, event: CGEvent) {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            DispatchQueue.main.async { [weak self] in
-                guard let tap = self?.eventTap else { return }
-                CGEvent.tapEnable(tap: tap, enable: true)
-            }
+            // Runs on the tap thread; re-enable directly (eventTapRunner is a thread-safe `let`).
+            eventTapRunner.reEnable()
             return
         }
 
@@ -95,9 +132,48 @@ final class AutoFixController {
         let flags = event.flags
         let timestamp = ProcessInfo.processInfo.systemUptime
         let typedString = readTypedString(from: event)
+        let targetPID = AutoFixTargetValidator.targetPID(from: event)
 
         DispatchQueue.main.async { [weak self] in
-            self?.processEvent(type: type, keyCode: keyCode, flags: flags, typedString: typedString, timestamp: timestamp)
+            self?.processEvent(
+                type: type,
+                targetPID: targetPID,
+                keyCode: keyCode,
+                flags: flags,
+                typedString: typedString,
+                timestamp: timestamp
+            )
+        }
+    }
+
+    fileprivate nonisolated func handleProposalShortcutSynchronously(type: CGEventType, event: CGEvent) -> Bool {
+        guard type == .keyDown else { return false }
+
+        // Fast path read directly on the tap thread — no main-thread hop. When no proposal is on
+        // screen (the overwhelmingly common case) this returns immediately. The gate mirrors the
+        // panel's visibility, set/cleared on the main actor in the coordinator's show/dismiss.
+        guard AutoFixProposalShortcutGate.shared.isArmed else { return false }
+
+        let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+        let flags = event.flags
+
+        // Mirror AutoFixProposalCoordinator.handleKeyboardShortcut's matching so we can decide to
+        // swallow synchronously without blocking the tap thread on the main run loop.
+        guard !flags.contains(.maskCommand),
+              !flags.contains(.maskControl),
+              !flags.contains(.maskAlternate) else {
+            return false
+        }
+        switch keyCode {
+        case 0x24, 0x4C, 0x35: // Return, keypad Enter, Escape
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    _ = AutoFixProposalCoordinator.shared.handleKeyboardShortcut(keyCode: keyCode, flags: flags)
+                }
+            }
+            return true
+        default:
+            return false
         }
     }
 
@@ -109,17 +185,24 @@ final class AutoFixController {
         return String(utf16CodeUnits: chars, count: length)
     }
 
-    private func processEvent(type: CGEventType, keyCode: UInt16, flags: CGEventFlags, typedString: String, timestamp: TimeInterval) {
+    private func processEvent(
+        type: CGEventType,
+        targetPID: pid_t?,
+        keyCode: UInt16,
+        flags: CGEventFlags,
+        typedString: String,
+        timestamp: TimeInterval
+    ) {
         switch type {
         case .leftMouseDown, .rightMouseDown:
             // If the click is on our undo toast, let SwiftUI's Button handle it.
             // Resetting lastFix here would null out the pending undo before the
             // Button action can fire, defeating the toast.
-            if FixToastCoordinator.shared.isMouseOverToast() {
+            if FixToastCoordinator.shared.isMouseOverToast()
+                || AutoFixProposalCoordinator.shared.isMouseOverProposal() {
                 return
             }
-            buffer.reset()
-            lastFix = nil
+            resetTypingState(clearLastFix: true)
             return
         case .keyDown:
             break
@@ -127,9 +210,10 @@ final class AutoFixController {
             return
         }
 
+        AutoFixProposalCoordinator.shared.dismiss()
+
         if flags.contains(.maskCommand) {
-            buffer.reset()
-            lastFix = nil
+            resetTypingState(clearLastFix: true)
             return
         }
 
@@ -139,23 +223,35 @@ final class AutoFixController {
         }
 
         if isResetKey(keyCode) {
-            buffer.reset()
-            lastFix = nil
+            resetTypingState(clearLastFix: true)
+            editingGuard.noteResetKey(keyCode, enabled: Defaults[.autoFixConservativeEditingGuard])
             return
         }
 
         if isWordBoundary(keyCode: keyCode, typedString: typedString) {
             evaluateAndMaybeFix(boundary: typedString)
             buffer.reset()
+            targetValidator.reset()
             return
         }
 
         if !typedString.isEmpty {
+            if buffer.text.isEmpty {
+                targetValidator.startSession(targetPID: targetPID, keyCode: keyCode, typedString: typedString)
+            } else {
+                let validation = targetValidator.validateKeyEventStillTargetsSession(targetPID: targetPID)
+                if case .changed = validation {
+                    logSkip(.targetChanged, word: buffer.text, bundleID: AppContextProvider.frontmostBundleID() ?? "")
+                    resetTypingState(clearLastFix: false)
+                    targetValidator.startSession(targetPID: targetPID, keyCode: keyCode, typedString: typedString)
+                }
+            }
             buffer.append(string: typedString, keyCode: keyCode)
         }
     }
 
     private func handleBackspace(timestamp: TimeInterval) {
+        let bufferWasEmpty = buffer.text.isEmpty
         if let pending = lastFix {
             let elapsed = timestamp - pending.timestamp
             let window = Defaults[.autoFixUndoWindow]
@@ -167,24 +263,28 @@ final class AutoFixController {
                 return
             }
         }
+        manualCorrectionTracker.noteBackspace(bufferWasEmpty: bufferWasEmpty, timestamp: timestamp)
+        editingGuard.noteBackspace(bufferWasEmpty: bufferWasEmpty, enabled: Defaults[.autoFixConservativeEditingGuard])
+        phraseBuffer.reset()
         buffer.popLast()
+        if buffer.text.isEmpty {
+            targetValidator.reset()
+        }
     }
 
     private func undoAndAddToAllowlist() {
         guard let pending = lastFix else { return }
-        let normalized = pending.original.lowercased()
-        var list = Defaults[.autoFixAllowlist]
-        if !list.contains(where: { $0.lowercased() == normalized }) {
-            list.append(pending.original)
-            Defaults[.autoFixAllowlist] = list
-            AppLogger.action(logger, "Added '\(pending.original)' to allowlist via toast click")
-        }
+        IgnoreWordService.add(pending.original)
         // Toast click: replacement + boundary are still in the buffer.
         undo(pending, boundaryAlreadyConsumed: false)
         lastFix = nil
     }
 
     private func undo(_ pending: PendingUndo, boundaryAlreadyConsumed: Bool) {
+        let bundleID = AppContextProvider.frontmostBundleID() ?? ""
+        guard mutationIsStillSafe(targetSession: pending.targetSession, bundleID: bundleID, word: pending.replacement) else {
+            return
+        }
         AppLogger.action(logger, "Undoing recent auto-fix: \(pending.replacement) -> \(pending.original)")
         let elapsedMs = Int((ProcessInfo.processInfo.systemUptime - pending.timestamp) * 1000)
         sessionRejected.insert(pending.original)
@@ -198,7 +298,6 @@ final class AutoFixController {
         }
         AnalyticsCounters.reverseReplacement(text: pending.replacement)
 
-        let bundleID = AppContextProvider.frontmostBundleID()
         PapugaEventLog.shared.track(AnalyticsEvent(
             kind: AnalyticsKind.autoFixUndone,
             frontmostBundleID: bundleID,
@@ -221,46 +320,143 @@ final class AutoFixController {
         )
     }
 
+    private func resolvedScorer(for algorithm: LanguageScorerAlgorithm) -> LanguageScorer {
+        if let cached = cachedScorer, cached.algorithm == algorithm {
+            return cached.scorer
+        }
+        let scorer = LanguageScorerFactory.make(algorithm)
+        cachedScorer = (algorithm, scorer)
+        return scorer
+    }
+
     private func evaluateAndMaybeFix(boundary: String) {
         let word = buffer.text
-        guard !word.isEmpty else { return }
+        guard !word.isEmpty else {
+            _ = editingGuard.consumeSuppression(enabled: true)
+            return
+        }
 
         let bundleID = AppContextProvider.frontmostBundleID() ?? ""
+        let currentID = layoutManager.getCurrentLayoutID()
+        let currentLang = languageHintForLayoutID(currentID)
+        let targetSession = targetValidator.session
+        let targetValidation = targetValidator.validateCurrentTarget(expectedBundleID: bundleID)
+        if case .changed(let reason) = targetValidation {
+            logSkip(.targetChanged, word: word, bundleID: bundleID, extra: [
+                "target_reason": .string(reason),
+                "from_lang": .string(currentLang)
+            ])
+            phraseBuffer.reset()
+            return
+        }
+
+        let appPolicy = AutoFixAppPolicyResolver.policy(for: bundleID)
+        guard appPolicy != .disabled else {
+            logSkip(.unsafeEditor, word: word, bundleID: bundleID, extra: [
+                "app_policy": .string(appPolicy.rawValue)
+            ])
+            phraseBuffer.reset()
+            return
+        }
+        let canMutateDirectly = targetValidation.canMutate && appPolicy.allowsAutomaticMutation
+
+        if let correction = manualCorrectionTracker.noteCompletedWord(
+            word,
+            language: currentLang,
+            bundleID: bundleID.isEmpty ? nil : bundleID,
+            timestamp: ProcessInfo.processInfo.systemUptime
+        ) {
+            mistakeEngine.recordManualCorrection(correction)
+        }
+
+        if editingGuard.consumeSuppression(enabled: Defaults[.autoFixConservativeEditingGuard]) {
+            logSkip(.editingContext, word: word, bundleID: bundleID, extra: [
+                "from_lang": .string(currentLang)
+            ])
+            phraseBuffer.reset()
+            return
+        }
+
         if Defaults[.autoFixBlocklist].contains(bundleID) {
             logSkip(.blocklist, word: word, bundleID: bundleID)
+            phraseBuffer.reset()
+            return
+        }
+
+        if let rule = cachedCustomRules.first(where: { $0.matches(word) }) {
+            phraseBuffer.reset()
+            if canMutateDirectly {
+                applyCustomRule(
+                    rule: rule,
+                    original: word,
+                    boundary: boundary,
+                    bundleID: bundleID,
+                    targetSession: targetSession
+                )
+            } else if appPolicy.allowsProposal {
+                showRuleProposal(
+                    rule: rule,
+                    original: word,
+                    boundary: boundary,
+                    fromLayoutID: currentID,
+                    bundleID: bundleID,
+                    targetSession: targetSession,
+                    canApplyDirectly: false
+                )
+            } else {
+                logSkip(.unsafeEditor, word: word, bundleID: bundleID)
+            }
             return
         }
 
         if AutoFixDecision.isInAllowlist(word, allowlist: Defaults[.autoFixAllowlist]) {
             logSkip(.allowlist, word: word, bundleID: bundleID)
+            phraseBuffer.reset()
             return
         }
 
-        if let rule = Defaults[.customAutoReplaceRules].first(where: { $0.matches(word) }) {
-            applyCustomRule(rule: rule, original: word, boundary: boundary, bundleID: bundleID)
+        if let protectedMatch = ProtectedLexiconStore.shared.match(word),
+           protectedMatch.protectsSource {
+            logSkip(.mixedLanguageIntentional, word: word, bundleID: bundleID, extra: [
+                "token_kind": .string(String(describing: AutoFixTokenClassifier.classify(word))),
+                "lexicon_entry_id": .string(protectedMatch.entry.id),
+                "lexicon_source": .string(protectedMatch.entry.source),
+                "from_lang": .string(currentLang)
+            ])
+            phraseBuffer.reset()
             return
         }
 
-        if let skip = AutoFixDecision.shouldSkipWord(word, minLength: Defaults[.autoFixMinWordLength]) {
+        let skipReason = AutoFixDecision.shouldSkipWord(word, minLength: Defaults[.autoFixMinWordLength])
+        if let skip = skipReason {
             switch skip {
             case .tooShort:
-                logSkip(.tooShort, word: word, bundleID: bundleID); return
+                break
             case .containsDigits, .containsForbiddenChars:
-                logSkip(.containsDigits, word: word, bundleID: bundleID); return
+                logSkip(.containsDigits, word: word, bundleID: bundleID)
+                phraseBuffer.reset()
+                return
             }
         }
         if sessionRejected.contains(word) {
-            logSkip(.recentlyRejected, word: word, bundleID: bundleID); return
+            logSkip(.recentlyRejected, word: word, bundleID: bundleID)
+            phraseBuffer.reset()
+            return
         }
 
-        let currentID = layoutManager.getCurrentLayoutID()
         guard let targetID = layoutManager.nextLayout(after: currentID, direction: .forward),
               targetID != currentID else {
-            logSkip(.noTargetLayout, word: word, bundleID: bundleID); return
+            logSkip(.noTargetLayout, word: word, bundleID: bundleID)
+            observeMistakeCandidate(word: word, language: currentLang, bundleID: bundleID)
+            phraseBuffer.reset()
+            return
         }
         guard let currentSrc = layoutManager.sourceForID(currentID),
               let targetSrc = layoutManager.sourceForID(targetID) else {
-            logSkip(.missingMaps, word: word, bundleID: bundleID); return
+            logSkip(.missingMaps, word: word, bundleID: bundleID)
+            observeMistakeCandidate(word: word, language: currentLang, bundleID: bundleID)
+            phraseBuffer.reset()
+            return
         }
 
         characterMapper.buildMap(for: currentSrc, sourceID: currentID)
@@ -268,41 +464,214 @@ final class AutoFixController {
         let candidate = characterMapper.convert(text: word, fromSourceID: currentID, toSourceID: targetID)
 
         if candidate == word {
-            logSkip(.identicalCandidate, word: word, bundleID: bundleID); return
+            logSkip(.identicalCandidate, word: word, bundleID: bundleID, layoutID: currentID)
+            observeMistakeCandidate(word: word, language: currentLang, bundleID: bundleID)
+            phraseBuffer.reset()
+            return
         }
 
-        let currentLang = languageHintForLayoutID(currentID)
         let targetLang = languageHintForLayoutID(targetID)
+        let algorithm = (LanguageScorerAlgorithm(rawValue: Defaults[.autoFixAlgorithm]) ?? .appleNL).resolvedImplementation
+        let scorer = resolvedScorer(for: algorithm)
+        let threshold = Defaults[.autoFixThreshold]
+
+        if skipReason == .tooShort {
+            logSkip(.tooShort, word: word, bundleID: bundleID, layoutID: currentID)
+            _ = maybeApplyPhraseFix(
+                original: word,
+                candidate: candidate,
+                boundary: boundary,
+                fromLayoutID: currentID,
+                targetLayoutID: targetID,
+                scorer: scorer,
+                threshold: threshold,
+                algorithm: algorithm,
+                currentLang: currentLang,
+                targetLang: targetLang,
+                bundleID: bundleID,
+                canMutateDirectly: canMutateDirectly,
+                allowsProposal: appPolicy.allowsProposal,
+                targetSession: targetSession
+            )
+            return
+        }
 
         // Hard guard against false positives like `faster` -> `афіеук`. If the
         // original is a real word in the current layout's language, the user
         // intended to type it; never replace.
         if AutoFixDecision.isCorrectlySpelled(word, language: currentLang) {
-            logSkip(.originalIsRealWord, word: word, bundleID: bundleID, extra: [
+            logSkip(.originalIsRealWord, word: word, bundleID: bundleID, layoutID: currentID, extra: [
                 "from_lang": .string(currentLang)
             ])
+            _ = maybeApplyPhraseFix(
+                original: word,
+                candidate: candidate,
+                boundary: boundary,
+                fromLayoutID: currentID,
+                targetLayoutID: targetID,
+                scorer: scorer,
+                threshold: threshold,
+                algorithm: algorithm,
+                currentLang: currentLang,
+                targetLang: targetLang,
+                bundleID: bundleID,
+                canMutateDirectly: canMutateDirectly,
+                allowsProposal: appPolicy.allowsProposal,
+                targetSession: targetSession
+            )
             return
         }
 
-        let algorithm = (LanguageScorerAlgorithm(rawValue: Defaults[.autoFixAlgorithm]) ?? .appleNL).resolvedImplementation
-        let scorer = LanguageScorerFactory.make(algorithm)
+        if Defaults[.autoFixSpellingTypoGuardEnabled] {
+            let typoAssessment = AutoFixDecision.spellingTypoGuardAssessment(
+                original: word,
+                candidate: candidate,
+                language: currentLang,
+                minWordLength: Defaults[.autoFixSpellingTypoGuardMinWordLength],
+                maxEditDistance: Defaults[.autoFixSpellingTypoGuardMaxEditDistance]
+            )
+
+            if typoAssessment.shouldSuppressAutoReplace {
+                var extra: [String: AnalyticsValue] = [
+                    "candidate": .string(candidate),
+                    "from_lang": .string(currentLang),
+                    "to_lang": .string(targetLang)
+                ]
+                if let suggestion = typoAssessment.suggestion {
+                    extra["spell_suggestion"] = .string(suggestion)
+                }
+                if let editDistance = typoAssessment.editDistance {
+                    extra["edit_distance"] = .int(editDistance)
+                }
+                logSkip(.likelySpellingTypo, word: word, bundleID: bundleID, extra: extra)
+                observeMistakeCandidate(word: word, language: currentLang, bundleID: bundleID)
+                phraseBuffer.reset()
+                return
+            }
+        }
+
         let scoreOriginal = scorer.score(word, expecting: currentLang)
         let scoreCandidate = scorer.score(candidate, expecting: targetLang)
-        let threshold = Defaults[.autoFixThreshold]
+        let predictionAdjustment = ProtectedLexiconPredictionScorer.adjustment(
+            original: word,
+            candidate: candidate,
+            scoreCandidate: scoreCandidate,
+            threshold: threshold
+        )
+        let effectiveScoreCandidate = predictionAdjustment.adjustedCandidateScore
+        let effectiveThreshold = predictionAdjustment.adjustedThreshold
 
-        AppLogger.post(logger, "Eval word=\(word) -> \(candidate); scores: \(scoreOriginal) vs \(scoreCandidate); threshold=\(threshold)")
+        AppLogger.post(
+            logger,
+            "Eval word=\(word) -> \(candidate); scores: \(scoreOriginal) vs \(effectiveScoreCandidate); threshold=\(effectiveThreshold)"
+        )
 
-        guard AutoFixDecision.shouldReplace(scoreOriginal: scoreOriginal, scoreCandidate: scoreCandidate, threshold: threshold) else {
-            logSkip(.belowThreshold, word: word, bundleID: bundleID, extra: [
-                "score_original": .double(scoreOriginal),
-                "score_candidate": .double(scoreCandidate),
-                "algorithm": .string(algorithm.rawValue),
+        let mixedDecision = AutoFixMixedLanguagePolicy.decision(
+            original: word,
+            candidate: candidate,
+            currentLanguage: currentLang,
+            targetLanguage: targetLang,
+            scoreOriginal: scoreOriginal,
+            scoreCandidate: effectiveScoreCandidate,
+            threshold: effectiveThreshold
+        )
+        if case .skipAsIntentional(let kind) = mixedDecision {
+            logSkip(.mixedLanguageIntentional, word: word, bundleID: bundleID, extra: [
+                "token_kind": .string(String(describing: kind)),
                 "from_lang": .string(currentLang),
                 "to_lang": .string(targetLang)
             ])
+            phraseBuffer.reset()
             return
         }
 
+        guard AutoFixDecision.shouldReplace(
+            scoreOriginal: scoreOriginal,
+            scoreCandidate: effectiveScoreCandidate,
+            threshold: effectiveThreshold
+        ) else {
+            var extra: [String: AnalyticsValue] = [
+                "score_original": .double(scoreOriginal),
+                "score_candidate": .double(effectiveScoreCandidate),
+                "score_candidate_raw": .double(scoreCandidate),
+                "algorithm": .string(algorithm.rawValue),
+                "from_lang": .string(currentLang),
+                "to_lang": .string(targetLang)
+            ]
+            if let candidateMatch = predictionAdjustment.candidateMatch {
+                extra["lexicon_candidate_id"] = .string(candidateMatch.entry.id)
+                extra["lexicon_reasons"] = .string(predictionAdjustment.reasons.joined(separator: ","))
+            }
+            logSkip(.belowThreshold, word: word, bundleID: bundleID, layoutID: currentID, extra: extra)
+            observeMistakeCandidate(word: word, language: currentLang, bundleID: bundleID)
+            if maybeApplyPhraseFix(
+                original: word,
+                candidate: candidate,
+                boundary: boundary,
+                fromLayoutID: currentID,
+                targetLayoutID: targetID,
+                scorer: scorer,
+                threshold: threshold,
+                algorithm: algorithm,
+                currentLang: currentLang,
+                targetLang: targetLang,
+                bundleID: bundleID,
+                canMutateDirectly: canMutateDirectly,
+                allowsProposal: appPolicy.allowsProposal,
+                targetSession: targetSession
+            ) {
+                return
+            }
+            if appPolicy.allowsProposal {
+                maybeShowProposal(
+                    original: word,
+                    candidate: candidate,
+                    boundary: boundary,
+                    fromLayoutID: currentID,
+                    targetLayoutID: targetID,
+                    scoreOriginal: scoreOriginal,
+                    scoreCandidate: effectiveScoreCandidate,
+                    threshold: effectiveThreshold,
+                    algorithm: algorithm,
+                    currentLang: currentLang,
+                    targetLang: targetLang,
+                    bundleID: bundleID,
+                    canApplyDirectly: canMutateDirectly,
+                    targetSession: targetSession
+                )
+            }
+            return
+        }
+
+        guard canMutateDirectly else {
+            if appPolicy.allowsProposal {
+                maybeShowProposal(
+                    original: word,
+                    candidate: candidate,
+                    boundary: boundary,
+                    fromLayoutID: currentID,
+                    targetLayoutID: targetID,
+                    scoreOriginal: scoreOriginal,
+                    scoreCandidate: effectiveScoreCandidate,
+                    threshold: effectiveThreshold,
+                    algorithm: algorithm,
+                    currentLang: currentLang,
+                    targetLang: targetLang,
+                    bundleID: bundleID,
+                    canApplyDirectly: false,
+                    targetSession: targetSession,
+                    force: true
+                )
+            } else {
+                logSkip(.unsafeEditor, word: word, bundleID: bundleID, extra: [
+                    "app_policy": .string(appPolicy.rawValue)
+                ])
+            }
+            phraseBuffer.reset()
+            return
+        }
+
+        phraseBuffer.reset()
         applyFix(
             original: word,
             candidate: candidate,
@@ -310,11 +679,208 @@ final class AutoFixController {
             fromLayoutID: currentID,
             targetLayoutID: targetID,
             scoreOriginal: scoreOriginal,
+            scoreCandidate: effectiveScoreCandidate,
+            algorithm: algorithm,
+            currentLang: currentLang,
+            targetLang: targetLang,
+            bundleID: bundleID,
+            targetSession: targetSession
+        )
+    }
+
+    private func maybeApplyPhraseFix(
+        original: String,
+        candidate: String,
+        boundary: String,
+        fromLayoutID: String,
+        targetLayoutID: String,
+        scorer: LanguageScorer,
+        threshold: Double,
+        algorithm: LanguageScorerAlgorithm,
+        currentLang: String,
+        targetLang: String,
+        bundleID: String,
+        canMutateDirectly: Bool,
+        allowsProposal: Bool,
+        targetSession: AutoFixTargetSession?
+    ) -> Bool {
+        guard boundary == " " else {
+            phraseBuffer.reset()
+            return false
+        }
+
+        phraseBuffer.append(original: original, candidate: candidate, boundary: boundary)
+        guard phraseBuffer.wordCount >= 3 else { return false }
+
+        let originalBody = phraseBuffer.originalBody
+        let candidateBody = phraseBuffer.candidateBody
+        guard originalBody != candidateBody else {
+            phraseBuffer.reset()
+            return false
+        }
+
+        let scoreOriginal = scorer.score(originalBody, expecting: currentLang)
+        let scoreCandidate = scorer.score(candidateBody, expecting: targetLang)
+        AppLogger.post(
+            logger,
+            "Phrase eval=\(originalBody) -> \(candidateBody); scores: \(scoreOriginal) vs \(scoreCandidate); threshold=\(threshold)"
+        )
+
+        let shouldReplace = AutoFixDecision.shouldReplace(
+            scoreOriginal: scoreOriginal,
+            scoreCandidate: scoreCandidate,
+            threshold: threshold
+        )
+
+        guard shouldReplace else {
+            let shouldPropose = AutoFixProposalPolicy.shouldSuggest(
+                scoreOriginal: scoreOriginal,
+                scoreCandidate: scoreCandidate,
+                threshold: threshold,
+                window: Defaults[.autoFixProposalWindow]
+            ) || AutoFixDecision.shouldSuggestPhraseLayoutMistake(
+                original: originalBody,
+                candidate: candidateBody,
+                targetLanguage: targetLang,
+                scoreCandidate: scoreCandidate
+            )
+            guard allowsProposal, shouldPropose else {
+                return false
+            }
+
+            maybeShowProposal(
+                original: originalBody,
+                candidate: candidateBody,
+                boundary: phraseBuffer.trailingBoundary,
+                fromLayoutID: fromLayoutID,
+                targetLayoutID: targetLayoutID,
+                scoreOriginal: scoreOriginal,
+                scoreCandidate: scoreCandidate,
+                threshold: threshold,
+                algorithm: algorithm,
+                currentLang: currentLang,
+                targetLang: targetLang,
+                bundleID: bundleID,
+                canApplyDirectly: canMutateDirectly,
+                targetSession: targetSession,
+                force: true
+            )
+            phraseBuffer.reset()
+            return true
+        }
+
+        guard canMutateDirectly else {
+            guard allowsProposal else { return false }
+            maybeShowProposal(
+                original: originalBody,
+                candidate: candidateBody,
+                boundary: phraseBuffer.trailingBoundary,
+                fromLayoutID: fromLayoutID,
+                targetLayoutID: targetLayoutID,
+                scoreOriginal: scoreOriginal,
+                scoreCandidate: scoreCandidate,
+                threshold: threshold,
+                algorithm: algorithm,
+                currentLang: currentLang,
+                targetLang: targetLang,
+                bundleID: bundleID,
+                canApplyDirectly: false,
+                targetSession: targetSession,
+                force: true
+            )
+            phraseBuffer.reset()
+            return true
+        }
+
+        applyPhraseFix(
+            original: originalBody,
+            candidate: candidateBody,
+            boundary: phraseBuffer.trailingBoundary,
+            fromLayoutID: fromLayoutID,
+            targetLayoutID: targetLayoutID,
+            scoreOriginal: scoreOriginal,
             scoreCandidate: scoreCandidate,
             algorithm: algorithm,
             currentLang: currentLang,
             targetLang: targetLang,
-            bundleID: bundleID
+            bundleID: bundleID,
+            targetSession: targetSession
+        )
+        phraseBuffer.reset()
+        return true
+    }
+
+    private func applyPhraseFix(
+        original: String,
+        candidate: String,
+        boundary: String,
+        fromLayoutID: String,
+        targetLayoutID: String,
+        scoreOriginal: Double,
+        scoreCandidate: Double,
+        algorithm: LanguageScorerAlgorithm,
+        currentLang: String,
+        targetLang: String,
+        bundleID: String,
+        targetSession: AutoFixTargetSession?
+    ) {
+        guard mutationIsStillSafe(targetSession: targetSession, bundleID: bundleID, word: original) else {
+            return
+        }
+        AppLogger.action(logger, "Auto-fix phrase applying: \(original) -> \(candidate)")
+        AutoFixProposalCoordinator.shared.dismiss()
+        let totalToDelete = original.count + boundary.count
+        deleteCharacters(count: totalToDelete)
+        typeText(candidate + boundary)
+        switchLayoutIfNeeded(
+            fromLayoutID: fromLayoutID,
+            targetLayoutID: targetLayoutID,
+            scope: .phrase
+        )
+
+        lastFix = PendingUndo(
+            original: original,
+            replacement: candidate,
+            boundary: boundary,
+            fromLayoutID: fromLayoutID,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            targetSession: targetSession
+        )
+
+        AnalyticsCounters.recordReplacement(text: candidate)
+        NotificationCenter.default.post(name: .textReplacementDidComplete, object: nil)
+
+        if Defaults[.autoFixToastEnabled] {
+            FixToastCoordinator.shared.show(near: NSEvent.mouseLocation) { [weak self] in
+                self?.undoAndAddToAllowlist()
+            }
+        }
+
+        PapugaEventLog.shared.track(AnalyticsEvent(
+            kind: AnalyticsKind.autoFixApplied,
+            frontmostBundleID: bundleID,
+            inputLayout: targetLayoutID,
+            properties: [
+                "original_length": .int(original.count),
+                "replacement_length": .int(candidate.count),
+                "score_original": .double(scoreOriginal),
+                "score_candidate": .double(scoreCandidate),
+                "algorithm": .string(algorithm.rawValue),
+                "from_lang": .string(currentLang),
+                "to_lang": .string(targetLang),
+                "source": .string("phrase_auto_fix")
+            ]
+        ))
+
+        ReplacementHistoryStore.shared.record(
+            ReplacementHistoryEntry(
+                kind: .autoFixApplied,
+                original: original,
+                converted: candidate,
+                sourceLayoutID: fromLayoutID,
+                targetLayoutID: targetLayoutID,
+                bundleID: bundleID
+            )
         )
     }
 
@@ -329,8 +895,12 @@ final class AutoFixController {
         algorithm: LanguageScorerAlgorithm,
         currentLang: String,
         targetLang: String,
-        bundleID: String
+        bundleID: String,
+        targetSession: AutoFixTargetSession?
     ) {
+        guard mutationIsStillSafe(targetSession: targetSession, bundleID: bundleID, word: original) else {
+            return
+        }
         AppLogger.action(logger, "Auto-fix applying: \(original) -> \(candidate)")
         // Word + boundary char already typed. Delete the original word and the
         // boundary, then re-type the candidate followed by the same boundary so
@@ -339,14 +909,19 @@ final class AutoFixController {
         let totalToDelete = original.count + boundaryToReplay.count
         deleteCharacters(count: totalToDelete)
         typeText(candidate + boundaryToReplay)
-        layoutManager.switchTo(targetLayoutID)
+        switchLayoutIfNeeded(
+            fromLayoutID: fromLayoutID,
+            targetLayoutID: targetLayoutID,
+            scope: .singleToken
+        )
 
         lastFix = PendingUndo(
             original: original,
             replacement: candidate,
             boundary: boundaryToReplay,
             fromLayoutID: fromLayoutID,
-            timestamp: ProcessInfo.processInfo.systemUptime
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            targetSession: targetSession
         )
 
         AnalyticsCounters.recordReplacement(text: candidate)
@@ -370,7 +945,8 @@ final class AutoFixController {
                 "score_candidate": .double(scoreCandidate),
                 "algorithm": .string(algorithm.rawValue),
                 "from_lang": .string(currentLang),
-                "to_lang": .string(targetLang)
+                "to_lang": .string(targetLang),
+                "source": .string("auto_fix")
             ]
         ))
 
@@ -386,12 +962,232 @@ final class AutoFixController {
         )
     }
 
+    private func maybeShowProposal(
+        original: String,
+        candidate: String,
+        boundary: String,
+        fromLayoutID: String,
+        targetLayoutID: String,
+        scoreOriginal: Double,
+        scoreCandidate: Double,
+        threshold: Double,
+        algorithm: LanguageScorerAlgorithm,
+        currentLang: String,
+        targetLang: String,
+        bundleID: String,
+        canApplyDirectly: Bool,
+        targetSession: AutoFixTargetSession?,
+        force: Bool = false
+    ) {
+        guard Defaults[.autoFixProposalEnabled] else { return }
+        if !force {
+            guard AutoFixProposalPolicy.shouldSuggest(
+                scoreOriginal: scoreOriginal,
+                scoreCandidate: scoreCandidate,
+                threshold: threshold,
+                window: Defaults[.autoFixProposalWindow]
+            ) else { return }
+        }
+
+        let boundaryToReplay = boundary.isEmpty ? " " : boundary
+        let proposal = AutoFixProposal(
+            original: original,
+            candidate: candidate,
+            boundary: boundaryToReplay,
+            fromLayoutID: fromLayoutID,
+            targetLayoutID: targetLayoutID,
+            scoreOriginal: scoreOriginal,
+            scoreCandidate: scoreCandidate,
+            threshold: threshold,
+            algorithm: algorithm,
+            currentLang: currentLang,
+            targetLang: targetLang,
+            bundleID: bundleID,
+            createdAt: ProcessInfo.processInfo.systemUptime,
+            canApplyDirectly: canApplyDirectly,
+            targetSession: targetSession
+        )
+
+        AutoFixProposalCoordinator.shared.show(
+            proposal: proposal,
+            near: NSEvent.mouseLocation,
+            actions: AutoFixProposalActions(
+                replace: { [weak self] in
+                    guard let self else { return }
+                    let canCreateRule = self.canCreateRule(from: proposal)
+                    let historyKind: ReplacementHistoryEntry.Kind = canCreateRule ? .autoRuleApplied : .autoFixApplied
+                    if self.applyProposal(
+                        proposal,
+                        source: canCreateRule ? "proposal_auto_rule" : "proposal",
+                        historyKind: historyKind
+                    ), canCreateRule {
+                        self.createRuleFromProposal(proposal)
+                    }
+                },
+                ignore: { [weak self] in
+                    self?.ignoreProposal(proposal)
+                }
+            )
+        )
+    }
+
+    private func showRuleProposal(
+        rule: CustomAutoReplaceRule,
+        original: String,
+        boundary: String,
+        fromLayoutID: String,
+        bundleID: String,
+        targetSession: AutoFixTargetSession?,
+        canApplyDirectly: Bool
+    ) {
+        let proposal = AutoFixProposal(
+            original: original,
+            candidate: rule.target,
+            boundary: boundary.isEmpty ? " " : boundary,
+            fromLayoutID: fromLayoutID,
+            targetLayoutID: fromLayoutID,
+            scoreOriginal: 0,
+            scoreCandidate: 1,
+            threshold: 0,
+            algorithm: .appleNL,
+            currentLang: languageHintForLayoutID(fromLayoutID),
+            targetLang: languageHintForLayoutID(fromLayoutID),
+            bundleID: bundleID,
+            createdAt: ProcessInfo.processInfo.systemUptime,
+            canApplyDirectly: canApplyDirectly,
+            targetSession: targetSession
+        )
+
+        AutoFixProposalCoordinator.shared.show(
+            proposal: proposal,
+            near: NSEvent.mouseLocation,
+            actions: AutoFixProposalActions(
+                replace: { [weak self] in
+                    _ = self?.applyProposal(proposal, source: "custom_rule_proposal", historyKind: .autoRuleApplied)
+                },
+                ignore: { [weak self] in
+                    self?.ignoreProposal(proposal)
+                }
+            )
+        )
+    }
+
+    @discardableResult
+    private func applyProposal(
+        _ proposal: AutoFixProposal,
+        source: String,
+        historyKind: ReplacementHistoryEntry.Kind = .autoFixApplied
+    ) -> Bool {
+        let policy = AutoFixAppPolicyResolver.policy(for: proposal.bundleID)
+        guard mutationIsStillSafe(
+            targetSession: proposal.targetSession,
+            bundleID: proposal.bundleID,
+            word: proposal.original,
+            allowUnverifiableInFrontmostApp: policy == .suggestOnly
+        ) else {
+            return false
+        }
+        AppLogger.action(logger, "AutoFix proposal accepted: \(proposal.original) -> \(proposal.candidate)")
+        phraseBuffer.reset()
+        let totalToDelete = proposal.original.count + proposal.boundary.count
+        deleteCharacters(count: totalToDelete)
+        typeText(proposal.candidate + proposal.boundary)
+        let replacementScope: ReplacementScope = proposal.original.contains(where: \.isWhitespace) ? .phrase : .singleToken
+        switchLayoutIfNeeded(
+            fromLayoutID: proposal.fromLayoutID,
+            targetLayoutID: proposal.targetLayoutID,
+            scope: replacementScope
+        )
+
+        lastFix = PendingUndo(
+            original: proposal.original,
+            replacement: proposal.candidate,
+            boundary: proposal.boundary,
+            fromLayoutID: proposal.fromLayoutID,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            targetSession: proposal.targetSession
+        )
+
+        AnalyticsCounters.recordReplacement(text: proposal.candidate)
+        NotificationCenter.default.post(name: .textReplacementDidComplete, object: nil)
+
+        if Defaults[.autoFixToastEnabled] {
+            FixToastCoordinator.shared.show(near: NSEvent.mouseLocation) { [weak self] in
+                self?.undoAndAddToAllowlist()
+            }
+        }
+
+        PapugaEventLog.shared.track(AnalyticsEvent(
+            kind: AnalyticsKind.autoFixApplied,
+            frontmostBundleID: proposal.bundleID,
+            inputLayout: proposal.targetLayoutID,
+            properties: [
+                "original_length": .int(proposal.original.count),
+                "replacement_length": .int(proposal.candidate.count),
+                "score_original": .double(proposal.scoreOriginal),
+                "score_candidate": .double(proposal.scoreCandidate),
+                "algorithm": .string(proposal.algorithm.rawValue),
+                "from_lang": .string(proposal.currentLang),
+                "to_lang": .string(proposal.targetLang),
+                "source": .string(source)
+            ]
+        ))
+
+        ReplacementHistoryStore.shared.record(
+            ReplacementHistoryEntry(
+                kind: historyKind,
+                original: proposal.original,
+                converted: proposal.candidate,
+                sourceLayoutID: proposal.fromLayoutID,
+                targetLayoutID: proposal.targetLayoutID,
+                bundleID: proposal.bundleID
+            )
+        )
+        return true
+    }
+
+    private func createRuleFromProposal(_ proposal: AutoFixProposal) {
+        guard canCreateRule(from: proposal) else { return }
+        var rules = Defaults[.customAutoReplaceRules]
+        rules.removeAll { $0.source.caseInsensitiveCompare(proposal.original) == .orderedSame }
+        rules.append(CustomAutoReplaceRule(
+            source: proposal.original,
+            target: proposal.candidate,
+            createdFromRecommendation: true
+        ))
+        Defaults[.customAutoReplaceRules] = rules
+        cachedCustomRules = rules
+
+        var allowlist = Defaults[.autoFixAllowlist]
+        allowlist.removeAll { $0.caseInsensitiveCompare(proposal.original) == .orderedSame }
+        Defaults[.autoFixAllowlist] = allowlist
+    }
+
+    private func canCreateRule(from proposal: AutoFixProposal) -> Bool {
+        let source = proposal.original.trimmingCharacters(in: .whitespacesAndNewlines)
+        let target = proposal.candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !source.isEmpty
+            && !target.isEmpty
+            && !source.contains(where: \.isWhitespace)
+            && !target.contains(where: \.isWhitespace)
+    }
+
+    private func ignoreProposal(_ proposal: AutoFixProposal) {
+        IgnoreWordService.add(proposal.original)
+        cachedCustomRules = Defaults[.customAutoReplaceRules]
+        sessionRejected.insert(proposal.original)
+    }
+
     private func applyCustomRule(
         rule: CustomAutoReplaceRule,
         original: String,
         boundary: String,
-        bundleID: String
+        bundleID: String,
+        targetSession: AutoFixTargetSession?
     ) {
+        guard mutationIsStillSafe(targetSession: targetSession, bundleID: bundleID, word: original) else {
+            return
+        }
         AppLogger.action(logger, "Custom rule applying: \(rule.source) -> \(rule.target)")
         let fromLayoutID = layoutManager.getCurrentLayoutID()
         let boundaryToReplay = boundary.isEmpty ? " " : boundary
@@ -404,7 +1200,8 @@ final class AutoFixController {
             replacement: rule.target,
             boundary: boundaryToReplay,
             fromLayoutID: fromLayoutID,
-            timestamp: ProcessInfo.processInfo.systemUptime
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            targetSession: targetSession
         )
 
         AnalyticsCounters.recordReplacement(text: rule.target)
@@ -431,7 +1228,7 @@ final class AutoFixController {
 
         ReplacementHistoryStore.shared.record(
             ReplacementHistoryEntry(
-                kind: .autoFixApplied,
+                kind: .autoRuleApplied,
                 original: original,
                 converted: rule.target,
                 sourceLayoutID: fromLayoutID,
@@ -445,6 +1242,7 @@ final class AutoFixController {
         _ reason: AutoFixSkipReason,
         word: String,
         bundleID: String,
+        layoutID: String? = nil,
         extra: [String: AnalyticsValue] = [:]
     ) {
         AppLogger.post(logger, "auto-fix skipped: reason=\(reason.rawValue) word=\(word)")
@@ -453,17 +1251,119 @@ final class AutoFixController {
             "word_length": .int(word.count)
         ]
         for (k, v) in extra { props[k] = v }
+        // Reuse the layout id the caller already resolved on the hot path; only query TIS again
+        // when a caller (rare skip reasons) didn't pass one.
         PapugaEventLog.shared.track(AnalyticsEvent(
             kind: AnalyticsKind.autoFixSkipped,
             frontmostBundleID: bundleID,
-            inputLayout: layoutManager.getCurrentLayoutID(),
+            inputLayout: layoutID ?? layoutManager.getCurrentLayoutID(),
             properties: props
         ))
     }
 
+    private func observeMistakeCandidate(word: String, language: String, bundleID: String) {
+        mistakeEngine.observeCompletedWord(
+            CompletedWordObservation(
+                word: word,
+                language: language,
+                bundleID: bundleID.isEmpty ? nil : bundleID,
+                timestamp: Date(),
+                allowlist: Defaults[.autoFixAllowlist],
+                blocklist: Defaults[.autoFixBlocklist],
+                minWordLength: Defaults[.autoFixMinWordLength]
+            )
+        )
+    }
+
+    private func mutationIsStillSafe(
+        targetSession: AutoFixTargetSession?,
+        bundleID: String,
+        word: String,
+        allowUnverifiableInFrontmostApp: Bool = false
+    ) -> Bool {
+        guard let targetSession else {
+            logSkip(.targetUnverifiable, word: word, bundleID: bundleID, extra: [
+                "target_reason": .string("missing_session")
+            ])
+            return false
+        }
+
+        let validation = targetValidator.validateCurrentTarget(
+            for: targetSession,
+            expectedBundleID: bundleID
+        )
+
+        switch validation {
+        case .verified:
+            return true
+        case .changed(let reason):
+            logSkip(.targetChanged, word: word, bundleID: bundleID, extra: [
+                "target_reason": .string(reason)
+            ])
+            return false
+        case .unverifiable(let reason):
+            let activeBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+            if allowUnverifiableInFrontmostApp,
+               !bundleID.isEmpty,
+               activeBundleID == bundleID {
+                AppLogger.warn(
+                    logger,
+                    "Allowing explicit proposal accept with unverifiable target in frontmost app: \(reason)"
+                )
+                return true
+            }
+            logSkip(.targetUnverifiable, word: word, bundleID: bundleID, extra: [
+                "target_reason": .string(reason)
+            ])
+            return false
+        }
+    }
+
+    private func switchLayoutIfNeeded(
+        fromLayoutID: String,
+        targetLayoutID: String,
+        scope: ReplacementScope
+    ) {
+        let policy = AutoFixLayoutSwitchPolicy(rawValue: Defaults[.autoFixLayoutSwitchPolicy]) ?? .adaptive
+
+        switch policy {
+        case .alwaysSwitchToReplacementLayout:
+            layoutManager.switchTo(targetLayoutID)
+            return
+        case .keepCurrentLayout:
+            return
+        case .adaptive:
+            break
+        }
+
+        switch scope {
+        case .phrase:
+            layoutManager.switchTo(targetLayoutID)
+        case .customRule:
+            return
+        case .singleToken:
+            if var current = consecutiveReplacementDirection,
+               current.fromLayoutID == fromLayoutID,
+               current.targetLayoutID == targetLayoutID {
+                current.count += 1
+                consecutiveReplacementDirection = current
+            } else {
+                consecutiveReplacementDirection = AutoFixReplacementDirection(
+                    fromLayoutID: fromLayoutID,
+                    targetLayoutID: targetLayoutID,
+                    count: 1
+                )
+            }
+
+            if (consecutiveReplacementDirection?.count ?? 0) >= 2 {
+                layoutManager.switchTo(targetLayoutID)
+            }
+        }
+    }
+
     private func deleteCharacters(count: Int) {
         guard count > 0 else { return }
-        let source = CGEventSource(stateID: .hidSystemState)
+        let source = syntheticEventSource
         for _ in 0..<count {
             let down = CGEvent(keyboardEventSource: source, virtualKey: UInt16(kVK_Delete), keyDown: true)
             down?.post(tap: .cgAnnotatedSessionEventTap)
@@ -473,7 +1373,7 @@ final class AutoFixController {
     }
 
     private func typeText(_ text: String) {
-        let source = CGEventSource(stateID: .hidSystemState)
+        let source = syntheticEventSource
         for scalar in text.unicodeScalars {
             var unit = UniChar(scalar.value & 0xFFFF)
             let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true)
@@ -525,12 +1425,69 @@ private struct WordBuffer {
     }
 }
 
+private struct PhraseBuffer {
+    private struct Token {
+        let original: String
+        let candidate: String
+        let boundary: String
+    }
+
+    private let maxWords: Int
+    private var tokens: [Token] = []
+
+    init(maxWords: Int) {
+        self.maxWords = maxWords
+    }
+
+    var wordCount: Int {
+        tokens.count
+    }
+
+    var trailingBoundary: String {
+        tokens.last?.boundary ?? " "
+    }
+
+    var originalBody: String {
+        body(\.original)
+    }
+
+    var candidateBody: String {
+        body(\.candidate)
+    }
+
+    mutating func append(original: String, candidate: String, boundary: String) {
+        tokens.append(Token(original: original, candidate: candidate, boundary: boundary))
+        if tokens.count > maxWords {
+            tokens.removeFirst(tokens.count - maxWords)
+        }
+    }
+
+    mutating func reset() {
+        tokens.removeAll()
+    }
+
+    private func body(_ keyPath: KeyPath<Token, String>) -> String {
+        tokens.enumerated().map { index, token in
+            let text = token[keyPath: keyPath]
+            guard index < tokens.count - 1 else { return text }
+            return text + token.boundary
+        }.joined()
+    }
+}
+
 private struct PendingUndo {
     let original: String
     let replacement: String
     let boundary: String
     let fromLayoutID: String
     let timestamp: TimeInterval
+    let targetSession: AutoFixTargetSession?
+}
+
+private enum ReplacementScope {
+    case singleToken
+    case phrase
+    case customRule
 }
 
 private func autoFixCallback(
@@ -543,6 +1500,108 @@ private func autoFixCallback(
         return Unmanaged.passUnretained(event)
     }
     let controller = Unmanaged<AutoFixController>.fromOpaque(userInfo).takeUnretainedValue()
+    if controller.handleProposalShortcutSynchronously(type: type, event: event) {
+        return nil
+    }
     controller.handleEvent(type: type, event: event)
     return Unmanaged.passUnretained(event)
+}
+
+/// Owns a `CGEventTap` and runs it on a dedicated high-priority thread so the callback is serviced
+/// independently of the main run loop. All cross-thread state (the Mach port + run loop) is guarded
+/// by a lock; the C callback itself never touches this state (it routes through the controller).
+final class AutoFixEventTap: @unchecked Sendable {
+    private struct State {
+        var eventTap: CFMachPort?
+        var runLoop: CFRunLoop?
+        var running = false
+    }
+
+    private let mask: CGEventMask
+    private let state = OSAllocatedUnfairLock(initialState: State())
+    private var thread: Thread?
+    private var userInfo: UnsafeMutableRawPointer?
+    private var callback: CGEventTapCallBack?
+
+    init(mask: CGEventMask) {
+        self.mask = mask
+    }
+
+    var isActive: Bool {
+        state.withLock { $0.running }
+    }
+
+    /// Spins up the tap thread. Returns false if a tap could not be created.
+    @discardableResult
+    func start(userInfo: UnsafeMutableRawPointer, callback: @escaping CGEventTapCallBack) -> Bool {
+        guard thread == nil else { return state.withLock { $0.running } }
+        self.userInfo = userInfo
+        self.callback = callback
+
+        let thread = Thread { [weak self] in
+            self?.threadMain()
+        }
+        thread.name = "ua.com.rmarinsky.papuga.autofix-tap"
+        thread.qualityOfService = .userInteractive
+        self.thread = thread
+        thread.start()
+        return true
+    }
+
+    private func threadMain() {
+        guard let userInfo, let callback,
+              let tap = CGEvent.tapCreate(
+                  tap: .cgSessionEventTap,
+                  place: .headInsertEventTap,
+                  options: .defaultTap,
+                  eventsOfInterest: mask,
+                  callback: callback,
+                  userInfo: userInfo
+              )
+        else { return }
+
+        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+        let runLoop = CFRunLoopGetCurrent()
+        CFRunLoopAddSource(runLoop, source, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+        state.withLock {
+            $0.eventTap = tap
+            $0.runLoop = runLoop
+            $0.running = true
+        }
+
+        CFRunLoopRun()
+
+        CFRunLoopRemoveSource(runLoop, source, .commonModes)
+        state.withLock {
+            $0.eventTap = nil
+            $0.runLoop = nil
+            $0.running = false
+        }
+    }
+
+    /// Re-enable the tap after the system disabled it (timeout / user input). Safe from any thread.
+    func reEnable() {
+        state.withLock { state in
+            if let tap = state.eventTap {
+                CGEvent.tapEnable(tap: tap, enable: true)
+            }
+        }
+    }
+
+    func stop() {
+        let runLoop: CFRunLoop? = state.withLock { state in
+            if let tap = state.eventTap {
+                CGEvent.tapEnable(tap: tap, enable: false)
+            }
+            return state.runLoop
+        }
+        if let runLoop {
+            CFRunLoopStop(runLoop)
+            CFRunLoopWakeUp(runLoop)
+        }
+        thread = nil
+        userInfo = nil
+        callback = nil
+    }
 }

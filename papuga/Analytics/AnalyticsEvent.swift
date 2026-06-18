@@ -95,4 +95,11 @@ enum AutoFixSkipReason: String {
     case missingMaps = "missing_maps"
     case identicalCandidate = "identical_candidate"
     case originalIsRealWord = "original_is_real_word"
+    case likelySpellingTypo = "likely_spelling_typo"
+    case editingContext = "editing_context"
+    case targetChanged = "target_changed"
+    case targetUnverifiable = "target_unverifiable"
+    case unsafeEditor = "unsafe_editor"
+    case multipleCursorRisk = "multiple_cursor_risk"
+    case mixedLanguageIntentional = "mixed_language_intentional"
 }

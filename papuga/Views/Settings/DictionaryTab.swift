@@ -31,19 +31,27 @@ struct DictionaryTab: View {
         SectionCard(
             eyebrow: "НЕ ЧІПАТИ",
             title: "Слова, які Papuga залишає як є",
-            subtitle: "Акроніми, ніки, команди — щоб автозаміна їх не торкалась."
+            subtitle: "Акроніми, ніки, команди — Papuga їх не торкається, а word-like терміни додає в словник macOS."
         ) {
             if allowlist.isEmpty {
                 emptyHint("Список порожній. Клікни папугу під час її анімації або додай слово вручну.")
             }
             FlowLayout(spacing: 8, lineSpacing: 8) {
                 ForEach(allowlist, id: \.self) { word in
-                    AllowlistChip(word: word) {
-                        allowlist.removeAll { $0 == word }
-                    }
+                    AllowlistChip(
+                        word: word,
+                        onEdit: {
+                            editorSeed = RuleEditorSeed(
+                                allowlistOriginal: word,
+                                source: word,
+                                mode: .leaveAlone
+                            )
+                        },
+                        onRemove: { allowlist.removeAll { $0 == word } }
+                    )
                 }
-                AddWordChip(existing: allowlist) { word in
-                    allowlist.append(word)
+                AddWordChip {
+                    editorSeed = RuleEditorSeed(mode: .leaveAlone)
                 }
             }
         }
@@ -58,7 +66,7 @@ struct DictionaryTab: View {
             subtitle: "Papuga підмінятиме ліве слово на праве — будь-де, поки ти друкуєш."
         ) {
             if customRules.isEmpty {
-                emptyHint("Ще немає правил. Створи перше або прийми пораду у вкладці «Поради».")
+                emptyHint("Ще немає правил. Створи перше або прийми пораду в «Історії замін» чи «Помилках введення».")
             } else {
                 VStack(spacing: 0) {
                     ForEach(Array(customRules.enumerated()), id: \.element.id) { index, rule in
@@ -105,6 +113,7 @@ struct DictionaryTab: View {
 
 private struct AllowlistChip: View {
     let word: String
+    let onEdit: () -> Void
     let onRemove: () -> Void
     @State private var hovering = false
 
@@ -115,6 +124,14 @@ private struct AllowlistChip: View {
                 .foregroundStyle(.primary)
                 .lineLimit(1)
             if hovering {
+                Button(action: onEdit) {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 8, weight: .bold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Редагувати «\(word)»")
+
                 Button(action: onRemove) {
                     Image(systemName: "xmark")
                         .font(.system(size: 8, weight: .bold))
@@ -139,17 +156,13 @@ private struct AllowlistChip: View {
     }
 }
 
-// MARK: - Dashed "add word" chip with inline popover
+// MARK: - Dashed "add word" chip routed through the same modal
 
 private struct AddWordChip: View {
-    let existing: [String]
-    let onAdd: (String) -> Void
-
-    @State private var showingPopover = false
-    @State private var text = ""
+    let onAdd: () -> Void
 
     var body: some View {
-        Button { showingPopover = true } label: {
+        Button(action: onAdd) {
             HStack(spacing: 4) {
                 Image(systemName: "plus").font(.system(size: 9, weight: .bold))
                 Text("Додати").font(.system(size: 12, weight: .medium, design: .rounded))
@@ -165,32 +178,6 @@ private struct AddWordChip: View {
             )
         }
         .buttonStyle(.plain)
-        .popover(isPresented: $showingPopover, arrowEdge: .bottom) {
-            HStack(spacing: 8) {
-                TextField("Слово", text: $text)
-                    .textFieldStyle(.plain)
-                    .frame(width: 150)
-                    .onSubmit(commit)
-                Button("Додати", action: commit)
-                    .disabled(!isValid)
-            }
-            .padding(12)
-        }
-    }
-
-    private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
-
-    private var isValid: Bool {
-        !trimmed.isEmpty
-            && !trimmed.contains(where: \.isWhitespace)
-            && !existing.contains { $0.caseInsensitiveCompare(trimmed) == .orderedSame }
-    }
-
-    private func commit() {
-        guard isValid else { return }
-        onAdd(trimmed)
-        text = ""
-        showingPopover = false
     }
 }
 

@@ -47,6 +47,9 @@ enum ClipboardHistoryRetentionPreset: String, CaseIterable {
     case oneDay
     case twoDays
     case oneWeek
+    case oneMonth
+    case threeMonths
+    case forever
 
     var title: String {
         switch self {
@@ -58,10 +61,16 @@ enum ClipboardHistoryRetentionPreset: String, CaseIterable {
             return "2 дні"
         case .oneWeek:
             return "1 тиждень"
+        case .oneMonth:
+            return "1 місяць"
+        case .threeMonths:
+            return "3 місяці"
+        case .forever:
+            return "Завжди"
         }
     }
 
-    var timeInterval: TimeInterval {
+    var timeInterval: TimeInterval? {
         switch self {
         case .oneHour:
             return 60 * 60
@@ -71,6 +80,12 @@ enum ClipboardHistoryRetentionPreset: String, CaseIterable {
             return 2 * 24 * 60 * 60
         case .oneWeek:
             return 7 * 24 * 60 * 60
+        case .oneMonth:
+            return 30 * 24 * 60 * 60
+        case .threeMonths:
+            return 90 * 24 * 60 * 60
+        case .forever:
+            return nil
         }
     }
 }
@@ -124,6 +139,17 @@ extension Defaults.Keys {
     static let autoFixBlocklist = Key<[String]>("autoFixBlocklist", default: [])
     static let autoFixAllowlist = Key<[String]>("autoFixAllowlist", default: [])
     static let autoFixToastEnabled = Key<Bool>("autoFixToastEnabled", default: true)
+    static let autoFixConservativeEditingGuard = Key<Bool>("autoFixConservativeEditingGuard", default: true)
+    static let autoFixSpellingTypoGuardEnabled = Key<Bool>("autoFixSpellingTypoGuardEnabled", default: true)
+    static let autoFixSpellingTypoGuardMinWordLength = Key<Int>("autoFixSpellingTypoGuardMinWordLength", default: 4)
+    static let autoFixSpellingTypoGuardMaxEditDistance = Key<Int>("autoFixSpellingTypoGuardMaxEditDistance", default: 1)
+    static let autoFixProposalEnabled = Key<Bool>("autoFixProposalEnabled", default: true)
+    static let autoFixProposalWindow = Key<Double>("autoFixProposalWindow", default: 0.12)
+    static let autoFixAppPolicyOverrides = Key<[String: String]>("autoFixAppPolicyOverrides", default: [:])
+    static let autoFixLayoutSwitchPolicy = Key<String>(
+        "autoFixLayoutSwitchPolicy",
+        default: AutoFixLayoutSwitchPolicy.adaptive.rawValue
+    )
 
     static let replacementHistoryEnabled = Key<Bool>("replacementHistoryEnabled", default: true)
     static let replacementHistoryRetention = Key<String>(
@@ -133,6 +159,13 @@ extension Defaults.Keys {
     static let openHistoryOnAppLaunch = Key<Bool>("openHistoryOnAppLaunch", default: true)
     static let customAutoReplaceRules = Key<[CustomAutoReplaceRule]>("customAutoReplaceRules", default: [])
     static let dismissedRecommendations = Key<[String]>("dismissedRecommendations", default: [])
+
+    static let mistakeObservationEnabled = Key<Bool>("mistakeObservationEnabled", default: true)
+    static let grammarObservationBetaEnabled = Key<Bool>("grammarObservationBetaEnabled", default: true)
+    static let mistakeObservationRetention = Key<String>(
+        "mistakeObservationRetention",
+        default: MistakeObservationRetention.oneMonth.rawValue
+    )
 }
 
 extension KeyboardShortcuts.Name {

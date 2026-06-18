@@ -76,10 +76,11 @@ extension RecommendationEngine {
     @MainActor static func apply(_ rec: Recommendation) {
         switch rec {
         case .addWordToAllowlist(let word, _, _):
-            if !Defaults[.autoFixAllowlist].contains(where: { $0.lowercased() == word.lowercased() }) {
-                Defaults[.autoFixAllowlist].append(word)
-            }
+            IgnoreWordService.add(word)
         case .createCustomRule(let source, let target, _, _):
+            Defaults[.autoFixAllowlist].removeAll {
+                $0.caseInsensitiveCompare(source) == .orderedSame
+            }
             if !Defaults[.customAutoReplaceRules].contains(where: { $0.source.lowercased() == source.lowercased() }) {
                 Defaults[.customAutoReplaceRules].append(
                     CustomAutoReplaceRule(source: source, target: target, createdFromRecommendation: true)
@@ -115,6 +116,7 @@ enum RecommendationEngine {
 
     static func compute(
         from history: [ReplacementHistoryEntry],
+        mistakes: [MistakeObservation] = [],
         allowlist: [String],
         blocklist: [String],
         customRules: [CustomAutoReplaceRule],
@@ -154,7 +156,43 @@ enum RecommendationEngine {
                 } else {
                     manualSwitchByPair[pairKey] = (src, tgt, 1)
                 }
-            case .autoFixApplied:
+            case .autoFixApplied, .autoRuleApplied:
+                break
+            }
+        }
+
+        for entry in mistakes where entry.status == .open {
+            let src = entry.source.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !src.isEmpty, !src.contains(where: { $0.isWhitespace }) else { continue }
+
+            switch entry.issueType {
+            case .manualCorrection:
+                guard let target = entry.suggestedTarget?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !target.isEmpty,
+                      !target.contains(where: { $0.isWhitespace }) else { continue }
+                guard !entry.sourceTruncated, !entry.targetTruncated else { continue }
+                guard src.count >= 2, target.count >= 2 else { continue }
+                let pairKey = "\(src.lowercased())→\(target.lowercased())"
+                if var existing = manualSwitchByPair[pairKey] {
+                    existing.count += 1
+                    manualSwitchByPair[pairKey] = existing
+                } else {
+                    manualSwitchByPair[pairKey] = (src, target, 1)
+                }
+            case .spelling:
+                guard let target = entry.suggestedTarget?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !target.isEmpty,
+                      !target.contains(where: { $0.isWhitespace }) else { continue }
+                guard !entry.sourceTruncated, !entry.targetTruncated else { continue }
+                guard src.count >= 3, target.count >= 3 else { continue }
+                let pairKey = "\(src.lowercased())→\(target.lowercased())"
+                if var existing = manualSwitchByPair[pairKey] {
+                    existing.count += 1
+                    manualSwitchByPair[pairKey] = existing
+                } else {
+                    manualSwitchByPair[pairKey] = (src, target, 1)
+                }
+            case .grammar, .layoutCandidate:
                 break
             }
         }

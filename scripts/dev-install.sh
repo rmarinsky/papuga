@@ -190,3 +190,7 @@ echo ""
 echo "If permissions got stuck, run:"
 echo "  tccutil reset Accessibility \"$BUNDLE_ID\""
 echo "  tccutil reset ListenEvent \"$BUNDLE_ID\""
+
+echo ""
+echo "Launching $INSTALL_APP_NAME ..."
+open "$INSTALL_PATH"

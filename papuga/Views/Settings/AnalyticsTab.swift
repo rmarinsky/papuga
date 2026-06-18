@@ -39,9 +39,7 @@ struct AnalyticsTab: View {
     // MARK: - Header (scope picker, top-right)
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text("Огляд")
-                .font(.system(size: 20, weight: .bold))
+        HStack {
             Spacer()
             Picker("", selection: $scope) {
                 ForEach(PapugaStatsAggregator.Scope.allCases) { s in
@@ -342,7 +340,7 @@ struct AnalyticsTab: View {
         var counts: [Date: Int] = [:]
         for entry in historyStore.entries {
             if entry.timestamp < windowStart { break }
-            guard entry.kind == .manualSwitch || entry.kind == .autoFixApplied else { continue }
+            guard entry.kind == .manualSwitch || entry.kind == .autoFixApplied || entry.kind == .autoRuleApplied else { continue }
             counts[cal.startOfDay(for: entry.timestamp), default: 0] += 1
         }
         return (0..<7).reversed().compactMap { offset in
@@ -366,15 +364,15 @@ struct AnalyticsTab: View {
                 Text("Поради")
                     .font(.system(size: 13, weight: .semibold))
                 Spacer()
-                if !recommendations.isEmpty {
-                    sectionLink("Усі ›", to: .suggestions)
+                if let top = recommendations.first {
+                    sectionLink("Усі ›", to: destination(for: top))
                 }
             }
 
             if let top = recommendations.first {
                 suggestionMini(top)
                 if recommendations.count > 1 {
-                    sectionLink("+ ще \(recommendations.count - 1) ›", to: .suggestions)
+                    sectionLink("+ ще \(recommendations.count - 1) ›", to: destination(for: top))
                 }
             } else {
                 VStack(spacing: 6) {
@@ -433,6 +431,15 @@ struct AnalyticsTab: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .strokeBorder(Color("BrandTintBorder"), lineWidth: 1)
         )
+    }
+
+    private func destination(for rec: Recommendation) -> HistorySection {
+        switch rec {
+        case .addAppToBlocklist:
+            return .settingsRules
+        case .addWordToAllowlist, .createCustomRule:
+            return .history
+        }
     }
 
     private var recentFixesCard: some View {
@@ -579,7 +586,7 @@ struct AnalyticsTab: View {
         var undone = 0
         for entry in historyStore.entries {
             switch entry.kind {
-            case .autoFixApplied: applied += 1
+            case .autoFixApplied, .autoRuleApplied: applied += 1
             case .autoFixUndone: undone += 1
             case .manualSwitch: break
             }

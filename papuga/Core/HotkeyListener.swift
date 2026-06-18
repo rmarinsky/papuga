@@ -14,6 +14,10 @@ final class HotkeyListener {
 
     private var previousFlags: CGEventFlags = []
 
+    deinit {
+        stop()
+    }
+
     func start() {
         AppLogger.pre(logger, "start() called")
         guard eventTap == nil else {

@@ -6,6 +6,10 @@ final class PapugaEventLog {
     private let queue = DispatchQueue(label: "ua.com.rmarinsky.papuga.eventlog", qos: .utility)
     private let fileURL: URL
     private let logger = AppLogger.analytics
+    /// Long-lived append handle, opened lazily and reused so each event is a single write() rather
+    /// than open/seek/write/close per line. Only touched on `queue`. Invalidated when pruneSync
+    /// rewrites the file (which replaces the inode the handle points at).
+    private var handle: FileHandle?
 
     private let encoder: JSONEncoder = {
         let e = JSONEncoder()
@@ -39,19 +43,26 @@ final class PapugaEventLog {
             let data = try encoder.encode(event)
             var line = data
             line.append(0x0A) // newline
-
-            let fm = FileManager.default
-            if !fm.fileExists(atPath: fileURL.path) {
-                try line.write(to: fileURL)
-            } else {
-                let handle = try FileHandle(forWritingTo: fileURL)
-                defer { try? handle.close() }
-                try handle.seekToEnd()
-                try handle.write(contentsOf: line)
-            }
+            let handle = try openHandle()
+            try handle.write(contentsOf: line)
         } catch {
             AppLogger.warn(logger, "PapugaEventLog append failed: \(error.localizedDescription)")
+            // The handle may be stale/broken; drop it so the next append re-opens.
+            try? handle?.close()
+            handle = nil
         }
+    }
+
+    private func openHandle() throws -> FileHandle {
+        if let handle { return handle }
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: fileURL.path) {
+            fm.createFile(atPath: fileURL.path, contents: nil)
+        }
+        let opened = try FileHandle(forWritingTo: fileURL)
+        try opened.seekToEnd()
+        handle = opened
+        return opened
     }
 
     func pruneOldEntries() {
@@ -107,9 +118,16 @@ final class PapugaEventLog {
         let newContent = keptLines.joined(separator: "\n") + (keptLines.isEmpty ? "" : "\n")
         do {
             try newContent.write(to: fileURL, atomically: true, encoding: .utf8)
+            // The atomic write replaced the file the append handle points at; reopen on next write.
+            try? handle?.close()
+            handle = nil
             AppLogger.action(logger, "PapugaEventLog pruned: kept \(keptLines.count) entries")
         } catch {
             AppLogger.warn(logger, "PapugaEventLog prune failed: \(error.localizedDescription)")
         }
+    }
+
+    deinit {
+        try? handle?.close()
     }
 }

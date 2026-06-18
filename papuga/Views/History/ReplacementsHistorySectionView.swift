@@ -2,40 +2,39 @@ import Defaults
 import SwiftUI
 
 struct ReplacementsHistorySectionView: View {
+    var compactChrome = false
+
+    @Environment(LayoutManager.self) private var layoutManager
+
+    @State private var analyzer = MistakeSuggestionAnalyzer()
     @State private var store = ReplacementHistoryStore.shared
-    @State private var range: TimeRange = .week
-    @State private var viewMode: ViewMode = .dashboard
-    @State private var query: String = ""
-    @State private var showingClearConfirmation = false
+    @State private var range: HistoryTimeRange = .today
+    @State private var query = ""
     @State private var editorSeed: RuleEditorSeed?
 
     @Default(.replacementHistoryEnabled) private var historyEnabled
 
-    enum ViewMode { case dashboard, list }
-
-    enum TimeRange: String, CaseIterable, Identifiable {
-        case today, week, all
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .today: return "Сьогодні"
-            case .week: return "Тиждень"
-            case .all: return "Весь час"
-            }
-        }
+    init(compactChrome: Bool = false) {
+        self.compactChrome = compactChrome
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            switch viewMode {
-            case .dashboard: dashboardHeader
-            case .list: listHeader
+        ActionableHistoryScreen(
+            range: $range,
+            query: $query,
+            clearDisabled: rangeEntries.isEmpty,
+            clearConfirmationTitle: "Очистити історію замін \(range.clearScopeTitle)?",
+            onClear: clearCurrentRange
+        ) {
+            VStack(alignment: .leading, spacing: 14) {
+                if historyEnabled {
+                    ActionableSuggestionsSection(items: suggestionItems)
+                    content
+                } else {
+                    disabledView
+                }
             }
-            Divider()
-            content
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .sheet(item: $editorSeed) { seed in
             RuleEditorSheet(seed: seed) { editorSeed = nil }
         }
@@ -43,195 +42,25 @@ struct ReplacementsHistorySectionView: View {
 
     @ViewBuilder
     private var content: some View {
-        if !historyEnabled {
-            disabledView
-        } else {
-            switch viewMode {
-            case .dashboard:
-                if rangeEntries.isEmpty { emptyView } else { dashboard }
-            case .list:
-                listContent
-            }
-        }
-    }
-
-    // MARK: - Headers
-
-    private var dashboardHeader: some View {
-        HStack(spacing: 10) {
-            Text("Історія")
-                .font(.system(size: 17, weight: .semibold))
-            Spacer()
-            Picker("", selection: $range) {
-                ForEach(TimeRange.allCases) { Text($0.title).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-        }
-        .padding(12)
-    }
-
-    private var listHeader: some View {
-        HStack(spacing: 10) {
-            Button { viewMode = .dashboard } label: {
-                Image(systemName: "chevron.left")
-            }
-            .buttonStyle(.borderless)
-            .help("Назад до огляду")
-
-            Text("Усі заміни")
-                .font(.system(size: 15, weight: .semibold))
-
-            Spacer()
-
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                TextField("Пошук", text: $query)
-                    .textFieldStyle(.plain)
-                    .frame(width: 150)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(.background.tertiary)
-            )
-
-            Button(role: .destructive) {
-                showingClearConfirmation = true
-            } label: {
-                Image(systemName: "trash")
-            }
-            .buttonStyle(.borderless)
-            .help("Очистити історію")
-            .disabled(store.entries.isEmpty)
-            .confirmationDialog(
-                "Очистити історію замін?",
-                isPresented: $showingClearConfirmation,
-                titleVisibility: .visible
-            ) {
-                Button("Очистити", role: .destructive) { store.clearAll() }
-                Button("Скасувати", role: .cancel) {}
-            } message: {
-                Text("Цю дію не можна скасувати.")
-            }
-        }
-        .padding(12)
-    }
-
-    // MARK: - Dashboard
-
-    private var dashboard: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .top, spacing: 16) {
-                    mostCommonCard
-                    firstSeenCard
-                }
-                byAppCard
-                footer
-            }
-            .padding(20)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    private var mostCommonCard: some View {
-        SectionCard(eyebrow: "ЧАСТО", title: "Найчастіші помилки") {
-            if mostCommon.isEmpty {
-                hint("Поки що немає повторюваних помилок у цьому періоді.")
-            } else {
-                VStack(spacing: 9) {
-                    ForEach(mostCommon) { pair in
-                        CommonPairRow(pair: pair, maxCount: maxCommonCount) {
-                            editorSeed = RuleEditorSeed(source: pair.source, target: pair.target, mode: .replace)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private var firstSeenCard: some View {
-        SectionCard(eyebrow: "ВПЕРШЕ", title: "Нові помилки") {
-            if firstSeen.isEmpty {
-                hint("Тут з'являться помилки, які Papuga побачить уперше.")
-            } else {
-                VStack(spacing: 9) {
-                    ForEach(firstSeen) { pair in
-                        FirstSeenRow(pair: pair) {
-                            editorSeed = RuleEditorSeed(source: pair.source, target: pair.target, mode: .replace)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private var byAppCard: some View {
-        SectionCard(
-            eyebrow: "ПО ЗАСТОСУНКАХ",
-            title: "Де ти помиляєшся найчастіше"
-        ) {
-            if byApp.isEmpty {
-                hint("Поки немає даних по застосунках.")
-            } else {
-                VStack(spacing: 10) {
-                    ForEach(byApp) { app in
-                        AppRow(app: app, maxCount: maxAppCount)
-                    }
-                }
-            }
-        }
-    }
-
-    private var footer: some View {
-        HStack {
-            Text("Наведи на пару, щоб зробити з неї правило.")
-                .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
-            Spacer()
-            Button { viewMode = .list } label: {
-                HStack(spacing: 4) {
-                    Text("Показати всі заміни")
-                    Image(systemName: "arrow.right")
-                }
-                .font(.system(size: 12, weight: .medium))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(Color("BrandAccentDeep"))
-        }
-        .padding(.top, 2)
-    }
-
-    private func hint(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 12))
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    // MARK: - Full chronological list
-
-    @ViewBuilder
-    private var listContent: some View {
         if visibleEntries.isEmpty {
             emptyView
         } else {
-            List {
-                ForEach(visibleEntries) { entry in
-                    ReplacementRow(entry: entry) { seed in editorSeed = seed }
+            VStack(spacing: 0) {
+                ForEach(Array(visibleEntries.enumerated()), id: \.element.id) { index, entry in
+                    if index > 0 {
+                        Divider().opacity(0.45)
+                    }
+                    ReplacementActionRow(
+                        entry: entry,
+                        candidates: candidates(for: entry),
+                        onCreateRule: { target in openRuleEditor(for: entry, target: target) },
+                        onIgnore: { ignore(entry) }
+                    )
                 }
             }
-            .listStyle(.inset)
+            .background(historyCardBackground)
         }
     }
-
-    // MARK: - Empty / disabled states
 
     private var disabledView: some View {
         VStack(spacing: 8) {
@@ -246,7 +75,8 @@ struct ReplacementsHistorySectionView: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 360)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 72)
     }
 
     private var emptyView: some View {
@@ -262,388 +92,188 @@ struct ReplacementsHistorySectionView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 72)
+        .background(historyCardBackground)
     }
 
-    // MARK: - Derived data
+    private var historyCardBackground: some View {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(Color(nsColor: .controlBackgroundColor).opacity(0.58))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+            )
+    }
+
+    // MARK: - Derived Data
 
     private var rangeEntries: [ReplacementHistoryEntry] {
-        let cal = Calendar.current
-        let weekAgo = cal.date(byAdding: .day, value: -6, to: cal.startOfDay(for: Date()))
+        let now = Date()
         return store.entries.filter { entry in
-            switch range {
-            case .all:
-                return true
-            case .today:
-                return cal.isDateInToday(entry.timestamp)
-            case .week:
-                if let weekAgo { return entry.timestamp >= weekAgo }
-                return true
-            }
+            range.contains(entry.timestamp, now: now)
         }
     }
 
     private var visibleEntries: [ReplacementHistoryEntry] {
-        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !q.isEmpty else { return rangeEntries }
         return rangeEntries.filter { entry in
             let inText = entry.original.lowercased().contains(q) || entry.converted.lowercased().contains(q)
             let inApp = entry.bundleID.map { AppContextProvider.displayName(forBundleID: $0).lowercased().contains(q) } ?? false
-            return inText || inApp
+            return inText || inApp || entry.kind.displayName.lowercased().contains(q)
         }
     }
 
-    private var mostCommon: [AggregatedPair] {
+    private var suggestionItems: [ActionableSuggestionItem] {
         Array(
-            aggregatePairs(rangeEntries)
+            aggregateReplacementSuggestions(rangeEntries)
                 .filter { $0.count >= 2 }
-                .sorted { $0.count > $1.count }
-                .prefix(6)
+                .prefix(5)
+                .map { suggestion in
+                    let disabledReason = HistoryWordActionPolicy.disabledReason(
+                        source: suggestion.source,
+                        truncated: suggestion.sourceTruncated
+                    )
+                    let target = ruleTarget(source: suggestion.source, target: suggestion.target)
+                    return ActionableSuggestionItem(
+                        id: suggestion.id,
+                        icon: suggestion.kind.icon,
+                        title: suggestion.kind.title,
+                        subtitle: suggestion.subtitle,
+                        source: suggestion.source,
+                        target: target,
+                        countText: "\(suggestion.count)×",
+                        candidates: candidates(
+                            source: suggestion.source,
+                            target: target,
+                            sourceLayoutID: suggestion.sourceLayoutID
+                        ),
+                        canAct: disabledReason == nil,
+                        disabledReason: disabledReason,
+                        onCreateRule: { target in
+                            openRuleEditor(source: suggestion.source, target: target ?? suggestion.target)
+                        },
+                        onIgnore: {
+                            IgnoreWordService.add(suggestion.source)
+                        }
+                    )
+                }
         )
     }
 
-    private var maxCommonCount: Int { mostCommon.map(\.count).max() ?? 1 }
+    private func clearCurrentRange() {
+        let now = Date()
+        store.clear { entry in
+            range.contains(entry.timestamp, now: now)
+        }
+    }
 
-    private var firstSeen: [AggregatedPair] {
-        Array(
-            aggregatePairs(rangeEntries)
-                .sorted { $0.firstSeen > $1.firstSeen }
-                .prefix(6)
+    private func candidates(for entry: ReplacementHistoryEntry) -> [MistakeSuggestionCandidate] {
+        candidates(
+            source: entry.original,
+            target: ruleTarget(source: entry.original, target: entry.converted, targetTruncated: entry.convertedTruncated),
+            sourceLayoutID: entry.sourceLayoutID
         )
     }
 
-    private var byApp: [AppCount] {
-        var counts: [String: Int] = [:]
-        for entry in rangeEntries where isMistakeEntry(entry) {
-            counts[entry.bundleID ?? "—", default: 0] += 1
-        }
-        return Array(
-            counts.map { key, count -> AppCount in
-                let bundleID = key == "—" ? nil : key
-                let name = bundleID.map { AppContextProvider.displayName(forBundleID: $0) } ?? "Без застосунку"
-                return AppCount(id: key, name: name, bundleID: bundleID, count: count)
-            }
-            .sorted { $0.count > $1.count }
-            .prefix(6)
+    private func candidates(source: String, target: String?, sourceLayoutID: String?) -> [MistakeSuggestionCandidate] {
+        analyzer.candidates(
+            for: source,
+            language: sourceLayoutID.map(AutoFixDecision.languageHintForLayoutID) ?? "",
+            recordedTargets: target.map { [$0] } ?? [],
+            layoutManager: layoutManager,
+            limit: 4
         )
     }
 
-    private var maxAppCount: Int { byApp.map(\.count).max() ?? 1 }
-}
-
-// MARK: - Aggregation
-
-private struct AggregatedPair: Identifiable {
-    let id: String
-    let source: String
-    let target: String
-    let count: Int
-    let firstSeen: Date
-    let lastBundleID: String?
-}
-
-private struct AppCount: Identifiable {
-    let id: String
-    let name: String
-    let bundleID: String?
-    let count: Int
-}
-
-/// A "mistake" worth aggregating: an applied switch/fix with both sides intact.
-/// Undone auto-fixes (false positives) and truncated entries are excluded.
-private func isMistakeEntry(_ entry: ReplacementHistoryEntry) -> Bool {
-    entry.kind != .autoFixUndone
-        && !entry.originalTruncated
-        && !entry.convertedTruncated
-        && !entry.original.isEmpty
-        && !entry.converted.isEmpty
-}
-
-private func aggregatePairs(_ entries: [ReplacementHistoryEntry]) -> [AggregatedPair] {
-    struct Acc {
-        var count: Int
-        var first: ReplacementHistoryEntry
-        var last: ReplacementHistoryEntry
+    private func openRuleEditor(for entry: ReplacementHistoryEntry, target: String? = nil) {
+        openRuleEditor(source: entry.original, target: target ?? entry.converted)
     }
-    var map: [String: Acc] = [:]
-    for entry in entries where isMistakeEntry(entry) {
-        let key = entry.original.lowercased() + "\u{2192}" + entry.converted.lowercased()
-        if var acc = map[key] {
-            acc.count += 1
-            if entry.timestamp < acc.first.timestamp { acc.first = entry }
-            if entry.timestamp > acc.last.timestamp { acc.last = entry }
-            map[key] = acc
-        } else {
-            map[key] = Acc(count: 1, first: entry, last: entry)
-        }
-    }
-    return map.map { key, acc in
-        AggregatedPair(
-            id: key,
-            source: acc.last.original,
-            target: acc.last.converted,
-            count: acc.count,
-            firstSeen: acc.first.timestamp,
-            lastBundleID: acc.last.bundleID
+
+    private func openRuleEditor(source: String, target: String? = nil) {
+        editorSeed = RuleEditorSeed(
+            source: HistoryWordActionPolicy.normalizedSource(source),
+            target: HistoryWordActionPolicy.sanitizedTarget(target) ?? "",
+            mode: .replace
         )
     }
-}
 
-// MARK: - Dashboard rows
+    private func ignore(_ entry: ReplacementHistoryEntry) {
+        IgnoreWordService.add(entry.original)
+    }
 
-private struct CommonPairRow: View {
-    let pair: AggregatedPair
-    let maxCount: Int
-    let onMakeRule: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        HStack(spacing: 8) {
-            ReplacementReceipt(source: pair.source, target: pair.target, strikethroughSource: true)
-            Spacer(minLength: 6)
-            VolumeBar(ratio: Double(pair.count) / Double(max(1, maxCount)))
-                .frame(width: 40)
-            Text("×\(pair.count)")
-                .font(.system(size: 12, weight: .semibold).monospacedDigit())
-                .foregroundStyle(.secondary)
-                .frame(minWidth: 26, alignment: .trailing)
-            MakeRuleButton(visible: hovering, action: onMakeRule)
+    private func ruleTarget(
+        source: String,
+        target: String?,
+        targetTruncated: Bool = false
+    ) -> String? {
+        guard let target = HistoryWordActionPolicy.sanitizedTarget(target, truncated: targetTruncated) else {
+            return nil
         }
-        .padding(.vertical, 1)
-        .contentShape(Rectangle())
-        .onHover { hovering = $0 }
+        let source = HistoryWordActionPolicy.normalizedSource(source)
+        guard target.caseInsensitiveCompare(source) != .orderedSame else { return nil }
+        return target
     }
 }
 
-private struct FirstSeenRow: View {
-    let pair: AggregatedPair
-    let onMakeRule: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        HStack(spacing: 8) {
-            ReplacementReceipt(source: pair.source, target: pair.target, strikethroughSource: true)
-            if isNew { NewBadge() }
-            Spacer(minLength: 6)
-            Text(meta)
-                .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
-            MakeRuleButton(visible: hovering, action: onMakeRule)
-        }
-        .padding(.vertical, 1)
-        .contentShape(Rectangle())
-        .onHover { hovering = $0 }
-    }
-
-    private var isNew: Bool {
-        pair.firstSeen > Date().addingTimeInterval(-24 * 3600)
-    }
-
-    private var meta: String {
-        let when = Self.relativeFormatter.localizedString(for: pair.firstSeen, relativeTo: Date())
-        if let bundleID = pair.lastBundleID {
-            return "\(when) · \(AppContextProvider.displayName(forBundleID: bundleID))"
-        }
-        return when
-    }
-
-    private static let relativeFormatter: RelativeDateTimeFormatter = {
-        let f = RelativeDateTimeFormatter()
-        f.unitsStyle = .abbreviated
-        return f
-    }()
-}
-
-private struct AppRow: View {
-    let app: AppCount
-    let maxCount: Int
-
-    var body: some View {
-        HStack(spacing: 10) {
-            iconView
-                .frame(width: 18, height: 18)
-            Text(app.name)
-                .font(.system(size: 13))
-                .lineLimit(1)
-            Spacer(minLength: 8)
-            VolumeBar(ratio: Double(app.count) / Double(max(1, maxCount)))
-                .frame(maxWidth: 160)
-            Text("\(app.count)")
-                .font(.system(size: 12, weight: .semibold).monospacedDigit())
-                .foregroundStyle(.secondary)
-                .frame(minWidth: 28, alignment: .trailing)
-        }
-    }
-
-    @ViewBuilder
-    private var iconView: some View {
-        if let bundleID = app.bundleID, let icon = AppContextProvider.icon(forBundleID: bundleID) {
-            Image(nsImage: icon)
-                .resizable()
-                .interpolation(.high)
-        } else {
-            Image(systemName: "app.dashed")
-                .foregroundStyle(.secondary)
-        }
-    }
-}
-
-// MARK: - Small shared bits
-
-private struct VolumeBar: View {
-    let ratio: Double
-
-    var body: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule().fill(.quaternary)
-                Capsule()
-                    .fill(Color("BrandAccent"))
-                    .frame(width: max(3, geo.size.width * min(1, max(0, ratio))))
-            }
-        }
-        .frame(height: 6)
-    }
-}
-
-private struct NewBadge: View {
-    var body: some View {
-        Text("Нове")
-            .font(.system(size: 9, weight: .bold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
-            .background(Capsule().fill(Color("BrandAccent")))
-    }
-}
-
-private struct MakeRuleButton: View {
-    let visible: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: "wand.and.stars")
-                .font(.system(size: 12, weight: .medium))
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(Color("BrandAccentDeep"))
-        .opacity(visible ? 1 : 0)
-        .allowsHitTesting(visible)
-        .frame(width: 16)
-        .help("Зробити правило з цієї пари")
-    }
-}
-
-// MARK: - Chronological row
-
-private struct ReplacementRow: View {
+private struct ReplacementActionRow: View {
     let entry: ReplacementHistoryEntry
-    let onEdit: (RuleEditorSeed) -> Void
+    let candidates: [MistakeSuggestionCandidate]
+    let onCreateRule: (String?) -> Void
+    let onIgnore: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
             appGlyph
-                .frame(width: 18, height: 18)
+                .frame(width: 24, height: 24)
 
-            Text(entry.original)
-                .font(.system(.body, design: .monospaced))
-                .strikethrough(true, color: Color("BrandAccentDeep").opacity(0.7))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 8) {
+                    Text(entry.kind.displayName)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(entry.kind == .autoFixUndone ? .orange : .secondary)
+                    if let appName {
+                        Text(appName)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Text(timestampText)
+                        .font(.system(size: 11).monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                }
 
-            Image(systemName: "arrow.right")
-                .font(.caption2)
-                .foregroundStyle(Color("BrandAccentDeep"))
+                ReplacementReceipt(
+                    source: entry.original,
+                    target: entry.converted.isEmpty ? "ввести заміну" : entry.converted,
+                    strikethroughSource: entry.kind != .autoFixUndone
+                )
 
-            Text(entry.converted)
-                .font(.system(.body, design: .monospaced).weight(.medium))
-                .foregroundStyle(entry.kind == .autoFixUndone ? .secondary : .primary)
-                .lineLimit(1)
-                .truncationMode(.tail)
+                HistoryCandidateStrip(candidates: candidates) { candidate in
+                    onCreateRule(candidate.text)
+                }
+            }
 
             Spacer(minLength: 12)
 
-            if let appName {
-                Text(appName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            VStack(alignment: .trailing, spacing: 1) {
-                Text(Self.timeFormatter.string(from: entry.timestamp))
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                Text(relativeDay)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
-            .frame(width: 56, alignment: .trailing)
-
-            if canMakeWordAction {
-                Menu {
-                    rowActions
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .foregroundStyle(.secondary)
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .help("Дії із цим словом")
-            }
+            HistoryRowActions(
+                canAct: disabledReason == nil,
+                disabledReason: disabledReason,
+                onCreateRule: { onCreateRule(primaryTarget) },
+                onIgnore: onIgnore
+            )
         }
-        .padding(.vertical, 6)
-        .contextMenu {
-            if canMakeWordAction {
-                rowActions
-            }
-        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: - Per-row actions (route through the rule editor modal)
-
-    @ViewBuilder
-    private var rowActions: some View {
-        if canMakeRule {
-            Button {
-                onEdit(RuleEditorSeed(source: trimmedOriginal, target: trimmedConverted, mode: .replace))
-            } label: {
-                Label("Зробити правило…", systemImage: "wand.and.stars")
-            }
-        }
-        Button {
-            onEdit(RuleEditorSeed(source: trimmedOriginal, mode: .leaveAlone))
-        } label: {
-            Label("Не чіпати «\(trimmedOriginal)»", systemImage: "hand.raised")
-        }
+    private var primaryTarget: String? {
+        HistoryWordActionPolicy.sanitizedTarget(entry.converted, truncated: entry.convertedTruncated)
     }
 
-    private var trimmedOriginal: String {
-        entry.original.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var trimmedConverted: String {
-        entry.converted.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// Allowlisting/rules act on a single typed word — the unit auto-fix evaluates.
-    /// Multi-word or truncated entries can't be expressed as a word/rule.
-    private var canMakeWordAction: Bool {
-        !entry.originalTruncated
-            && trimmedOriginal.count >= 2
-            && !trimmedOriginal.contains(where: { $0.isWhitespace })
-    }
-
-    private var canMakeRule: Bool {
-        canMakeWordAction
-            && !entry.convertedTruncated
-            && !trimmedConverted.isEmpty
-            && !trimmedConverted.contains(where: { $0.isWhitespace })
-            && trimmedConverted.lowercased() != trimmedOriginal.lowercased()
+    private var disabledReason: String? {
+        HistoryWordActionPolicy.disabledReason(source: entry.original, truncated: entry.originalTruncated)
     }
 
     @ViewBuilder
@@ -654,8 +284,13 @@ private struct ReplacementRow: View {
                 .resizable()
                 .interpolation(.high)
         } else {
-            Image(systemName: entry.kind.systemImage)
-                .foregroundStyle(entry.kind == .autoFixUndone ? .orange : Color("BrandAccentDeep"))
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color("BrandTintSoft"))
+                Image(systemName: entry.kind.systemImage)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(entry.kind == .autoFixUndone ? .orange : Color("BrandAccentDeep"))
+            }
         }
     }
 
@@ -664,10 +299,14 @@ private struct ReplacementRow: View {
         return AppContextProvider.displayName(forBundleID: bundleID)
     }
 
+    private var timestampText: String {
+        "\(relativeDay), \(Self.timeFormatter.string(from: entry.timestamp))"
+    }
+
     private var relativeDay: String {
         let cal = Calendar.current
-        if cal.isDateInToday(entry.timestamp) { return "Сьогодні" }
-        if cal.isDateInYesterday(entry.timestamp) { return "Вчора" }
+        if cal.isDateInToday(entry.timestamp) { return "сьогодні" }
+        if cal.isDateInYesterday(entry.timestamp) { return "вчора" }
         return entry.timestamp.formatted(.dateTime.weekday(.abbreviated))
     }
 
@@ -677,4 +316,119 @@ private struct ReplacementRow: View {
         f.setLocalizedDateFormatFromTemplate("HH:mm")
         return f
     }()
+}
+
+private struct ReplacementHistorySuggestion: Identifiable {
+    enum Kind {
+        case makeRule
+        case ignoreWord
+
+        var title: String {
+            switch self {
+            case .makeRule: return "Повторювана заміна"
+            case .ignoreWord: return "Часто скасовується"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .makeRule: return "wand.and.stars"
+            case .ignoreWord: return "hand.raised"
+            }
+        }
+    }
+
+    let id: String
+    let kind: Kind
+    let source: String
+    let target: String?
+    let sourceLayoutID: String?
+    let sourceTruncated: Bool
+    let count: Int
+    let lastSeen: Date
+
+    var subtitle: String {
+        switch kind {
+        case .makeRule:
+            return "Ця пара повторюється. Можна зробити її правилом або додати джерело в «не чіпати»."
+        case .ignoreWord:
+            return "AutoFix для цього слова часто відкатували. Ймовірно, його краще не чіпати."
+        }
+    }
+}
+
+private func aggregateReplacementSuggestions(_ entries: [ReplacementHistoryEntry]) -> [ReplacementHistorySuggestion] {
+    struct Acc {
+        var kind: ReplacementHistorySuggestion.Kind
+        var source: String
+        var target: String?
+        var sourceLayoutID: String?
+        var sourceTruncated: Bool
+        var count: Int
+        var lastSeen: Date
+    }
+
+    var map: [String: Acc] = [:]
+    for entry in entries {
+        let source = HistoryWordActionPolicy.normalizedSource(entry.original)
+        guard !source.isEmpty else { continue }
+
+        let kind: ReplacementHistorySuggestion.Kind
+        let target: String?
+        let key: String
+        if entry.kind == .autoFixUndone {
+            kind = .ignoreWord
+            target = nil
+            key = "ignore:\(source.lowercased())"
+        } else {
+            guard !entry.originalTruncated,
+                  !entry.convertedTruncated,
+                  let sanitizedTarget = HistoryWordActionPolicy.sanitizedTarget(entry.converted),
+                  sanitizedTarget.caseInsensitiveCompare(source) != .orderedSame else {
+                continue
+            }
+            kind = .makeRule
+            target = sanitizedTarget
+            key = "rule:\(source.lowercased())->\(sanitizedTarget.lowercased())"
+        }
+
+        if var acc = map[key] {
+            acc.count += 1
+            if entry.timestamp > acc.lastSeen {
+                acc.source = source
+                acc.target = target
+                acc.sourceLayoutID = entry.sourceLayoutID
+                acc.sourceTruncated = entry.originalTruncated
+                acc.lastSeen = entry.timestamp
+            }
+            map[key] = acc
+        } else {
+            map[key] = Acc(
+                kind: kind,
+                source: source,
+                target: target,
+                sourceLayoutID: entry.sourceLayoutID,
+                sourceTruncated: entry.originalTruncated,
+                count: 1,
+                lastSeen: entry.timestamp
+            )
+        }
+    }
+
+    return map.map { key, acc in
+        ReplacementHistorySuggestion(
+            id: key,
+            kind: acc.kind,
+            source: acc.source,
+            target: acc.target,
+            sourceLayoutID: acc.sourceLayoutID,
+            sourceTruncated: acc.sourceTruncated,
+            count: acc.count,
+            lastSeen: acc.lastSeen
+        )
+    }
+    .sorted { lhs, rhs in
+        if lhs.count != rhs.count { return lhs.count > rhs.count }
+        return lhs.lastSeen > rhs.lastSeen
+    }
 }

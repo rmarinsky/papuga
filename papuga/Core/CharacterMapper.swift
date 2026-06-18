@@ -67,21 +67,19 @@ final class CharacterMapper {
             return text
         }
 
-        let converted = String(text.map { char in
+        var converted = ""
+        converted.reserveCapacity(text.count)
+        for char in text {
             guard let mapping = sourceForward[char] else {
-                return char
+                converted.append(char)
+                continue
             }
-
             guard let targetChars = targetReverse[mapping.keyCode] else {
-                return char
+                converted.append(char)
+                continue
             }
-
-            if mapping.needsShift {
-                return targetChars.shifted ?? char
-            } else {
-                return targetChars.normal ?? char
-            }
-        })
+            converted.append(mapping.needsShift ? (targetChars.shifted ?? char) : (targetChars.normal ?? char))
+        }
         AppLogger.post(logger, "convert completed: outputCount=\(converted.count)")
         return converted
     }

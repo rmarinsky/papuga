@@ -3,12 +3,13 @@ import SwiftUI
 
 enum HistorySection: String, Identifiable, CaseIterable {
     case overview
+    case typingTest
     case history
-    case suggestions
+    case clipboard
+    case mistakes
     case settingsGeneral
     case settingsLanguages
     case settingsRules
-    case settingsDictionary
     case settingsShortcuts
     case settingsAccount
 
@@ -17,12 +18,13 @@ enum HistorySection: String, Identifiable, CaseIterable {
     var title: String {
         switch self {
         case .overview: return "Огляд"
-        case .history: return "Історія"
-        case .suggestions: return "Поради"
+        case .typingTest: return "Тест набору"
+        case .history: return "Історія замін"
+        case .clipboard: return "Копіопасти"
+        case .mistakes: return "Помилки введення"
         case .settingsGeneral: return "Загальні"
         case .settingsLanguages: return "Мови"
         case .settingsRules: return "Правила"
-        case .settingsDictionary: return "Словник"
         case .settingsShortcuts: return "Клавіші"
         case .settingsAccount: return "Аккаунт"
         }
@@ -31,12 +33,13 @@ enum HistorySection: String, Identifiable, CaseIterable {
     var systemImage: String {
         switch self {
         case .overview: return "square.grid.2x2"
+        case .typingTest: return "keyboard"
         case .history: return "clock.arrow.circlepath"
-        case .suggestions: return "sparkles"
+        case .clipboard: return "doc.on.clipboard"
+        case .mistakes: return "text.magnifyingglass"
         case .settingsGeneral: return "gear"
         case .settingsLanguages: return "globe"
         case .settingsRules: return "wand.and.stars"
-        case .settingsDictionary: return "character.book.closed"
         case .settingsShortcuts: return "command"
         case .settingsAccount: return "person.circle"
         }
@@ -87,8 +90,9 @@ final class HistoryWindowController {
             defer: false
         )
 
-        window.title = "Papuga"
+        window.title = ""
         window.contentView = hostingView
+        configureUnifiedChrome(for: window)
         window.minSize = NSSize(width: 800, height: 560)
         window.setContentSize(NSSize(width: 1000, height: 680))
         window.setFrameAutosaveName("papuga.main")
@@ -107,6 +111,17 @@ final class HistoryWindowController {
         self.window = window
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func configureUnifiedChrome(for window: NSWindow) {
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.styleMask.insert(.fullSizeContentView)
+        window.isMovableByWindowBackground = true
+        window.toolbar = nil
+        DispatchQueue.main.async { [weak window] in
+            window?.toolbar = nil
+        }
     }
 }
 

@@ -6,16 +6,30 @@ import SwiftUI
 struct RuleEditorSeed: Identifiable {
     let id = UUID()
     var ruleID: UUID?
+    var allowlistOriginal: String?
     var source: String = ""
     var target: String = ""
     var mode: RuleEditorSheet.Mode = .replace
 
-    init(ruleID: UUID? = nil, source: String = "", target: String = "", mode: RuleEditorSheet.Mode = .replace) {
+    init(
+        ruleID: UUID? = nil,
+        allowlistOriginal: String? = nil,
+        source: String = "",
+        target: String = "",
+        mode: RuleEditorSheet.Mode = .replace
+    ) {
         self.ruleID = ruleID
+        self.allowlistOriginal = allowlistOriginal
         self.source = source
         self.target = target
         self.mode = mode
     }
+}
+
+struct RuleEditorSaveResult {
+    let mode: RuleEditorSheet.Mode
+    let source: String
+    let target: String?
 }
 
 /// The "edit replacement" modal. One sheet handles both intents the user can
@@ -39,6 +53,7 @@ struct RuleEditorSheet: View {
 
     let seed: RuleEditorSeed
     var onClose: () -> Void
+    var onSave: ((RuleEditorSaveResult) -> Void)?
 
     @State private var mode: Mode
     @State private var source: String
@@ -48,9 +63,14 @@ struct RuleEditorSheet: View {
     @Default(.autoFixAllowlist) private var allowlist
     @Default(.customAutoReplaceRules) private var customRules
 
-    init(seed: RuleEditorSeed, onClose: @escaping () -> Void) {
+    init(
+        seed: RuleEditorSeed,
+        onClose: @escaping () -> Void,
+        onSave: ((RuleEditorSaveResult) -> Void)? = nil
+    ) {
         self.seed = seed
         self.onClose = onClose
+        self.onSave = onSave
         _mode = State(initialValue: seed.mode)
         _source = State(initialValue: seed.source)
         _target = State(initialValue: seed.target)
@@ -92,7 +112,7 @@ struct RuleEditorSheet: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(seed.ruleID == nil ? "Нове правило" : "Редагувати правило")
                     .font(.system(size: 15, weight: .semibold))
-                Text("Як Papuga має чинити з цим словом")
+                Text(mode == .replace ? "Власна заміна для автозаміни" : "Слово, яке Papuga має лишати як є")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
@@ -141,8 +161,53 @@ struct RuleEditorSheet: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+
+            preview
+
+            if let conflictText {
+                Label(conflictText, systemImage: "exclamationmark.triangle")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(16)
+    }
+
+    @ViewBuilder
+    private var preview: some View {
+        if sourceValid {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("ПРЕВ'Ю")
+                    .font(.system(size: 10, weight: .semibold))
+                    .tracking(0.8)
+                    .foregroundStyle(.secondary)
+
+                if mode == .replace, !trimmedTarget.isEmpty {
+                    ReplacementReceipt(source: trimmedSource, target: trimmedTarget, strikethroughSource: true)
+                } else if mode == .leaveAlone {
+                    HStack(spacing: 7) {
+                        SourcePill(text: trimmedSource)
+                        Image(systemName: "hand.raised")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Color("BrandAccentDeep"))
+                        Text("не чіпати")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color("BrandTintSoft").opacity(0.7))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(Color("BrandTintBorder"), lineWidth: 1)
+                    )
+            )
+        }
     }
 
     private func field(
@@ -217,6 +282,30 @@ struct RuleEditorSheet: View {
         }
     }
 
+    private var conflictText: String? {
+        guard sourceValid else { return nil }
+        let sourceWasAllowlisted = seed.allowlistOriginal?.caseInsensitiveCompare(trimmedSource) == .orderedSame
+        let sourceHasAllowlist = allowlist.contains {
+            $0.caseInsensitiveCompare(trimmedSource) == .orderedSame
+        }
+        let sourceHasOtherRule = customRules.contains {
+            $0.id != seed.ruleID && $0.source.caseInsensitiveCompare(trimmedSource) == .orderedSame
+        }
+
+        switch mode {
+        case .replace where sourceHasAllowlist:
+            return "Після збереження слово буде прибране зі списку «не чіпати»."
+        case .replace where sourceHasOtherRule:
+            return "Існуюче правило для цього слова буде замінене."
+        case .leaveAlone where sourceHasOtherRule:
+            return "Після збереження кастомне правило для цього слова буде видалене."
+        case .leaveAlone where sourceHasAllowlist && !sourceWasAllowlisted:
+            return "Це слово вже є у списку «не чіпати»."
+        default:
+            return nil
+        }
+    }
+
     private func save() {
         guard canSave else { return }
         let src = trimmedSource
@@ -225,6 +314,9 @@ struct RuleEditorSheet: View {
         case .replace:
             // A word can't be both replaced and left alone.
             allowlist.removeAll { $0.caseInsensitiveCompare(src) == .orderedSame }
+            if let original = seed.allowlistOriginal {
+                allowlist.removeAll { $0.caseInsensitiveCompare(original) == .orderedSame }
+            }
             if let ruleID = seed.ruleID, let idx = customRules.firstIndex(where: { $0.id == ruleID }) {
                 customRules[idx].source = src
                 customRules[idx].target = trimmedTarget
@@ -240,11 +332,17 @@ struct RuleEditorSheet: View {
             if let ruleID = seed.ruleID {
                 customRules.removeAll { $0.id == ruleID }
             }
-            if !allowlist.contains(where: { $0.caseInsensitiveCompare(src) == .orderedSame }) {
-                allowlist.append(src)
+            if let original = seed.allowlistOriginal {
+                allowlist.removeAll { $0.caseInsensitiveCompare(original) == .orderedSame }
             }
+            IgnoreWordService.add(src)
         }
 
+        onSave?(RuleEditorSaveResult(
+            mode: mode,
+            source: src,
+            target: mode == .replace ? trimmedTarget : nil
+        ))
         onClose()
     }
 }

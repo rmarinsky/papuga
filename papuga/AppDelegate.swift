@@ -34,7 +34,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             layoutManager: layoutManager,
             clipboardHistoryManager: clipboardHistoryManager
         )
-        clipboardHistoryManager.startMonitoring()
+        clipboardHistoryManager.bootstrap { [weak clipboardHistoryManager] in
+            clipboardHistoryManager?.startMonitoring()
+        }
         self.autoFixController = AutoFixController(
             layoutManager: layoutManager,
             characterMapper: autoFixCharacterMapper
@@ -57,7 +59,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = updaterManager
         PapugaEventLog.shared.pruneOldEntries()
         PapugaStatsAggregator.migrateLegacyCountersIfNeeded()
+        Defaults[.mistakeObservationEnabled] = true
+        Defaults[.grammarObservationBetaEnabled] = true
         ReplacementHistoryStore.shared.bootstrap()
+        MistakeObservationStore.shared.bootstrap()
         setupHotkeyListener()
         setupKeyboardShortcuts()
         AppLogger.action(logger, "Hotkey listener and keyboard shortcuts setup complete")
@@ -104,6 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             OnboardingWindowController.shared.showOnboarding {
                 AppLogger.action(self.logger, "Refreshing permission status after onboarding")
                 PermissionManager.shared.refreshStatus()
+                self.ensurePermissionDependentServicesRunning()
                 AppLogger.post(self.logger, "Permission status refresh completed")
             }
         } else {
@@ -112,7 +118,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // materialized layoutManager / clipboardHistoryManager — opening here would
             // race ahead of MenuBarExtra.onAppear and inject nil environment values.
         }
+        ensurePermissionDependentServicesRunning()
         AppLogger.post(logger, "applicationDidFinishLaunching completed")
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        PermissionManager.shared.refreshStatus()
+        ensurePermissionDependentServicesRunning()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -121,6 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if OnboardingManager.shared.shouldShowOnboarding {
             OnboardingWindowController.shared.showOnboarding {
                 PermissionManager.shared.refreshStatus()
+                self.ensurePermissionDependentServicesRunning()
             }
         } else {
             HistoryWindowController.shared.showHistory()
@@ -185,5 +198,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         AppLogger.post(logger, "setupKeyboardShortcuts completed")
+    }
+
+    private func ensurePermissionDependentServicesRunning() {
+        if Defaults[.autoFixEnabled] {
+            autoFixController?.start()
+        }
+        if Defaults[.isServiceRunning] && Defaults[.useDoublePress] {
+            hotkeyListener?.start()
+        }
     }
 }
