@@ -6,12 +6,14 @@ struct ReplacementHistoryEntry: Codable, Identifiable, Equatable {
     enum Kind: String, Codable, CaseIterable {
         case manualSwitch
         case autoFixApplied
+        case autoRuleApplied
         case autoFixUndone
 
         var displayName: String {
             switch self {
             case .manualSwitch: return "Ручне"
             case .autoFixApplied: return "AutoFix"
+            case .autoRuleApplied: return "Правило задіяно"
             case .autoFixUndone: return "Скасоване AutoFix"
             }
         }
@@ -20,6 +22,7 @@ struct ReplacementHistoryEntry: Codable, Identifiable, Equatable {
             switch self {
             case .manualSwitch: return "arrow.left.arrow.right"
             case .autoFixApplied: return "wand.and.stars"
+            case .autoRuleApplied: return "checkmark.seal"
             case .autoFixUndone: return "arrow.uturn.backward"
             }
         }

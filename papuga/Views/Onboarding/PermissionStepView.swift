@@ -19,7 +19,7 @@ struct PermissionStepView: View {
             VStack(spacing: 20) {
                 ZStack {
                     Circle()
-                        .fill(isGranted ? Color.green.opacity(0.1) : Color.accentColor.opacity(0.1))
+                        .fill(isGranted ? Color.green.opacity(0.1) : Color("BrandTintSoft"))
                         .frame(width: 80, height: 80)
 
                     if isGranted {
@@ -29,7 +29,7 @@ struct PermissionStepView: View {
                     } else {
                         Image(systemName: permission.icon)
                             .font(.system(size: 32))
-                            .foregroundColor(.accentColor)
+                            .foregroundStyle(Color("BrandAccentDeep"))
                     }
                 }
 

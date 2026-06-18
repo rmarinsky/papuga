@@ -8,10 +8,10 @@ struct FeatureRow: View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: icon)
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Color("BrandAccentDeep"))
                 .frame(width: 24, height: 24)
                 .padding(8)
-                .background(Color.accentColor.opacity(0.1))
+                .background(Color("BrandAccentDeep").opacity(0.1))
                 .clipShape(RoundedRectangle(cornerRadius: 8))
 
             Text(text)

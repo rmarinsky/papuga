@@ -37,6 +37,7 @@ BUILD_DIR="${PROJECT_DIR}/build"
 ARCHIVE_PATH="${BUILD_DIR}/${APP_NAME}.xcarchive"
 EXPORT_PATH="${BUILD_DIR}/export"
 APP_PATH="${EXPORT_PATH}/${APP_NAME}.app"
+DMG_STAGE_PATH="${BUILD_DIR}/dmg-stage"
 BUILD_NUMBER="${BUILD_NUMBER:-$(git -C "${PROJECT_DIR}" rev-list --count HEAD)}"
 MARKETING_VERSION_OVERRIDE=()
 if [ -n "${RELEASE_VERSION:-}" ]; then
@@ -169,15 +170,19 @@ if ! command -v create-dmg &> /dev/null; then
     exit 1
 fi
 
+rm -rf "${DMG_STAGE_PATH}"
+mkdir -p "${DMG_STAGE_PATH}"
+cp -R "${APP_PATH}" "${DMG_STAGE_PATH}/"
+
 create-dmg \
-    --volname "${APP_NAME}" \
+    --volname "${DISPLAY_NAME}" \
     --window-pos 200 120 \
     --window-size 600 400 \
     --icon-size 100 \
     --icon "${APP_NAME}.app" 175 190 \
     --app-drop-link 425 190 \
     "${DMG_PATH}" \
-    "${EXPORT_PATH}/"
+    "${DMG_STAGE_PATH}/"
 
 shasum -a 256 "${DMG_PATH}" | awk '{print $1}' > "${DMG_PATH%.dmg}.sha256"
 

@@ -78,6 +78,16 @@ final class ReplacementHistoryStore {
         }
     }
 
+    func clear(where shouldRemove: (ReplacementHistoryEntry) -> Bool) {
+        let remaining = entries.filter { !shouldRemove($0) }
+        guard remaining.count != entries.count else { return }
+
+        entries = remaining
+        ioQueue.async { [weak self, remaining] in
+            self?.rewriteDisk(with: remaining)
+        }
+    }
+
     func pruneByRetentionAsync() {
         ioQueue.async { [weak self] in
             self?.pruneSync()
@@ -114,6 +124,26 @@ final class ReplacementHistoryStore {
             }
         } catch {
             logger.warning("ReplacementHistoryStore append failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func rewriteDisk(with entries: [ReplacementHistoryEntry]) {
+        do {
+            if entries.isEmpty {
+                try? FileManager.default.removeItem(at: fileURL)
+                logger.notice("ReplacementHistoryStore cleared")
+                return
+            }
+
+            var data = Data()
+            for entry in entries {
+                data.append(try encoder.encode(entry))
+                data.append(0x0A)
+            }
+            try data.write(to: fileURL, options: [.atomic])
+            logger.notice("ReplacementHistoryStore rewritten with \(entries.count, privacy: .public) entries")
+        } catch {
+            logger.warning("ReplacementHistoryStore rewrite failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 

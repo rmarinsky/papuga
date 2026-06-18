@@ -46,8 +46,8 @@ struct MenuBarView: View {
             }
             .disabled(!updaterManager.canCheckForUpdates)
 
-            Button("Історія та рекомендації...") {
-                HistoryWindowController.shared.showHistory(initialSection: .clipboard)
+            Button("Відкрити Papuga...") {
+                HistoryWindowController.shared.showHistory(initialSection: .overview)
             }
 
             Button("Налаштування...") {
@@ -100,14 +100,8 @@ struct MenuBarView: View {
         now: Date,
         preset: ClipboardHistoryRetentionPreset
     ) -> Bool {
-        switch preset {
-        case .oneHour:
-            return date >= now.addingTimeInterval(-preset.timeInterval)
-        case .oneDay:
-            return date >= now.addingTimeInterval(-preset.timeInterval)
-        case .twoDays, .oneWeek:
-            return date >= now.addingTimeInterval(-preset.timeInterval)
-        }
+        guard let timeInterval = preset.timeInterval else { return true }
+        return date >= now.addingTimeInterval(-timeInterval)
     }
 
     private func historyMenuLabel(for entry: ClipboardHistoryEntry) -> String {

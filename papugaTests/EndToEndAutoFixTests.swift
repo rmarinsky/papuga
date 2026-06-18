@@ -60,6 +60,60 @@ final class EndToEndAutoFixTests: XCTestCase {
         )
     }
 
+    private func rawSingleTokenDecision(
+        original: String,
+        candidate: String,
+        fromLayoutID: String,
+        toLayoutID: String,
+        algorithm: LanguageScorerAlgorithm,
+        threshold: Double = 0.3
+    ) -> Bool {
+        let scorer = LanguageScorerFactory.make(algorithm)
+        let fromLang = AutoFixDecision.languageHintForLayoutID(fromLayoutID)
+        let toLang = AutoFixDecision.languageHintForLayoutID(toLayoutID)
+        let scoreOriginal = scorer.score(original, expecting: fromLang)
+        let scoreCandidate = scorer.score(candidate, expecting: toLang)
+        return AutoFixDecision.shouldReplace(
+            scoreOriginal: scoreOriginal,
+            scoreCandidate: scoreCandidate,
+            threshold: threshold
+        )
+    }
+
+    private func guardedSingleTokenDecision(
+        original: String,
+        candidate: String,
+        fromLayoutID: String,
+        toLayoutID: String,
+        algorithm: LanguageScorerAlgorithm,
+        threshold: Double = 0.3
+    ) -> Bool {
+        let fromLang = AutoFixDecision.languageHintForLayoutID(fromLayoutID)
+        if AutoFixDecision.isCorrectlySpelled(original, language: fromLang) {
+            return false
+        }
+
+        let typoAssessment = AutoFixDecision.spellingTypoGuardAssessment(
+            original: original,
+            candidate: candidate,
+            language: fromLang,
+            minWordLength: 4,
+            maxEditDistance: 1
+        )
+        if typoAssessment.shouldSuppressAutoReplace {
+            return false
+        }
+
+        return rawSingleTokenDecision(
+            original: original,
+            candidate: candidate,
+            fromLayoutID: fromLayoutID,
+            toLayoutID: toLayoutID,
+            algorithm: algorithm,
+            threshold: threshold
+        )
+    }
+
     private static let positiveUkrainianCases: [AutoFixCase] = [
         AutoFixCase(typedInWrongLayout: ".hsq", expectedCorrected: "юрій",
                     fromLayoutID: "com.apple.keylayout.US",
@@ -142,6 +196,63 @@ final class EndToEndAutoFixTests: XCTestCase {
         XCTAssertTrue(
             AutoFixDecision.shouldReplace(scoreOriginal: scoreEN, scoreCandidate: scoreUK, threshold: 0.4),
             "Auto-fix would (incorrectly) trigger here without a dictionary check"
+        )
+    }
+
+    func test_single_letter_english_typos_do_not_auto_fix_to_cyrillic() throws {
+        let fromID = "com.apple.keylayout.US"
+        let toID = "com.apple.keylayout.Ukrainian-PC"
+        let fromSrc = try source(forID: fromID)
+        let toSrc = try source(forID: toID)
+        mapper.buildMap(for: fromSrc, sourceID: fromID)
+        mapper.buildMap(for: toSrc, sourceID: toID)
+
+        for original in ["fster", "wrold", "hellp"] {
+            let candidate = mapper.convert(text: original, fromSourceID: fromID, toSourceID: toID)
+            if original == "fster" {
+                XCTAssertTrue(
+                    rawSingleTokenDecision(
+                        original: original,
+                        candidate: candidate,
+                        fromLayoutID: fromID,
+                        toLayoutID: toID,
+                        algorithm: .appleNL
+                    ),
+                    "Raw scorer should demonstrate the false-positive risk for \(original) -> \(candidate)"
+                )
+            }
+            XCTAssertFalse(
+                guardedSingleTokenDecision(
+                    original: original,
+                    candidate: candidate,
+                    fromLayoutID: fromID,
+                    toLayoutID: toID,
+                    algorithm: .appleNL
+                ),
+                "Typo guard should block auto-fix for \(original) -> \(candidate)"
+            )
+        }
+    }
+
+    func test_typoGuard_does_not_block_true_wrong_layout_word() throws {
+        let fromID = "com.apple.keylayout.US"
+        let toID = "com.apple.keylayout.Ukrainian-PC"
+        let fromSrc = try source(forID: fromID)
+        let toSrc = try source(forID: toID)
+        mapper.buildMap(for: fromSrc, sourceID: fromID)
+        mapper.buildMap(for: toSrc, sourceID: toID)
+
+        let original = "ghbdsn"
+        let candidate = mapper.convert(text: original, fromSourceID: fromID, toSourceID: toID)
+        XCTAssertEqual(candidate, "привіт")
+        XCTAssertTrue(
+            guardedSingleTokenDecision(
+                original: original,
+                candidate: candidate,
+                fromLayoutID: fromID,
+                toLayoutID: toID,
+                algorithm: .appleNL
+            )
         )
     }
 }

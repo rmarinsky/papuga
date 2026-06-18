@@ -9,10 +9,15 @@ struct WelcomeStepView: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(spacing: 24) {
-                    Image(systemName: "keyboard")
-                        .font(.system(size: 48))
-                        .foregroundStyle(Color.accentColor)
-                        .padding(.top, 20)
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(Color("BrandTintSoft"))
+                            .frame(width: 76, height: 76)
+                        Image(systemName: "bird.fill")
+                            .font(.system(size: 38, weight: .semibold))
+                            .foregroundStyle(Color("BrandAccent"))
+                    }
+                    .padding(.top, 20)
 
                     VStack(spacing: 10) {
                         Text("Ласкаво просимо до Papuga")
@@ -29,7 +34,7 @@ struct WelcomeStepView: View {
 
                         Text("Економимо мільйони секунд на рік, які краде поламана розкладка.")
                             .font(.system(size: 14, weight: .semibold, design: .rounded))
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(Color("BrandAccentDeep"))
                             .multilineTextAlignment(.center)
                             .lineLimit(3)
                     }
@@ -71,10 +76,7 @@ struct WelcomeStepView: View {
         }
         .background(
             LinearGradient(
-                colors: [
-                    Color.accentColor.opacity(0.14),
-                    Color.clear
-                ],
+                colors: [Color("BrandTintSoft"), Color.clear],
                 startPoint: .top,
                 endPoint: .center
             )

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import Defaults
 import LaunchAtLogin
@@ -95,6 +96,9 @@ struct GeneralTab: View {
         }
         .formStyle(.grouped)
         .task {
+            checkPermissionsPassive()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             checkPermissionsPassive()
         }
     }

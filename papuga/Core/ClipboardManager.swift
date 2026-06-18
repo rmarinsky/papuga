@@ -75,7 +75,7 @@ final class ClipboardManager {
 
     var changeCount: Int {
         let value = pasteboard.changeCount
-        AppLogger.action(logger, "changeCount queried -> \(value)")
+        AppLogger.pre(logger, "changeCount queried -> \(value)")
         return value
     }
 

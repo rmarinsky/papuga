@@ -42,9 +42,8 @@ final class TextSwitchEngine {
                 historyManager?.resumeTracking(reason: "textSwitch:\(operationID)")
             }
 
-            AppLogger.action(logger, "[\(operationID)] Waiting for clipboard update")
-            try? await Task.sleep(for: .seconds(Constants.clipboardWaitDuration))
-
+            // No fixed pre-read delay: getTextWithRetry polls changeCount with early-exit, so a
+            // fast app's clipboard is read the moment it updates instead of always paying the pad.
             let text = await getTextWithRetry(previousChangeCount: changeCountBefore, operationID: operationID)
 
             guard let text, !text.isEmpty else {
@@ -106,7 +105,7 @@ final class TextSwitchEngine {
             AppLogger.action(logger, "[\(operationID)] Emitting textReplacementDidComplete notification")
             NotificationCenter.default.post(name: .textReplacementDidComplete, object: nil)
 
-            try? await Task.sleep(for: .seconds(Constants.clipboardWaitDuration))
+            try? await Task.sleep(for: .seconds(Constants.switchLayoutSettleDelay))
             AppLogger.action(logger, "[\(operationID)] Switching system layout to target")
             layoutManager.switchTo(targetID)
             AppLogger.post(logger, "[\(operationID)] System layout switched")

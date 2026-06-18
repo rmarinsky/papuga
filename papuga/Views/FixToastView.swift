@@ -47,9 +47,15 @@ struct FixToastView: View {
                     )
                     .shadow(color: .black.opacity(0.18), radius: 10, x: 0, y: 4)
                     .shadow(color: .white.opacity(0.15), radius: 1, x: 0, y: 0.5)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .strokeBorder(Color("BrandAccent").opacity(hover ? 0.75 : 0), lineWidth: 1.5)
+                            .animation(.easeInOut(duration: 0.15), value: hover)
+                    )
 
-                Text("🦜")
-                    .font(.system(size: 26))
+                Image(systemName: "bird.fill")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(Color("BrandAccentDeep"))
                     .rotationEffect(.degrees(spin))
                     .scaleEffect(hover ? 1.18 : 1.0)
                     .animation(.spring(response: 0.25, dampingFraction: 0.5), value: hover)

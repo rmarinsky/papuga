@@ -3,45 +3,26 @@ import Defaults
 
 struct AutoFixTab: View {
     @Default(.autoFixEnabled) private var autoFixEnabled
-    @Default(.autoFixAlgorithm) private var autoFixAlgorithm
-    @Default(.autoFixThreshold) private var autoFixThreshold
     @Default(.autoFixUndoWindow) private var autoFixUndoWindow
     @Default(.autoFixBlocklist) private var autoFixBlocklist
-    @Default(.autoFixAllowlist) private var autoFixAllowlist
     @Default(.autoFixToastEnabled) private var autoFixToastEnabled
-    @Default(.customAutoReplaceRules) private var customAutoReplaceRules
+    @Default(.autoFixAlgorithm) private var autoFixAlgorithm
+    @Default(.autoFixThreshold) private var autoFixThreshold
+    @Default(.autoFixMinWordLength) private var autoFixMinWordLength
+    @Default(.autoFixConservativeEditingGuard) private var autoFixConservativeEditingGuard
+    @Default(.autoFixSpellingTypoGuardEnabled) private var autoFixSpellingTypoGuardEnabled
+    @Default(.autoFixSpellingTypoGuardMinWordLength) private var autoFixSpellingTypoGuardMinWordLength
+    @Default(.autoFixSpellingTypoGuardMaxEditDistance) private var autoFixSpellingTypoGuardMaxEditDistance
+    @Default(.autoFixProposalEnabled) private var autoFixProposalEnabled
+    @Default(.autoFixProposalWindow) private var autoFixProposalWindow
+    @Default(.autoFixLayoutSwitchPolicy) private var autoFixLayoutSwitchPolicy
 
     @State private var showingAddSheet = false
-    @State private var newAllowlistWord = ""
-    @State private var newRuleSource = ""
-    @State private var newRuleTarget = ""
 
     var body: some View {
         Form {
             Section("Автозаміна під час набору") {
                 Toggle("Увімкнути автозаміну", isOn: $autoFixEnabled)
-
-                Picker("Алгоритм визначення мови", selection: $autoFixAlgorithm) {
-                    ForEach(LanguageScorerAlgorithm.implementedCases, id: \.rawValue) { algorithm in
-                        Text(algorithm.title).tag(algorithm.rawValue)
-                    }
-                }
-                .pickerStyle(.menu)
-
-                if let selected = LanguageScorerAlgorithm(rawValue: autoFixAlgorithm) {
-                    Text(selected.description)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                VStack(alignment: .leading) {
-                    HStack {
-                        Text("Поріг впевненості")
-                        Spacer()
-                        Text(String(format: "%.2f", autoFixThreshold)).monospacedDigit()
-                    }
-                    Slider(value: $autoFixThreshold, in: 0.1...0.9, step: 0.05)
-                }
 
                 VStack(alignment: .leading) {
                     HStack {
@@ -53,91 +34,80 @@ struct AutoFixTab: View {
                 }
 
                 Toggle("Показувати папугу-сальто біля курсора", isOn: $autoFixToastEnabled)
-                Text("Якщо клікнути по папузі — заміна скасується, а слово запам'ятається у списку «не чіпати»")
+                Text("Якщо клікнути по папузі — заміна скасується, а слово запам'ятається у списку «не чіпати» і словнику macOS")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Toggle("Не автозаміняти фрагменти після редагування слова", isOn: $autoFixConservativeEditingGuard)
+                Text("Після Backspace або руху курсора Papuga пропустить наступний фрагмент, щоб не видаляти частину слова.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Toggle("Показувати компактні пропозиції", isOn: $autoFixProposalEnabled)
+                Text("Якщо заміна майже дотягує до порогу, Papuga запропонує її поруч із курсором замість тихої автозаміни.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            Section("Не чіпати ці слова") {
-                if autoFixAllowlist.isEmpty {
-                    Text("Список порожній. Слова додаються автоматично, коли ти клікаєш папугу під час її анімації, або вручну тут.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                ForEach(autoFixAllowlist, id: \.self) { word in
-                    HStack {
-                        Text(word)
-                        Spacer()
-                        Button {
-                            autoFixAllowlist.removeAll { $0 == word }
-                        } label: {
-                            Image(systemName: "minus.circle.fill")
-                        }
-                        .buttonStyle(.plain)
+            Section("Визначення мови") {
+                Picker("Режим", selection: sensitivityPreset) {
+                    ForEach(AutoFixSensitivityPreset.allCases) { preset in
+                        Text(preset.title).tag(preset)
                     }
                 }
-                HStack {
-                    TextField("Додати слово вручну", text: $newAllowlistWord)
-                    Button("Додати") {
-                        let trimmed = newAllowlistWord.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !trimmed.isEmpty && !autoFixAllowlist.contains(where: { $0.lowercased() == trimmed.lowercased() }) {
-                            autoFixAllowlist.append(trimmed)
-                            newAllowlistWord = ""
-                        }
-                    }
-                    .disabled(newAllowlistWord.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
+                .pickerStyle(.segmented)
+
+                Text(currentSensitivityDescription)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Toggle("Показувати пропозиції біля курсора", isOn: $autoFixProposalEnabled)
+                Text("Сумнівні слова та фрази Papuga покаже як підказку: Enter замінює, Esc ігнорує надалі.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Toggle("Не чіпати правописні опечатки", isOn: $autoFixSpellingTypoGuardEnabled)
+                Text("Опечатки в поточній мові лишаються як є, замість перетворення в іншу розкладку.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
-            Section("Власні правила автозаміни") {
-                if customAutoReplaceRules.isEmpty {
-                    Text("Тут з'являться твої правила, коли ти приймеш рекомендацію, або додаси їх вручну.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                ForEach(customAutoReplaceRules) { rule in
-                    HStack {
-                        Text(rule.source).font(.system(.body, design: .monospaced))
-                        Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.secondary)
-                        Text(rule.target).font(.system(.body, design: .monospaced))
-                        Spacer()
-                        if rule.createdFromRecommendation {
-                            Text("із поради")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                        Button {
-                            customAutoReplaceRules.removeAll { $0.id == rule.id }
-                        } label: {
-                            Image(systemName: "minus.circle.fill")
-                        }
-                        .buttonStyle(.plain)
+            Section("Двомовний текст") {
+                Picker("Після заміни", selection: $autoFixLayoutSwitchPolicy) {
+                    ForEach(AutoFixLayoutSwitchPolicy.allCases, id: \.rawValue) { policy in
+                        Text(policy.title).tag(policy.rawValue)
                     }
                 }
-                HStack {
-                    TextField("Замінити", text: $newRuleSource)
-                    Image(systemName: "arrow.right").foregroundStyle(.secondary)
-                    TextField("На", text: $newRuleTarget)
-                    Button("Додати") {
-                        let src = newRuleSource.trimmingCharacters(in: .whitespacesAndNewlines)
-                        let tgt = newRuleTarget.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !src.isEmpty, !tgt.isEmpty else { return }
-                        // Reject any rule whose source already exists — at runtime only the
-                        // first match fires, so a duplicate-source rule would be dead weight.
-                        guard !customAutoReplaceRules.contains(where: {
-                            $0.source.lowercased() == src.lowercased()
-                        }) else { return }
-                        customAutoReplaceRules.append(
-                            CustomAutoReplaceRule(source: src, target: tgt)
-                        )
-                        newRuleSource = ""
-                        newRuleTarget = ""
-                    }
-                    .disabled(
-                        newRuleSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                        newRuleTarget.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    )
-                }
+                .pickerStyle(.menu)
+
+                Text("Адаптивний режим не перемикає розкладку після одиночного терміна, але перемикає після фрази або повторних замін в одному напрямку.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Label(
+                    "Акроніми та технічні терміни на кшталт API, QA, macOS, SwiftUI, git не автозамінюються.",
+                    systemImage: "textformat.abc"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            Section("Редактори коду") {
+                Label(
+                    "У VS Code, Cursor, JetBrains, Xcode Papuga за замовчуванням показує пропозицію замість прямої автозаміни, щоб не ламати multi-cursor.",
+                    systemImage: "curlybraces"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            Section("Слова та правила") {
+                Label(
+                    "Списки «не чіпати» та власні правила заміни доступні у сегменті «Словник».",
+                    systemImage: "character.book.closed"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
 
             Section("Не застосовувати у цих застосунках") {
@@ -174,8 +144,7 @@ struct AutoFixTab: View {
             )
         }
         .onAppear {
-            if let selected = LanguageScorerAlgorithm(rawValue: autoFixAlgorithm),
-               selected.isImplemented {
+            if let selected = LanguageScorerAlgorithm(rawValue: autoFixAlgorithm), selected.isImplemented {
                 return
             }
             autoFixAlgorithm = LanguageScorerAlgorithm.appleNL.rawValue
@@ -186,6 +155,117 @@ struct AutoFixTab: View {
         AppContextProvider.runningAppCandidates()
             .first { $0.bundleID == bundleID }?
             .name ?? bundleID
+    }
+
+    private var sensitivityPreset: Binding<AutoFixSensitivityPreset> {
+        Binding(
+            get: {
+                AutoFixSensitivityPreset.nearest(
+                    minWordLength: autoFixMinWordLength,
+                    threshold: autoFixThreshold,
+                    proposalWindow: autoFixProposalWindow
+                )
+            },
+            set: { preset in
+                applySensitivityPreset(preset)
+            }
+        )
+    }
+
+    private var currentSensitivityDescription: String {
+        sensitivityPreset.wrappedValue.description
+    }
+
+    private func applySensitivityPreset(_ preset: AutoFixSensitivityPreset) {
+        autoFixMinWordLength = preset.minWordLength
+        autoFixThreshold = preset.threshold
+        autoFixProposalWindow = preset.proposalWindow
+        autoFixSpellingTypoGuardMinWordLength = preset.typoGuardMinWordLength
+        autoFixSpellingTypoGuardMaxEditDistance = preset.typoGuardMaxEditDistance
+        autoFixAlgorithm = LanguageScorerAlgorithm.appleNL.rawValue
+    }
+}
+
+private enum AutoFixSensitivityPreset: String, CaseIterable, Identifiable {
+    case careful
+    case balanced
+    case moreHints
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .careful: return "Обережно"
+        case .balanced: return "Баланс"
+        case .moreHints: return "Більше підказок"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .careful:
+            return "Менше втручань: Papuga чекає сильнішого сигналу і частіше мовчить."
+        case .balanced:
+            return "Нормальний режим для щоденного набору: очевидне замінює, сумнівне показує як підказку."
+        case .moreHints:
+            return "Більше підказок для коротких слів і фраз, включно з випадками на кшталт кирилиця → English."
+        }
+    }
+
+    var minWordLength: Int {
+        switch self {
+        case .careful: return 4
+        case .balanced: return 3
+        case .moreHints: return 2
+        }
+    }
+
+    var threshold: Double {
+        switch self {
+        case .careful: return 0.45
+        case .balanced: return 0.35
+        case .moreHints: return 0.50
+        }
+    }
+
+    var proposalWindow: Double {
+        switch self {
+        case .careful: return 0.14
+        case .balanced: return 0.22
+        case .moreHints: return 0.35
+        }
+    }
+
+    var typoGuardMinWordLength: Int {
+        switch self {
+        case .careful: return 3
+        case .balanced, .moreHints: return 4
+        }
+    }
+
+    var typoGuardMaxEditDistance: Int {
+        1
+    }
+
+    static func nearest(
+        minWordLength: Int,
+        threshold: Double,
+        proposalWindow: Double
+    ) -> AutoFixSensitivityPreset {
+        allCases.min { lhs, rhs in
+            lhs.distance(toMinWordLength: minWordLength, threshold: threshold, proposalWindow: proposalWindow)
+                < rhs.distance(toMinWordLength: minWordLength, threshold: threshold, proposalWindow: proposalWindow)
+        } ?? .balanced
+    }
+
+    private func distance(
+        toMinWordLength minWordLength: Int,
+        threshold: Double,
+        proposalWindow: Double
+    ) -> Double {
+        abs(Double(self.minWordLength - minWordLength)) * 0.2
+            + abs(self.threshold - threshold)
+            + abs(self.proposalWindow - proposalWindow)
     }
 }
 

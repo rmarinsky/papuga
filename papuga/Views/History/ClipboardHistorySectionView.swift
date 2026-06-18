@@ -1,14 +1,17 @@
-import Defaults
 import SwiftUI
 
 struct ClipboardHistorySectionView: View {
+    var compactChrome = false
+
     @Environment(ClipboardHistoryManager.self) private var clipboardHistoryManager
-    @Default(.clipboardHistoryRetention) private var clipboardHistoryRetention
+    @State private var range: HistoryTimeRange = .today
     @State private var searchText: String = ""
+    @State private var showingClearConfirmation = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
+            Divider()
 
             if filteredEntries.isEmpty {
                 emptyView
@@ -28,15 +31,55 @@ struct ClipboardHistorySectionView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            Text(retentionDescription)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
 
-            Spacer()
+            Picker("", selection: $range) {
+                ForEach(HistoryTimeRange.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
 
-            TextField("Пошук", text: $searchText)
-                .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 240)
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField("Пошук", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .frame(width: 140)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.85))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                    )
+            )
+
+            Button(role: .destructive) {
+                showingClearConfirmation = true
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .help("Очистити копіопасти \(range.clearScopeTitle)")
+            .accessibilityLabel("Очистити")
+            .disabled(rangeEntries.isEmpty)
+            .confirmationDialog(
+                "Очистити копіопасти \(range.clearScopeTitle)?",
+                isPresented: $showingClearConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Очистити", role: .destructive) {
+                    clearCurrentRange()
+                }
+                Button("Скасувати", role: .cancel) {}
+            } message: {
+                Text("Цю дію не можна скасувати.")
+            }
         }
         .padding(12)
     }
@@ -57,25 +100,27 @@ struct ClipboardHistorySectionView: View {
 
     private var filteredEntries: [ClipboardHistoryEntry] {
         let needle = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !needle.isEmpty else { return clipboardHistoryManager.entries }
-        return clipboardHistoryManager.entries.filter { entry in
+        guard !needle.isEmpty else { return rangeEntries }
+        return rangeEntries.filter { entry in
             entry.title.lowercased().contains(needle) ||
             (entry.subtitle?.lowercased().contains(needle) ?? false)
         }
     }
 
-    private var retentionDescription: String {
-        let preset = ClipboardHistoryRetentionPreset(rawValue: clipboardHistoryRetention) ?? .oneDay
-        return "Зберігається \(preset.title.lowercased()). \(clipboardHistoryManager.entries.count) \(pluralize(clipboardHistoryManager.entries.count))"
+    private var rangeEntries: [ClipboardHistoryEntry] {
+        let now = Date()
+        return clipboardHistoryManager.entries.filter { entry in
+            range.contains(entry.capturedAt, now: now)
+        }
     }
 
-    private func pluralize(_ n: Int) -> String {
-        let mod10 = n % 10
-        let mod100 = n % 100
-        if mod10 == 1 && mod100 != 11 { return "запис" }
-        if (2...4).contains(mod10) && !(12...14).contains(mod100) { return "записи" }
-        return "записів"
+    private func clearCurrentRange() {
+        let now = Date()
+        clipboardHistoryManager.clear { entry in
+            range.contains(entry.capturedAt, now: now)
+        }
     }
+
 }
 
 private struct ClipboardRow: View {
@@ -89,13 +134,9 @@ private struct ClipboardRow: View {
                 .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(entry.title).font(.body)
-                if let subtitle = entry.subtitle, !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
+                Text(displayText)
+                    .font(.body)
+                    .lineLimit(2)
             }
 
             Spacer()
@@ -113,6 +154,13 @@ private struct ClipboardRow: View {
             .help("Поставити у буфер")
         }
         .padding(.vertical, 4)
+    }
+
+    private var displayText: String {
+        if let subtitle = entry.subtitle, !subtitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return subtitle
+        }
+        return entry.title
     }
 
     private static let timeFormatter: DateFormatter = {

@@ -2,94 +2,64 @@ import Defaults
 import SwiftUI
 
 struct ReplacementsHistorySectionView: View {
+    var compactChrome = false
+
+    @Environment(LayoutManager.self) private var layoutManager
+
+    @State private var analyzer = MistakeSuggestionAnalyzer()
     @State private var store = ReplacementHistoryStore.shared
-    @State private var filter: FilterOption = .all
-    @State private var showingClearConfirmation = false
+    @State private var range: HistoryTimeRange = .today
+    @State private var query = ""
+    @State private var editorSeed: RuleEditorSeed?
 
     @Default(.replacementHistoryEnabled) private var historyEnabled
 
-    enum FilterOption: String, CaseIterable, Identifiable {
-        case all, manual, autoFix, autoFixUndone
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .all: return "Усі"
-            case .manual: return "Ручні"
-            case .autoFix: return "AutoFix"
-            case .autoFixUndone: return "Скасоване AutoFix"
-            }
-        }
-
-        var kind: ReplacementHistoryEntry.Kind? {
-            switch self {
-            case .all: return nil
-            case .manual: return .manualSwitch
-            case .autoFix: return .autoFixApplied
-            case .autoFixUndone: return .autoFixUndone
-            }
-        }
+    init(compactChrome: Bool = false) {
+        self.compactChrome = compactChrome
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-
-            if !historyEnabled {
-                disabledView
-            } else if filteredEntries.isEmpty {
-                emptyView
-            } else {
-                List {
-                    ForEach(filteredEntries) { entry in
-                        ReplacementRow(entry: entry)
-                    }
+        ActionableHistoryScreen(
+            range: $range,
+            query: $query,
+            clearDisabled: rangeEntries.isEmpty,
+            clearConfirmationTitle: "Очистити історію замін \(range.clearScopeTitle)?",
+            onClear: clearCurrentRange
+        ) {
+            VStack(alignment: .leading, spacing: 14) {
+                if historyEnabled {
+                    ActionableSuggestionsSection(items: suggestionItems)
+                    content
+                } else {
+                    disabledView
                 }
-                .listStyle(.inset)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .sheet(item: $editorSeed) { seed in
+            RuleEditorSheet(seed: seed) { editorSeed = nil }
+        }
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Picker("Фільтр", selection: $filter) {
-                    ForEach(FilterOption.allCases) { option in
-                        Text(option.title).tag(option)
+    @ViewBuilder
+    private var content: some View {
+        if visibleEntries.isEmpty {
+            emptyView
+        } else {
+            VStack(spacing: 0) {
+                ForEach(Array(visibleEntries.enumerated()), id: \.element.id) { index, entry in
+                    if index > 0 {
+                        Divider().opacity(0.45)
                     }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(maxWidth: 480)
-
-                Spacer()
-
-                Button(role: .destructive) {
-                    showingClearConfirmation = true
-                } label: {
-                    Label("Очистити", systemImage: "trash")
-                }
-                .disabled(store.entries.isEmpty)
-                .confirmationDialog(
-                    "Очистити історію замін?",
-                    isPresented: $showingClearConfirmation,
-                    titleVisibility: .visible
-                ) {
-                    Button("Очистити", role: .destructive) {
-                        store.clearAll()
-                    }
-                    Button("Скасувати", role: .cancel) {}
-                } message: {
-                    Text("Цю дію не можна скасувати.")
+                    ReplacementActionRow(
+                        entry: entry,
+                        candidates: candidates(for: entry),
+                        onCreateRule: { target in openRuleEditor(for: entry, target: target) },
+                        onIgnore: { ignore(entry) }
+                    )
                 }
             }
-
-            Text(summaryText)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            .background(historyCardBackground)
         }
-        .padding(12)
     }
 
     private var disabledView: some View {
@@ -105,95 +75,360 @@ struct ReplacementsHistorySectionView: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 360)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 72)
     }
 
     private var emptyView: some View {
         VStack(spacing: 8) {
-            Image(systemName: "tray")
+            Image(systemName: query.isEmpty ? "tray" : "magnifyingglass")
                 .font(.system(size: 36))
                 .foregroundStyle(.tertiary)
-            Text("Поки немає записів")
+            Text(query.isEmpty ? "Поки немає записів" : "Нічого не знайдено")
                 .font(.headline)
-            Text("Зроби перше перемикання або зачекай, поки спрацює автозаміна.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            if query.isEmpty {
+                Text("Зроби перше перемикання або зачекай, поки спрацює автозаміна.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 72)
+        .background(historyCardBackground)
     }
 
-    private var filteredEntries: [ReplacementHistoryEntry] {
-        guard let kind = filter.kind else { return store.entries }
-        return store.entries.filter { $0.kind == kind }
+    private var historyCardBackground: some View {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(Color(nsColor: .controlBackgroundColor).opacity(0.58))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+            )
     }
 
-    private var summaryText: String {
-        let total = store.entries.count
-        let manual = store.entries.filter { $0.kind == .manualSwitch }.count
-        let applied = store.entries.filter { $0.kind == .autoFixApplied }.count
-        let undone = store.entries.filter { $0.kind == .autoFixUndone }.count
-        return "Усього: \(total)  •  ручних: \(manual)  •  AutoFix: \(applied)  •  скасованих: \(undone)"
+    // MARK: - Derived Data
+
+    private var rangeEntries: [ReplacementHistoryEntry] {
+        let now = Date()
+        return store.entries.filter { entry in
+            range.contains(entry.timestamp, now: now)
+        }
+    }
+
+    private var visibleEntries: [ReplacementHistoryEntry] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !q.isEmpty else { return rangeEntries }
+        return rangeEntries.filter { entry in
+            let inText = entry.original.lowercased().contains(q) || entry.converted.lowercased().contains(q)
+            let inApp = entry.bundleID.map { AppContextProvider.displayName(forBundleID: $0).lowercased().contains(q) } ?? false
+            return inText || inApp || entry.kind.displayName.lowercased().contains(q)
+        }
+    }
+
+    private var suggestionItems: [ActionableSuggestionItem] {
+        Array(
+            aggregateReplacementSuggestions(rangeEntries)
+                .filter { $0.count >= 2 }
+                .prefix(5)
+                .map { suggestion in
+                    let disabledReason = HistoryWordActionPolicy.disabledReason(
+                        source: suggestion.source,
+                        truncated: suggestion.sourceTruncated
+                    )
+                    let target = ruleTarget(source: suggestion.source, target: suggestion.target)
+                    return ActionableSuggestionItem(
+                        id: suggestion.id,
+                        icon: suggestion.kind.icon,
+                        title: suggestion.kind.title,
+                        subtitle: suggestion.subtitle,
+                        source: suggestion.source,
+                        target: target,
+                        countText: "\(suggestion.count)×",
+                        candidates: candidates(
+                            source: suggestion.source,
+                            target: target,
+                            sourceLayoutID: suggestion.sourceLayoutID
+                        ),
+                        canAct: disabledReason == nil,
+                        disabledReason: disabledReason,
+                        onCreateRule: { target in
+                            openRuleEditor(source: suggestion.source, target: target ?? suggestion.target)
+                        },
+                        onIgnore: {
+                            IgnoreWordService.add(suggestion.source)
+                        }
+                    )
+                }
+        )
+    }
+
+    private func clearCurrentRange() {
+        let now = Date()
+        store.clear { entry in
+            range.contains(entry.timestamp, now: now)
+        }
+    }
+
+    private func candidates(for entry: ReplacementHistoryEntry) -> [MistakeSuggestionCandidate] {
+        candidates(
+            source: entry.original,
+            target: ruleTarget(source: entry.original, target: entry.converted, targetTruncated: entry.convertedTruncated),
+            sourceLayoutID: entry.sourceLayoutID
+        )
+    }
+
+    private func candidates(source: String, target: String?, sourceLayoutID: String?) -> [MistakeSuggestionCandidate] {
+        analyzer.candidates(
+            for: source,
+            language: sourceLayoutID.map(AutoFixDecision.languageHintForLayoutID) ?? "",
+            recordedTargets: target.map { [$0] } ?? [],
+            layoutManager: layoutManager,
+            limit: 4
+        )
+    }
+
+    private func openRuleEditor(for entry: ReplacementHistoryEntry, target: String? = nil) {
+        openRuleEditor(source: entry.original, target: target ?? entry.converted)
+    }
+
+    private func openRuleEditor(source: String, target: String? = nil) {
+        editorSeed = RuleEditorSeed(
+            source: HistoryWordActionPolicy.normalizedSource(source),
+            target: HistoryWordActionPolicy.sanitizedTarget(target) ?? "",
+            mode: .replace
+        )
+    }
+
+    private func ignore(_ entry: ReplacementHistoryEntry) {
+        IgnoreWordService.add(entry.original)
+    }
+
+    private func ruleTarget(
+        source: String,
+        target: String?,
+        targetTruncated: Bool = false
+    ) -> String? {
+        guard let target = HistoryWordActionPolicy.sanitizedTarget(target, truncated: targetTruncated) else {
+            return nil
+        }
+        let source = HistoryWordActionPolicy.normalizedSource(source)
+        guard target.caseInsensitiveCompare(source) != .orderedSame else { return nil }
+        return target
     }
 }
 
-private struct ReplacementRow: View {
+private struct ReplacementActionRow: View {
     let entry: ReplacementHistoryEntry
+    let candidates: [MistakeSuggestionCandidate]
+    let onCreateRule: (String?) -> Void
+    let onIgnore: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: entry.kind.systemImage)
-                .frame(width: 22)
-                .foregroundStyle(color)
+        HStack(alignment: .center, spacing: 12) {
+            appGlyph
+                .frame(width: 24, height: 24)
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(entry.original)
-                        .font(.system(.body, design: .monospaced))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    Image(systemName: "arrow.right")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text(entry.converted)
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
+            VStack(alignment: .leading, spacing: 7) {
                 HStack(spacing: 8) {
                     Text(entry.kind.displayName)
-                        .font(.caption2)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(RoundedRectangle(cornerRadius: 4).fill(color.opacity(0.15)))
-                        .foregroundStyle(color)
-                    if let bundleID = entry.bundleID, !bundleID.isEmpty {
-                        Text(bundleID).font(.caption2).foregroundStyle(.secondary)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(entry.kind == .autoFixUndone ? .orange : .secondary)
+                    if let appName {
+                        Text(appName)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
+                    Text(timestampText)
+                        .font(.system(size: 11).monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                }
+
+                ReplacementReceipt(
+                    source: entry.original,
+                    target: entry.converted.isEmpty ? "ввести заміну" : entry.converted,
+                    strikethroughSource: entry.kind != .autoFixUndone
+                )
+
+                HistoryCandidateStrip(candidates: candidates) { candidate in
+                    onCreateRule(candidate.text)
                 }
             }
 
-            Spacer()
+            Spacer(minLength: 12)
 
-            Text(Self.timeFormatter.string(from: entry.timestamp))
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
+            HistoryRowActions(
+                canAct: disabledReason == nil,
+                disabledReason: disabledReason,
+                onCreateRule: { onCreateRule(primaryTarget) },
+                onIgnore: onIgnore
+            )
         }
-        .padding(.vertical, 4)
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var color: Color {
-        switch entry.kind {
-        case .manualSwitch: return .blue
-        case .autoFixApplied: return .green
-        case .autoFixUndone: return .orange
+    private var primaryTarget: String? {
+        HistoryWordActionPolicy.sanitizedTarget(entry.converted, truncated: entry.convertedTruncated)
+    }
+
+    private var disabledReason: String? {
+        HistoryWordActionPolicy.disabledReason(source: entry.original, truncated: entry.originalTruncated)
+    }
+
+    @ViewBuilder
+    private var appGlyph: some View {
+        if let bundleID = entry.bundleID, !bundleID.isEmpty,
+           let icon = AppContextProvider.icon(forBundleID: bundleID) {
+            Image(nsImage: icon)
+                .resizable()
+                .interpolation(.high)
+        } else {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color("BrandTintSoft"))
+                Image(systemName: entry.kind.systemImage)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(entry.kind == .autoFixUndone ? .orange : Color("BrandAccentDeep"))
+            }
         }
+    }
+
+    private var appName: String? {
+        guard let bundleID = entry.bundleID, !bundleID.isEmpty else { return nil }
+        return AppContextProvider.displayName(forBundleID: bundleID)
+    }
+
+    private var timestampText: String {
+        "\(relativeDay), \(Self.timeFormatter.string(from: entry.timestamp))"
+    }
+
+    private var relativeDay: String {
+        let cal = Calendar.current
+        if cal.isDateInToday(entry.timestamp) { return "сьогодні" }
+        if cal.isDateInYesterday(entry.timestamp) { return "вчора" }
+        return entry.timestamp.formatted(.dateTime.weekday(.abbreviated))
     }
 
     private static let timeFormatter: DateFormatter = {
         let f = DateFormatter()
         f.locale = .current
-        f.setLocalizedDateFormatFromTemplate("dd.MM HH:mm")
+        f.setLocalizedDateFormatFromTemplate("HH:mm")
         return f
     }()
+}
+
+private struct ReplacementHistorySuggestion: Identifiable {
+    enum Kind {
+        case makeRule
+        case ignoreWord
+
+        var title: String {
+            switch self {
+            case .makeRule: return "Повторювана заміна"
+            case .ignoreWord: return "Часто скасовується"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .makeRule: return "wand.and.stars"
+            case .ignoreWord: return "hand.raised"
+            }
+        }
+    }
+
+    let id: String
+    let kind: Kind
+    let source: String
+    let target: String?
+    let sourceLayoutID: String?
+    let sourceTruncated: Bool
+    let count: Int
+    let lastSeen: Date
+
+    var subtitle: String {
+        switch kind {
+        case .makeRule:
+            return "Ця пара повторюється. Можна зробити її правилом або додати джерело в «не чіпати»."
+        case .ignoreWord:
+            return "AutoFix для цього слова часто відкатували. Ймовірно, його краще не чіпати."
+        }
+    }
+}
+
+private func aggregateReplacementSuggestions(_ entries: [ReplacementHistoryEntry]) -> [ReplacementHistorySuggestion] {
+    struct Acc {
+        var kind: ReplacementHistorySuggestion.Kind
+        var source: String
+        var target: String?
+        var sourceLayoutID: String?
+        var sourceTruncated: Bool
+        var count: Int
+        var lastSeen: Date
+    }
+
+    var map: [String: Acc] = [:]
+    for entry in entries {
+        let source = HistoryWordActionPolicy.normalizedSource(entry.original)
+        guard !source.isEmpty else { continue }
+
+        let kind: ReplacementHistorySuggestion.Kind
+        let target: String?
+        let key: String
+        if entry.kind == .autoFixUndone {
+            kind = .ignoreWord
+            target = nil
+            key = "ignore:\(source.lowercased())"
+        } else {
+            guard !entry.originalTruncated,
+                  !entry.convertedTruncated,
+                  let sanitizedTarget = HistoryWordActionPolicy.sanitizedTarget(entry.converted),
+                  sanitizedTarget.caseInsensitiveCompare(source) != .orderedSame else {
+                continue
+            }
+            kind = .makeRule
+            target = sanitizedTarget
+            key = "rule:\(source.lowercased())->\(sanitizedTarget.lowercased())"
+        }
+
+        if var acc = map[key] {
+            acc.count += 1
+            if entry.timestamp > acc.lastSeen {
+                acc.source = source
+                acc.target = target
+                acc.sourceLayoutID = entry.sourceLayoutID
+                acc.sourceTruncated = entry.originalTruncated
+                acc.lastSeen = entry.timestamp
+            }
+            map[key] = acc
+        } else {
+            map[key] = Acc(
+                kind: kind,
+                source: source,
+                target: target,
+                sourceLayoutID: entry.sourceLayoutID,
+                sourceTruncated: entry.originalTruncated,
+                count: 1,
+                lastSeen: entry.timestamp
+            )
+        }
+    }
+
+    return map.map { key, acc in
+        ReplacementHistorySuggestion(
+            id: key,
+            kind: acc.kind,
+            source: acc.source,
+            target: acc.target,
+            sourceLayoutID: acc.sourceLayoutID,
+            sourceTruncated: acc.sourceTruncated,
+            count: acc.count,
+            lastSeen: acc.lastSeen
+        )
+    }
+    .sorted { lhs, rhs in
+        if lhs.count != rhs.count { return lhs.count > rhs.count }
+        return lhs.lastSeen > rhs.lastSeen
+    }
 }

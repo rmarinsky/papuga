@@ -6,6 +6,8 @@
     <string>https://rmarinsky.github.io/papuga/appcast.xml</string>
     <key>SUPublicEDKey</key>
     <string>E+U25RLLvknFBaJXFMZ5YnpN4gRJLsavDNEGc+M2xk0=</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.utilities</string>
     <key>SUEnableAutomaticChecks</key>
     <true/>
 </dict>

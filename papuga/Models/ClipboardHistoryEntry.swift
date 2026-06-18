@@ -1,13 +1,13 @@
 import Foundation
 
-struct ClipboardHistoryEntry: Identifiable {
+struct ClipboardHistoryEntry: Codable, Equatable, Identifiable {
     let id: UUID
     let state: SavedPasteboardState
     let capturedAt: Date
     let title: String
     let subtitle: String?
     let systemImage: String
-    let signature: Int
+    let signature: String
 
     var menuLabel: String {
         guard let subtitle, !subtitle.isEmpty else { return title }

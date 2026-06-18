@@ -135,6 +135,33 @@ final class MultiLanguageEndToEndTests: XCTestCase {
         for tc in Self.ukrainianPositiveCases { try runEndToEnd(tc, algorithm: .cld3) }
     }
 
+    // MARK: - English typed while Ukrainian layout is active
+
+    private static let englishFromUkrainianPositiveCases: [AutoFixCase] = [
+        AutoFixCase(label: "EN.when_from_UA",
+                    typedInWrongLayout: "црут", expectedCorrected: "when",
+                    fromLayoutID: "com.apple.keylayout.Ukrainian-PC",
+                    toLayoutID: "com.apple.keylayout.US",
+                    expectedFix: true),
+        AutoFixCase(label: "EN.user_phrase_when_i_do_the_mistackets",
+                    typedInWrongLayout: "црут ш вщ еру ьшіефслуеі", expectedCorrected: "when i do the mistackets",
+                    fromLayoutID: "com.apple.keylayout.Ukrainian-PC",
+                    toLayoutID: "com.apple.keylayout.US",
+                    expectedFix: true)
+    ]
+
+    func test_english_from_ukrainian_positive_with_appleNL() throws {
+        for tc in Self.englishFromUkrainianPositiveCases { try runEndToEnd(tc, algorithm: .appleNL) }
+    }
+
+    func test_english_from_ukrainian_positive_with_ngram() throws {
+        for tc in Self.englishFromUkrainianPositiveCases { try runEndToEnd(tc, algorithm: .ngram) }
+    }
+
+    func test_english_from_ukrainian_positive_with_cld3() throws {
+        for tc in Self.englishFromUkrainianPositiveCases { try runEndToEnd(tc, algorithm: .cld3) }
+    }
+
     // MARK: - Negative: native English phrases must NOT be auto-fixed
 
     private static let englishNegativeCases: [AutoFixCase] = [

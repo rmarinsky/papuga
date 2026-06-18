@@ -41,6 +41,24 @@ final class AutoFixDecisionTests: XCTestCase {
         XCTAssertFalse(AutoFixDecision.shouldReplace(scoreOriginal: 0.6, scoreCandidate: 0.5, threshold: 0.0))
     }
 
+    func test_shouldSuggestPhraseLayoutMistake_for_cyrillic_to_english_phrase() {
+        XCTAssertTrue(AutoFixDecision.shouldSuggestPhraseLayoutMistake(
+            original: "вщ цу рфму ф екфтіскшиешщт",
+            candidate: "do we have a transcription",
+            targetLanguage: "en",
+            scoreCandidate: 0.97
+        ))
+    }
+
+    func test_shouldSuggestPhraseLayoutMistake_does_not_fire_for_single_word() {
+        XCTAssertFalse(AutoFixDecision.shouldSuggestPhraseLayoutMistake(
+            original: "црут",
+            candidate: "when",
+            targetLanguage: "en",
+            scoreCandidate: 0.97
+        ))
+    }
+
     func test_isWordBoundary_for_whitespace_keycodes() {
         XCTAssertTrue(AutoFixDecision.isWordBoundary(keyCode: 0x31, typedString: " "))   // space
         XCTAssertTrue(AutoFixDecision.isWordBoundary(keyCode: 0x24, typedString: "\n"))  // return
@@ -85,6 +103,108 @@ final class AutoFixDecisionTests: XCTestCase {
         // must be flagged as misspelled in EN.
         XCTAssertFalse(AutoFixDecision.isCorrectlySpelled("ghbdsn", language: "en"))
         XCTAssertFalse(AutoFixDecision.isCorrectlySpelled("nmrybr", language: "en"))
+    }
+
+    func test_spellingTypoGuard_suppresses_single_letter_english_typo() {
+        let assessment = AutoFixDecision.spellingTypoGuardAssessment(
+            original: "fster",
+            candidate: "аіеук",
+            language: "en",
+            minWordLength: 4,
+            maxEditDistance: 1,
+            isKnownCorrect: { _, _ in false },
+            suggestions: { _, _ in ["faster"] }
+        )
+
+        XCTAssertTrue(assessment.shouldSuppressAutoReplace)
+        XCTAssertEqual(assessment.suggestion, "faster")
+        XCTAssertEqual(assessment.editDistance, 1)
+    }
+
+    func test_spellingTypoGuard_suppresses_adjacent_letter_swap() {
+        let assessment = AutoFixDecision.spellingTypoGuardAssessment(
+            original: "wrold",
+            candidate: "цкщдв",
+            language: "en",
+            minWordLength: 4,
+            maxEditDistance: 1,
+            isKnownCorrect: { _, _ in false },
+            suggestions: { _, _ in ["world"] }
+        )
+
+        XCTAssertTrue(assessment.shouldSuppressAutoReplace)
+        XCTAssertEqual(assessment.suggestion, "world")
+        XCTAssertEqual(assessment.editDistance, 1)
+    }
+
+    func test_spellingTypoGuard_suppresses_ukrainian_typo() {
+        let assessment = AutoFixDecision.spellingTypoGuardAssessment(
+            original: "важлво",
+            candidate: "df;kdj",
+            language: "uk",
+            minWordLength: 4,
+            maxEditDistance: 1,
+            isKnownCorrect: { _, _ in false },
+            suggestions: { _, _ in ["важливо"] }
+        )
+
+        XCTAssertTrue(assessment.shouldSuppressAutoReplace)
+        XCTAssertEqual(assessment.suggestion, "важливо")
+        XCTAssertEqual(assessment.editDistance, 1)
+    }
+
+    func test_spellingTypoGuard_doesNotSuppress_classicWrongLayoutGibberish() {
+        let assessment = AutoFixDecision.spellingTypoGuardAssessment(
+            original: "ghbdsn",
+            candidate: "привіт",
+            language: "en",
+            minWordLength: 4,
+            maxEditDistance: 1,
+            isKnownCorrect: { _, _ in false },
+            suggestions: { _, _ in [] }
+        )
+
+        XCTAssertFalse(assessment.shouldSuppressAutoReplace)
+        XCTAssertNil(assessment.suggestion)
+        XCTAssertNil(assessment.editDistance)
+    }
+
+    func test_spellingTypoGuard_respects_minWordLength() {
+        let defaultLengthAssessment = AutoFixDecision.spellingTypoGuardAssessment(
+            original: "teh",
+            candidate: "еур",
+            language: "en",
+            minWordLength: 4,
+            maxEditDistance: 1,
+            isKnownCorrect: { _, _ in false },
+            suggestions: { _, _ in ["the"] }
+        )
+        let shorterLengthAssessment = AutoFixDecision.spellingTypoGuardAssessment(
+            original: "teh",
+            candidate: "еур",
+            language: "en",
+            minWordLength: 3,
+            maxEditDistance: 1,
+            isKnownCorrect: { _, _ in false },
+            suggestions: { _, _ in ["the"] }
+        )
+
+        XCTAssertFalse(defaultLengthAssessment.shouldSuppressAutoReplace)
+        XCTAssertTrue(shorterLengthAssessment.shouldSuppressAutoReplace)
+    }
+
+    func test_spellingTypoGuard_requires_crossScriptCandidate() {
+        let assessment = AutoFixDecision.spellingTypoGuardAssessment(
+            original: "fster",
+            candidate: "faster",
+            language: "en",
+            minWordLength: 4,
+            maxEditDistance: 1,
+            isKnownCorrect: { _, _ in false },
+            suggestions: { _, _ in ["faster"] }
+        )
+
+        XCTAssertFalse(assessment.shouldSuppressAutoReplace)
     }
 
     func test_languageHint_recognises_known_layouts() {
