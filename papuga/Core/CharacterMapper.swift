@@ -84,6 +84,23 @@ final class CharacterMapper {
         return converted
     }
 
+    /// The key a character is produced by, in a given layout. Used by the
+    /// keystroke (keyboard-adjacency) typo model to find which physical key the
+    /// user actually pressed.
+    func mapping(for character: Character, sourceID: String) -> KeyMapping? {
+        forwardMaps[sourceID]?[character]
+    }
+
+    /// The characters a physical key produces in a given layout (normal +
+    /// shifted) — the inverse of `mapping(for:)`.
+    func characters(forKeyCode keyCode: UInt16, sourceID: String) -> KeycodeCharacters? {
+        reverseMaps[sourceID]?[keyCode]
+    }
+
+    func hasMap(for sourceID: String) -> Bool {
+        forwardMaps[sourceID] != nil
+    }
+
     func invalidateCache() {
         AppLogger.pre(logger, "invalidateCache()")
         forwardMaps.removeAll()

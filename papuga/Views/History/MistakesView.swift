@@ -1,50 +1,53 @@
 import SwiftUI
 
+/// "Помилки введення" — redesigned as a live prediction scanner.
+///
+/// The screen renders only from `PredictionEngine` snapshots: a progress header
+/// while the background pass runs, a streaming feed of just-found (typo →
+/// suggestion) pairs, and an accumulating list of the most frequent mistakes
+/// ranked by frequency × confidence. It never computes spell-check work itself,
+/// so it never freezes — even with tens of thousands of mistakes.
 struct MistakesView: View {
-    private enum Filter: String, CaseIterable, Identifiable {
-        case all
-        case spelling
-        case manualCorrection
-        case grammar
-        case resolved
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .all: return "Усі"
-            case .spelling: return "Орфографія"
-            case .manualCorrection: return "Виправлено вручну"
-            case .grammar: return "Граматика beta"
-            case .resolved: return "Закриті"
-            }
-        }
-    }
-
     @Environment(LayoutManager.self) private var layoutManager
 
-    @State private var analyzer = MistakeSuggestionAnalyzer()
+    @State private var engine = PredictionEngine.shared
     @State private var store = MistakeObservationStore.shared
-    @State private var range: HistoryTimeRange = .today
-    @State private var filter: Filter = .all
     @State private var query = ""
     @State private var editorSeed: RuleEditorSeed?
     @State private var pendingObservationIDs: [UUID] = []
+    @State private var showingClearConfirmation = false
+
+    /// Only recurring mistakes with a usable suggestion are worth a rule.
+    private let minOccurrences = 2
+    private let minConfidence = 0.6
 
     var body: some View {
-        ActionableHistoryScreen(
-            range: $range,
-            query: $query,
-            clearDisabled: rangedEntries.isEmpty,
-            clearConfirmationTitle: "Очистити помилки введення \(range.clearScopeTitle)?",
-            onClear: clearCurrentRange
-        ) {
-            VStack(alignment: .leading, spacing: 14) {
-                statsRow
-                filterControl
-                ActionableSuggestionsSection(items: suggestionItems)
-                content
+        VStack(spacing: 0) {
+            header
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    if engine.phase == .analyzing {
+                        AnalysisProgressBanner(
+                            analyzed: engine.analyzedCount,
+                            total: engine.totalCount,
+                            liveFeed: engine.liveFeed
+                        )
+                    }
+                    statsRow
+                    suggestionsSection
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .onAppear {
+            engine.configure(layoutManager: layoutManager)
+            engine.bootstrap()
+        }
+        .onChange(of: store.entries.count) {
+            engine.noteNewObservations()
         }
         .sheet(item: $editorSeed) { seed in
             RuleEditorSheet(
@@ -60,11 +63,76 @@ struct MistakesView: View {
         }
     }
 
+    // MARK: - Header
+
+    private var header: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Spacer(minLength: 0)
+
+            Button {
+                engine.analyzeAll(force: true)
+            } label: {
+                Label("Переаналізувати все", systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .help("Перерахувати всі помилки заново")
+            .disabled(engine.phase == .analyzing)
+
+            searchField
+
+            Button(role: .destructive) {
+                showingClearConfirmation = true
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .help("Очистити всі помилки")
+            .disabled(store.entries.isEmpty)
+            .confirmationDialog(
+                "Очистити всі помилки введення?",
+                isPresented: $showingClearConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Очистити", role: .destructive) { store.clearAll(); engine.analyzeAll(force: true) }
+                Button("Скасувати", role: .cancel) {}
+            } message: {
+                Text("Цю дію не можна скасувати.")
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 16)
+        .padding(.bottom, 10)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            TextField("Пошук", text: $query)
+                .textFieldStyle(.plain)
+                .frame(width: 140)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.85))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                )
+        )
+    }
+
+    // MARK: - Stats
+
     private var statsRow: some View {
         HStack(spacing: 10) {
-            stat("Нові", value: openCount, icon: "circle.fill")
-            stat("Повторювані", value: repeatedCount, icon: "repeat")
-            stat("Правила", value: convertedCount, icon: "wand.and.stars")
+            stat("Помилок", value: openCount, icon: "circle.fill")
+            stat("Повторюваних", value: repeatedCount, icon: "repeat")
+            stat("Правил", value: convertedCount, icon: "wand.and.stars")
             stat("Ігноровано", value: ignoredCount, icon: "hand.raised")
         }
     }
@@ -79,6 +147,7 @@ struct MistakesView: View {
                 Text("\(value)")
                     .font(.system(size: 18, weight: .bold, design: .rounded))
                     .monospacedDigit()
+                    .contentTransition(.numericText())
                 Text(title)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
@@ -93,272 +162,217 @@ struct MistakesView: View {
         )
     }
 
-    private var filterControl: some View {
-        Picker("", selection: $filter) {
-            ForEach(Filter.allCases) { item in
-                Text(item.title).tag(item)
-            }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .fixedSize(horizontal: false, vertical: true)
-    }
+    // MARK: - Suggestions
 
     @ViewBuilder
-    private var content: some View {
-        if filteredGroups.isEmpty {
-            emptyView
-        } else {
-            VStack(spacing: 0) {
-                ForEach(Array(filteredGroups.enumerated()), id: \.element.id) { index, group in
-                    if index > 0 {
-                        Divider().opacity(0.45)
+    private var suggestionsSection: some View {
+        let items = displayedSuggestions
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color("BrandAccentDeep"))
+                Text("Найчастіші помилки")
+                    .font(.system(size: 13, weight: .semibold))
+                Spacer()
+                if !items.isEmpty {
+                    Text("\(items.count)")
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
+
+            if items.isEmpty {
+                emptyState
+            } else {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(items.enumerated()), id: \.element.id) { index, group in
+                        if index > 0 { Divider().opacity(0.45) }
+                        PredictionCard(
+                            group: group,
+                            onCreateRule: { target in openRuleEditor(for: group, target: target) },
+                            onIgnore: { addToDictionary(group) }
+                        )
+                        .transition(.asymmetric(
+                            insertion: .opacity.combined(with: .move(edge: .top)),
+                            removal: .opacity
+                        ))
                     }
-                    let candidates = candidates(for: group)
-                    MistakeGroupRow(
-                        group: group,
-                        candidates: candidates,
-                        onCreateRule: { target in openRuleEditor(for: group, target: target) },
-                        onIgnore: { addToDictionary(group) }
-                    )
                 }
+                .animation(.spring(response: 0.45, dampingFraction: 0.85), value: items)
             }
-            .background(historyCardBackground)
         }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.58))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color("BrandAccentDeep").opacity(items.isEmpty ? 0.1 : 0.22), lineWidth: 1)
+                )
+        )
     }
 
-    private var emptyView: some View {
-        VStack(spacing: 8) {
-            Image(systemName: query.isEmpty ? "text.magnifyingglass" : "magnifyingglass")
-                .font(.system(size: 34))
+    private var emptyState: some View {
+        HStack(spacing: 10) {
+            Image(systemName: engine.phase == .analyzing ? "hourglass" : "checkmark.circle")
+                .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(.tertiary)
-            Text(query.isEmpty ? "Поки що немає спостережень" : "Нічого не знайдено")
-                .font(.headline)
-            if query.isEmpty {
-                Text("Коли Papuga помітить повторювані помилки, вони з'являться тут.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 420)
-            }
+            Text(engine.phase == .analyzing
+                 ? "Аналізую історію — поради з'являться тут…"
+                 : (query.isEmpty
+                    ? "Поки що немає повторюваних помилок для правила."
+                    : "Нічого не знайдено."))
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 48)
-        .background(historyCardBackground)
+        .padding(.vertical, 2)
     }
 
-    private var historyCardBackground: some View {
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(Color(nsColor: .controlBackgroundColor).opacity(0.58))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-            )
-    }
+    // MARK: - Derived data
 
-    // MARK: - Derived Data
-
-    private var groupedObservations: [MistakeGroup] {
-        let filtered = rangedEntries.filter { entry in
-            switch filter {
-            case .all:
-                guard entry.status == .open else { return false }
-            case .spelling:
-                guard entry.status == .open, entry.issueType == .spelling else { return false }
-            case .manualCorrection:
-                guard entry.status == .open, entry.issueType == .manualCorrection else { return false }
-            case .grammar:
-                guard entry.status == .open, entry.issueType == .grammar else { return false }
-            case .resolved:
-                guard entry.status != .open else { return false }
-            }
-
-            let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    private var displayedSuggestions: [PredictionGroup] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return engine.ranked.filter { group in
+            guard group.count >= minOccurrences else { return false }
+            guard (group.candidates.first?.confidence ?? 0) >= minConfidence else { return false }
+            guard group.primaryTarget != nil else { return false }
             guard !q.isEmpty else { return true }
-            let appName = entry.bundleID.map(AppContextProvider.displayName(forBundleID:)) ?? ""
-            return entry.source.localizedCaseInsensitiveContains(q)
-                || (entry.suggestedTarget?.localizedCaseInsensitiveContains(q) ?? false)
-                || appName.localizedCaseInsensitiveContains(q)
-                || entry.issueType.displayName.localizedCaseInsensitiveContains(q)
+            return group.source.localizedCaseInsensitiveContains(q)
+                || (group.primaryTarget?.localizedCaseInsensitiveContains(q) ?? false)
         }
-
-        let groups = Dictionary(grouping: filtered) { entry in
-            [
-                entry.issueType.rawValue,
-                entry.normalizedSource,
-                entry.normalizedTarget ?? "",
-                entry.language,
-                entry.bundleID ?? "",
-                entry.status.rawValue
-            ].joined(separator: "|")
-        }
-
-        return groups.values.map(MistakeGroup.init(entries:))
-            .sorted { lhs, rhs in
-                if lhs.statusRank != rhs.statusRank { return lhs.statusRank < rhs.statusRank }
-                if lhs.count != rhs.count { return lhs.count > rhs.count }
-                return lhs.lastSeen > rhs.lastSeen
-            }
     }
 
-    private var filteredGroups: [MistakeGroup] {
-        groupedObservations
-    }
-
-    private var rangedEntries: [MistakeObservation] {
-        store.entries.filter { range.contains($0.timestamp) }
-    }
-
-    private var suggestionItems: [ActionableSuggestionItem] {
-        Array(
-            groupedObservations
-                .filter { $0.status == .open && $0.count >= 2 }
-                .prefix(5)
-                .map { group in
-                    let disabledReason = HistoryWordActionPolicy.disabledReason(
-                        source: group.source,
-                        truncated: group.sourceTruncated
-                    )
-                    let target = primaryTarget(for: group)
-                    return ActionableSuggestionItem(
-                        id: "mistake-advice:\(group.id)",
-                        icon: group.issueType.systemImage,
-                        title: group.issueType.displayName,
-                        subtitle: "Повторюється в цьому періоді. Можна створити правило або додати слово в «не чіпати».",
-                        source: group.source,
-                        target: target,
-                        countText: "\(group.count)×",
-                        candidates: candidates(for: group),
-                        canAct: disabledReason == nil,
-                        disabledReason: disabledReason,
-                        onCreateRule: { target in openRuleEditor(for: group, target: target) },
-                        onIgnore: { addToDictionary(group) }
-                    )
-                }
-        )
-    }
-
-    private var openCount: Int {
-        rangedEntries.filter { $0.status == .open }.count
-    }
-
-    private var repeatedCount: Int {
-        groupedObservations.filter { $0.count > 1 && $0.status == .open }.count
-    }
-
-    private var convertedCount: Int {
-        rangedEntries.filter { $0.status == .convertedToRule }.count
-    }
-
+    private var openCount: Int { engine.flaggedCount }
+    private var repeatedCount: Int { engine.ranked.lazy.filter { $0.count >= minOccurrences }.count }
+    private var convertedCount: Int { store.entries.lazy.filter { $0.status == .convertedToRule }.count }
     private var ignoredCount: Int {
-        rangedEntries.filter { $0.status == .dismissed || $0.status == .addedToDictionary }.count
+        store.entries.lazy.filter { $0.status == .dismissed || $0.status == .addedToDictionary }.count
     }
 
-    private func candidates(for group: MistakeGroup) -> [MistakeSuggestionCandidate] {
-        analyzer.candidates(
-            for: group.source,
-            language: group.language,
-            recordedTargets: group.recordedTargets,
-            layoutManager: layoutManager,
-            limit: 4
-        )
-    }
+    // MARK: - Actions
 
-    private func primaryTarget(for group: MistakeGroup) -> String? {
-        guard let target = group.target,
-              !group.targetTruncated,
-              let sanitizedTarget = HistoryWordActionPolicy.sanitizedTarget(target),
-              sanitizedTarget.caseInsensitiveCompare(HistoryWordActionPolicy.normalizedSource(group.source)) != .orderedSame else {
-            return candidates(for: group).first?.text
-        }
-        return sanitizedTarget
-    }
-
-    private func clearCurrentRange() {
-        let now = Date()
-        store.clear { entry in
-            range.contains(entry.timestamp, now: now)
-        }
-    }
-
-    private func openRuleEditor(for group: MistakeGroup, target: String? = nil) {
+    private func openRuleEditor(for group: PredictionGroup, target: String?) {
         pendingObservationIDs = group.observationIDs
         editorSeed = RuleEditorSeed(
             source: HistoryWordActionPolicy.normalizedSource(group.source),
-            target: HistoryWordActionPolicy.sanitizedTarget(target ?? primaryTarget(for: group)) ?? "",
+            target: HistoryWordActionPolicy.sanitizedTarget(target ?? group.primaryTarget) ?? "",
             mode: .replace
         )
     }
 
-    private func addToDictionary(_ group: MistakeGroup) {
+    private func addToDictionary(_ group: PredictionGroup) {
         IgnoreWordService.add(group.source)
-        mark(group, .addedToDictionary)
-    }
-
-    private func mark(_ group: MistakeGroup, _ status: MistakeObservation.Status) {
-        for id in group.observationIDs {
-            store.updateStatus(for: id, to: status)
-        }
+        store.updateStatus(forIDs: group.observationIDs, to: .addedToDictionary)
+        engine.noteNewObservations()
     }
 
     private func markPending(_ status: MistakeObservation.Status) {
-        for id in pendingObservationIDs {
-            store.updateStatus(for: id, to: status)
-        }
+        store.updateStatus(forIDs: pendingObservationIDs, to: status)
         pendingObservationIDs = []
+        engine.noteNewObservations()
     }
 }
 
-private struct MistakeGroup: Identifiable {
-    let entries: [MistakeObservation]
+// MARK: - Live progress banner
 
-    var id: String {
-        [
-            issueType.rawValue,
-            source.lowercased(),
-            target?.lowercased() ?? "",
-            language,
-            bundleID ?? "",
-            status.rawValue
-        ].joined(separator: "|")
+private struct AnalysisProgressBanner: View {
+    let analyzed: Int
+    let total: Int
+    let liveFeed: [FoundPair]
+
+    private var fraction: Double {
+        guard total > 0 else { return 0 }
+        return min(1, Double(analyzed) / Double(total))
     }
 
-    var issueType: MistakeObservation.IssueType { entries[0].issueType }
-    var status: MistakeObservation.Status { entries[0].status }
-    var source: String { entries[0].source }
-    var target: String? { recordedTargets.first }
-    var language: String { entries[0].language }
-    var bundleID: String? { entries[0].bundleID }
-    var sourceTruncated: Bool { entries.contains(where: \.sourceTruncated) }
-    var targetTruncated: Bool { entries.contains(where: \.targetTruncated) }
-    var count: Int { entries.count }
-    var lastSeen: Date { entries.map(\.timestamp).max() ?? .distantPast }
-    var confidence: Double { entries.map(\.confidence).max() ?? 0 }
-    var observationIDs: [UUID] { entries.map(\.id) }
-    var recordedTargets: [String] {
-        let counts = entries.reduce(into: [String: Int]()) { result, entry in
-            guard let target = entry.suggestedTarget?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !target.isEmpty else { return }
-            result[target, default: 0] += 1
-        }
-        return counts
-            .sorted { lhs, rhs in
-                if lhs.value != rhs.value { return lhs.value > rhs.value }
-                return lhs.key.localizedCaseInsensitiveCompare(rhs.key) == .orderedAscending
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "wand.and.rays")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color("BrandAccentDeep"))
+                    .symbolEffect(.variableColor.iterative, options: .repeating)
+                Text("Аналізую помилки…")
+                    .font(.system(size: 13, weight: .semibold))
+                Spacer()
+                Text("\(analyzed) / \(total)")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .contentTransition(.numericText())
             }
-            .map(\.key)
-    }
 
-    var statusRank: Int {
-        status == .open ? 0 : 1
+            ProgressView(value: fraction)
+                .tint(Color("BrandAccentDeep"))
+                .animation(.easeInOut(duration: 0.25), value: fraction)
+
+            if !liveFeed.isEmpty {
+                FlowLayout(spacing: 6, lineSpacing: 6) {
+                    ForEach(liveFeed) { pair in
+                        FoundPairChip(pair: pair)
+                            .transition(.asymmetric(
+                                insertion: .scale(scale: 0.6).combined(with: .opacity),
+                                removal: .opacity
+                            ))
+                    }
+                }
+                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: liveFeed)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color("BrandTintSoft").opacity(0.6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color("BrandAccentDeep").opacity(0.25), lineWidth: 1)
+                )
+        )
     }
 }
 
-private struct MistakeGroupRow: View {
-    let group: MistakeGroup
-    let candidates: [MistakeSuggestionCandidate]
+private struct FoundPairChip: View {
+    let pair: FoundPair
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: pair.kind.systemImage)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.secondary)
+            Text(pair.source)
+                .strikethrough(color: .secondary)
+                .foregroundStyle(.secondary)
+            Image(systemName: "arrow.right")
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(Color("BrandAccentDeep"))
+            Text(pair.target)
+                .foregroundStyle(Color("BrandAccentDeep"))
+        }
+        .font(.system(size: 11, weight: .medium))
+        .lineLimit(1)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.9))
+        )
+    }
+}
+
+// MARK: - Ranked suggestion card
+
+private struct PredictionCard: View {
+    let group: PredictionGroup
     let onCreateRule: (String?) -> Void
     let onIgnore: () -> Void
+
+    private var disabledReason: String? {
+        HistoryWordActionPolicy.disabledReason(source: group.source, truncated: false)
+    }
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -366,9 +380,6 @@ private struct MistakeGroupRow: View {
 
             VStack(alignment: .leading, spacing: 7) {
                 HStack(spacing: 8) {
-                    Text(group.issueType.displayName)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
                     Text("\(group.count)×")
                         .font(.system(size: 11, weight: .semibold, design: .rounded))
                         .foregroundStyle(Color("BrandAccentDeep"))
@@ -379,7 +390,7 @@ private struct MistakeGroupRow: View {
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
                         .background(Capsule().fill(.quaternary))
-                    Text(meta)
+                    Text("остання: \(group.lastSeen.formatted(date: .abbreviated, time: .shortened))")
                         .font(.system(size: 11))
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
@@ -387,80 +398,36 @@ private struct MistakeGroupRow: View {
 
                 ReplacementReceipt(
                     source: group.source,
-                    target: primaryTarget ?? "ввести заміну",
-                    strikethroughSource: primaryTarget != nil
+                    target: group.primaryTarget ?? "ввести заміну",
+                    strikethroughSource: group.primaryTarget != nil
                 )
-                .opacity(group.status == .open ? 1 : 0.55)
 
-                if group.status == .open {
-                    HistoryCandidateStrip(candidates: candidates) { candidate in
-                        onCreateRule(candidate.text)
-                    }
+                HistoryCandidateStrip(candidates: group.candidates) { candidate in
+                    onCreateRule(candidate.text)
                 }
             }
 
             Spacer(minLength: 12)
 
-            if group.status == .open {
-                HistoryRowActions(
-                    canAct: disabledReason == nil,
-                    disabledReason: disabledReason,
-                    onCreateRule: { onCreateRule(primaryTarget) },
-                    onIgnore: onIgnore
-                )
-            } else {
-                Text(statusTitle)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Capsule().fill(.quaternary))
-            }
+            HistoryRowActions(
+                canAct: disabledReason == nil,
+                disabledReason: disabledReason,
+                onCreateRule: { onCreateRule(group.primaryTarget) },
+                onIgnore: onIgnore
+            )
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var primaryTarget: String? {
-        guard let target = group.target,
-              !group.targetTruncated,
-              let sanitizedTarget = HistoryWordActionPolicy.sanitizedTarget(target),
-              sanitizedTarget.caseInsensitiveCompare(HistoryWordActionPolicy.normalizedSource(group.source)) != .orderedSame else {
-            return candidates.first?.text
-        }
-        return sanitizedTarget
-    }
-
-    private var disabledReason: String? {
-        HistoryWordActionPolicy.disabledReason(source: group.source, truncated: group.sourceTruncated)
-    }
-
-    private var meta: String {
-        var parts = ["остання: \(group.lastSeen.formatted(date: .abbreviated, time: .shortened))"]
-        if let bundleID = group.bundleID, !bundleID.isEmpty {
-            parts.append(AppContextProvider.displayName(forBundleID: bundleID))
-        }
-        parts.append("впевненість \(Int(group.confidence * 100))%")
-        return parts.joined(separator: " · ")
     }
 
     private var iconTile: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(Color("BrandTintSoft"))
-            Image(systemName: group.issueType.systemImage)
+            Image(systemName: group.candidates.first?.kind.systemImage ?? "text.magnifyingglass")
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(Color("BrandAccentDeep"))
         }
         .frame(width: 32, height: 32)
-    }
-
-    private var statusTitle: String {
-        switch group.status {
-        case .open: return ""
-        case .dismissed: return "ігноровано"
-        case .convertedToRule: return "створено правило"
-        case .addedToDictionary: return "не чіпати"
-        }
     }
 }

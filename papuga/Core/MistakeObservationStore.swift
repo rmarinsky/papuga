@@ -42,6 +42,24 @@ final class MistakeObservationStore: MistakeObservationRecording {
         self.fileURL = dir.appendingPathComponent("mistake-observations.jsonl")
     }
 
+    #if DEBUG
+    /// Isolated instance backed by an arbitrary file URL. Used by benchmarks so
+    /// they never read or mutate the user's real `mistake-observations.jsonl`.
+    init(testFileURL: URL) {
+        self.fileURL = testFileURL
+    }
+
+    /// Replace the in-memory snapshot synchronously (benchmark seeding only).
+    func replaceEntriesForTesting(_ newEntries: [MistakeObservation]) {
+        entries = newEntries
+    }
+
+    /// Block until every queued disk write has drained (benchmark timing only).
+    func waitForPendingWritesForTesting() {
+        ioQueue.sync {}
+    }
+    #endif
+
     func bootstrap() {
         ioQueue.async { [weak self] in
             guard let self else { return }
@@ -72,22 +90,37 @@ final class MistakeObservationStore: MistakeObservationRecording {
     }
 
     func updateStatus(for id: UUID, to status: MistakeObservation.Status) {
-        guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
-        let old = entries[index]
-        let updated = MistakeObservation(
-            id: old.id,
-            timestamp: old.timestamp,
-            issueType: old.issueType,
-            status: status,
-            source: old.source,
-            suggestedTarget: old.suggestedTarget,
-            language: old.language,
-            bundleID: old.bundleID,
-            confidence: old.confidence,
-            contextHash: old.contextHash
-        )
-        entries[index] = updated
-        rewriteAsync(snapshot: entries)
+        updateStatus(forIDs: [id], to: status)
+    }
+
+    /// Marks many observations in a single pass + a single disk rewrite + a
+    /// single `entries` mutation. Marking a whole group used to fire one full
+    /// re-encode and one view invalidation *per observation* (N× the cost of the
+    /// expensive mistakes-screen render); this collapses it to one.
+    func updateStatus(forIDs ids: [UUID], to status: MistakeObservation.Status) {
+        guard !ids.isEmpty else { return }
+        let idSet = Set(ids)
+        var snapshot = entries
+        var changed = false
+        for index in snapshot.indices where idSet.contains(snapshot[index].id) {
+            let old = snapshot[index]
+            snapshot[index] = MistakeObservation(
+                id: old.id,
+                timestamp: old.timestamp,
+                issueType: old.issueType,
+                status: status,
+                source: old.source,
+                suggestedTarget: old.suggestedTarget,
+                language: old.language,
+                bundleID: old.bundleID,
+                confidence: old.confidence,
+                contextHash: old.contextHash
+            )
+            changed = true
+        }
+        guard changed else { return }
+        entries = snapshot          // one @Observable mutation → one view invalidation
+        rewriteAsync(snapshot: snapshot)  // one disk rewrite
     }
 
     func clearAll() {

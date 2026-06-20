@@ -22,16 +22,18 @@ struct SystemSpellCheckingClient: SpellCheckingClient {
     }
 }
 
-enum MistakeSuggestionKind: String, Equatable {
+enum MistakeSuggestionKind: String, Equatable, Codable {
     case recorded
     case spelling
     case keyboardLayout
+    case keyboardAdjacency
 
     var title: String {
         switch self {
         case .recorded: return "Зафіксовано"
         case .spelling: return "Орфографія"
         case .keyboardLayout: return "Розкладка"
+        case .keyboardAdjacency: return "Клавіша"
         }
     }
 
@@ -40,6 +42,7 @@ enum MistakeSuggestionKind: String, Equatable {
         case .recorded: return "arrow.triangle.2.circlepath"
         case .spelling: return "text.magnifyingglass"
         case .keyboardLayout: return "keyboard"
+        case .keyboardAdjacency: return "hand.tap"
         }
     }
 
@@ -47,12 +50,13 @@ enum MistakeSuggestionKind: String, Equatable {
         switch self {
         case .recorded: return 0
         case .keyboardLayout: return 1
-        case .spelling: return 2
+        case .keyboardAdjacency: return 2
+        case .spelling: return 3
         }
     }
 }
 
-struct MistakeSuggestionCandidate: Identifiable, Equatable {
+struct MistakeSuggestionCandidate: Identifiable, Equatable, Codable {
     let kind: MistakeSuggestionKind
     let text: String
     let confidence: Double
@@ -88,8 +92,22 @@ final class MistakeSuggestionAnalyzer {
     private let mapper = CharacterMapper()
     private var mappedLayoutIDs = Set<String>()
 
+    /// Candidate generation is dominated by synchronous `NSSpellChecker` IPC,
+    /// which has no internal result cache. The same misspelled words recur
+    /// across every re-render (sheet present, scroll, store mutation), so we
+    /// memoize the fully-resolved candidate list per (source, language,
+    /// recorded targets, layout set). Keyed on inputs → automatically correct
+    /// when the data or layouts change.
+    private var candidateCache: [String: [MistakeSuggestionCandidate]] = [:]
+
     init(spellChecker: SpellCheckingClient = SystemSpellCheckingClient()) {
         self.spellChecker = spellChecker
+    }
+
+    /// Drop memoized candidates (e.g. after the spell dictionary or allowlist
+    /// changes in a way that should re-open previously-resolved suggestions).
+    func invalidateCache() {
+        candidateCache.removeAll(keepingCapacity: true)
     }
 
     func candidates(
@@ -102,6 +120,30 @@ final class MistakeSuggestionAnalyzer {
         let normalizedSource = MistakeObservation.normalizedToken(source)
         guard !normalizedSource.isEmpty else { return [] }
 
+        let layoutSignature = layoutManager?.orderedLayouts().joined(separator: ",") ?? ""
+        let cacheKey = "\(normalizedSource)\u{1}\(language)\u{1}\(limit)\u{1}\(recordedTargets.joined(separator: "\u{2}"))\u{1}\(layoutSignature)"
+        if let cached = candidateCache[cacheKey] { return cached }
+        let result = computeCandidates(
+            for: source,
+            normalizedSource: normalizedSource,
+            language: language,
+            recordedTargets: recordedTargets,
+            layoutManager: layoutManager,
+            limit: limit
+        )
+        candidateCache[cacheKey] = result
+        return result
+    }
+
+    private func computeCandidates(
+        for source: String,
+        normalizedSource: String,
+        language: String,
+        recordedTargets: [String],
+        layoutManager: LayoutManager?,
+        limit: Int
+    ) -> [MistakeSuggestionCandidate] {
+
         var result: [MistakeSuggestionCandidate] = []
         for target in recordedTargets {
             append(
@@ -113,6 +155,14 @@ final class MistakeSuggestionAnalyzer {
 
         if let layoutManager {
             for candidate in keyboardLayoutCandidates(
+                for: source,
+                language: language,
+                layoutManager: layoutManager,
+                limit: limit
+            ) {
+                append(candidate, to: &result, sourceKey: normalizedSource)
+            }
+            for candidate in keyboardAdjacencyCandidates(
                 for: source,
                 language: language,
                 layoutManager: layoutManager,
@@ -141,6 +191,9 @@ final class MistakeSuggestionAnalyzer {
         }
 
         return result
+            // Never surface gibberish (consonant soup / punctuation from a layout
+            // flip of a real word). Trust the user's own recorded corrections.
+            .filter { $0.kind == .recorded || WordPlausibility.isWordLike($0.text) }
             .sorted { lhs, rhs in
                 if lhs.kind.rank != rhs.kind.rank { return lhs.kind.rank < rhs.kind.rank }
                 if lhs.confidence != rhs.confidence { return lhs.confidence > rhs.confidence }
@@ -196,6 +249,56 @@ final class MistakeSuggestionAnalyzer {
                         targetLayoutID: toID
                     )
                 )
+                if result.count >= limit { return result }
+            }
+        }
+        return result
+    }
+
+    /// Language-agnostic "fat-finger" model: for each character, try the
+    /// physically adjacent keys (same layout) and keep substitutions that land
+    /// on a correctly-spelled word. Works on key *codes*, so it is identical for
+    /// QWERTY / ЙЦУКЕН / AZERTY — the differentiator: "it doesn't matter which
+    /// language, only which keys were pressed".
+    private func keyboardAdjacencyCandidates(
+        for source: String,
+        language: String,
+        layoutManager: LayoutManager,
+        limit: Int
+    ) -> [MistakeSuggestionCandidate] {
+        let ordered = layoutManager.orderedLayouts()
+        guard !ordered.isEmpty else { return [] }
+
+        let sourceLanguage = language.isEmpty ? nil : language
+        let layoutID = ordered.first { id in
+            sourceLanguage.map { AutoFixDecision.languageHintForLayoutID(id) == $0 } ?? false
+        } ?? ordered.first!
+        guard ensureMapped(layoutID: layoutID, layoutManager: layoutManager) else { return [] }
+
+        let chars = Array(source)
+        guard chars.count >= 2, chars.count <= MistakeObservation.maxStoredCharCount else { return [] }
+
+        var result: [MistakeSuggestionCandidate] = []
+        var seen = Set<String>()
+        for index in chars.indices {
+            guard let mapping = mapper.mapping(for: chars[index], sourceID: layoutID) else { continue }
+            for neighbour in KeyboardAdjacency.neighbours(of: mapping.keyCode) {
+                guard let neighbourChars = mapper.characters(forKeyCode: neighbour, sourceID: layoutID) else { continue }
+                guard let replacement = mapping.needsShift ? neighbourChars.shifted : neighbourChars.normal,
+                      replacement != chars[index],
+                      !replacement.isWhitespace else { continue }
+
+                var candidateChars = chars
+                candidateChars[index] = replacement
+                let candidate = String(candidateChars)
+                guard candidate != source, seen.insert(candidate).inserted else { continue }
+                guard !spellChecker.isMisspelled(candidate, language: language) else { continue }
+
+                result.append(MistakeSuggestionCandidate(
+                    kind: .keyboardAdjacency,
+                    text: candidate,
+                    confidence: 0.78
+                ))
                 if result.count >= limit { return result }
             }
         }
