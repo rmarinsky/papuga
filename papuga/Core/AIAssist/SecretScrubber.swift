@@ -35,7 +35,10 @@ enum SecretScrubber {
         if token.contains("/") || token.contains("\\") { return true }
 
         // Well-known credential prefixes (API keys, tokens, JWTs).
+        // Short prefixes like "eyj" (JWT) and "akia" (AWS key) only match when the token is long
+        // enough to actually be a credential — avoiding redacting ordinary short words.
         let lower = token.lowercased()
+        for prefix in shortSecretPrefixes where lower.hasPrefix(prefix) && token.count >= 12 { return true }
         for prefix in secretPrefixes where lower.hasPrefix(prefix) { return true }
 
         // Long all-hex strings — hashes, raw keys.
@@ -70,8 +73,11 @@ enum SecretScrubber {
         return entropy
     }
 
+    /// Require a minimum token length of 12 before these short prefixes trigger,
+    /// so that ordinary short words starting with "eyj" or "akia" are not redacted.
+    private static let shortSecretPrefixes = ["eyj", "akia"]
     private static let secretPrefixes = [
         "sk-", "sk_", "pk-", "pk_", "rk_", "ghp_", "gho_", "ghs_", "github_pat_",
-        "xox", "akia", "asia", "aiza", "ya29.", "bearer ", "eyj", "-----begin",
+        "xox", "asia", "aiza", "ya29.", "bearer ", "-----begin",
     ]
 }

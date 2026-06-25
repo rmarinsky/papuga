@@ -21,7 +21,7 @@ enum AIResponseValidator {
         // --- size cap on untrusted input ---
         if rawText.utf8.count > maxBytes {
             result.blocked = AIValidationIssue(alias: nil,
-                message: "Відповідь завелика (>256 КБ) — не парситься. Згенеруй промт меншим батчем.",
+                message: "Відповідь завелика (>2 МБ) — не парситься. Згенеруй промт меншим батчем.",
                 severity: .block)
             return result
         }
@@ -104,7 +104,7 @@ enum AIResponseValidator {
             let rawTarget = (item["target"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             var finalTarget: String? = nil
             var needsReview = false
-            let impliesRule = action == .rule || (action == .merge && rawTarget != nil)
+            let impliesRule = action == .rule || action == .merge
 
             if impliesRule {
                 guard let target = rawTarget else {
@@ -221,6 +221,9 @@ enum AIResponseValidator {
     // MARK: - helpers
 
     private static func intValue(_ any: Any?) -> Int? {
+        // Reject JSON booleans. NSNumber bridges to Bool in Swift, so `is Bool` catches integers
+        // too — use CFBoolean identity check instead to distinguish true/false from 1/0.
+        if let n = any as? NSNumber, CFGetTypeID(n) == CFBooleanGetTypeID() { return nil }
         if let i = any as? Int { return i }
         if let d = any as? Double { return Int(d) }
         if let n = any as? NSNumber { return n.intValue }

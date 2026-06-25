@@ -68,6 +68,13 @@ enum AISuggestionApplier {
         guard let item = items[suggestion.id] else { return }
         let liveIDs = item.observationIDs.filter(openCheck)
 
+        // If every observation for this item was already resolved elsewhere, skip global writes
+        // so a stale AI answer can't re-add a rule or word to the dictionary.
+        if liveIDs.isEmpty, !item.observationIDs.isEmpty {
+            outcome.skippedStale += 1
+            return
+        }
+
         switch suggestion.action {
         case .rule, .merge:
             guard let rawTarget = suggestion.target, !rawTarget.isEmpty else { return }
@@ -82,19 +89,17 @@ enum AISuggestionApplier {
                     CustomAutoReplaceRule(source: source, target: target, createdFromRecommendation: true)
                 )
             }
-            if !liveIDs.isEmpty { store.updateStatus(forIDs: liveIDs, to: .convertedToRule) }
+            store.updateStatus(forIDs: liveIDs, to: .convertedToRule)
             outcome.rulesCreated += 1
 
         case .dictionary:
             IgnoreWordService.add(item.source)
-            if !liveIDs.isEmpty { store.updateStatus(forIDs: liveIDs, to: .addedToDictionary) }
+            store.updateStatus(forIDs: liveIDs, to: .addedToDictionary)
             outcome.addedToDictionary += 1
 
         case .ignore:
-            if !liveIDs.isEmpty { store.updateStatus(forIDs: liveIDs, to: .dismissed) }
+            store.updateStatus(forIDs: liveIDs, to: .dismissed)
             outcome.ignored += 1
         }
-
-        if liveIDs.isEmpty && !item.observationIDs.isEmpty { outcome.skippedStale += 1 }
     }
 }

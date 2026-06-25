@@ -42,6 +42,16 @@ struct AutoFixEditingGuard {
         inEditingSession = true
     }
 
+    /// A mouse click may land inside existing text, so suppress the very next word (the one the
+    /// user starts typing from the clicked position). Unlike `noteEditingStarted`, this does NOT
+    /// start a sticky editing session: once the first clean word boundary clears
+    /// `shouldSuppressCurrentToken`, auto-fix resumes normally for all subsequent words.
+    mutating func noteClickSuppression() {
+        shouldSuppressCurrentToken = true
+        // inEditingSession is intentionally not set: clicking a field and typing a whole word
+        // from scratch is not the same as arrow-keying into the middle of an existing word.
+    }
+
     /// Non-destructive check used at the word boundary: suppress when either the one-shot flag or
     /// the sticky editing latch is active. Does NOT clear the latch.
     func shouldSuppress(enabled: Bool) -> Bool {

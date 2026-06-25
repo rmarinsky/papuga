@@ -41,8 +41,9 @@ final class AutoFixController {
     /// fix/undo. Only used on the main actor.
     private lazy var syntheticEventSource = CGEventSource(stateID: .hidSystemState)
     /// Cached copy of the Defaults-backed rule list. Avoids a JSON decode on every word boundary;
-    /// kept in sync whenever createRuleFromProposal writes the key.
+    /// kept in sync via a Defaults observer so AISuggestionApplier writes are also captured.
     private var cachedCustomRules: [CustomAutoReplaceRule] = Defaults[.customAutoReplaceRules]
+    private var customRulesObservation: Defaults.Observation?
 
     init(
         layoutManager: LayoutManager,
@@ -70,6 +71,7 @@ final class AutoFixController {
         }
 
         installAppActivationObserverIfNeeded()
+        installCustomRulesObservationIfNeeded()
         AppLogger.post(logger, "AutoFixController tap attached (dedicated thread)")
     }
 
@@ -93,6 +95,15 @@ final class AutoFixController {
         }
         undo(pending, boundaryAlreadyConsumed: false)
         lastFix = nil
+    }
+
+    private func installCustomRulesObservationIfNeeded() {
+        guard customRulesObservation == nil else { return }
+        customRulesObservation = Defaults.observe(.customAutoReplaceRules) { [weak self] change in
+            Task { @MainActor [weak self] in
+                self?.cachedCustomRules = change.newValue
+            }
+        }
     }
 
     private func installAppActivationObserverIfNeeded() {
@@ -203,10 +214,11 @@ final class AutoFixController {
                 return
             }
             resetTypingState(clearLastFix: true)
-            // A click may land inside existing text; treat it as the start of an editing session so
-            // we don't auto-fix until the user types a fresh word from a clean boundary.
+            // A click may land inside existing text, so suppress the very next word. We use
+            // noteClickSuppression (not noteEditingStarted) so auto-fix resumes normally for every
+            // word after that first one — typing a whole fresh word after clicking is safe.
             if Defaults[.autoFixConservativeEditingGuard] {
-                editingGuard.noteEditingStarted()
+                editingGuard.noteClickSuppression()
             }
             return
         case .keyDown:
