@@ -1,43 +1,44 @@
+import Defaults
 import XCTest
 @testable import papuga
 
 final class AutoFixAppPolicyTests: XCTestCase {
-    func test_vscode_defaults_to_suggest_only() {
-        XCTAssertEqual(
-            AutoFixAppPolicyResolver.defaultPolicy(for: "com.microsoft.VSCode"),
-            .suggestOnly
-        )
+    override func tearDown() {
+        Defaults[.autoFixAppPolicyOverrides] = [:]
+        super.tearDown()
     }
 
-    func test_cursor_defaults_to_suggest_only() {
-        XCTAssertEqual(
-            AutoFixAppPolicyResolver.defaultPolicy(for: "com.todesktop.230313mzl4w4u92"),
-            .suggestOnly
-        )
+    func test_all_apps_default_to_auto_mutate() {
+        // No hardcoded per-app exceptions anymore: editors, IDEs, terminals, and native apps all
+        // auto-mutate by default. Exclusions are user-driven (blocklist / overrides).
+        for bundleID in [
+            "com.microsoft.VSCode",
+            "com.todesktop.230313mzl4w4u92", // Cursor
+            "com.jetbrains.intellij",
+            "com.openai.codex",
+            "com.apple.Terminal",
+            "com.googlecode.iterm2",
+            "com.mitchellh.ghostty",
+            "com.apple.Notes"
+        ] {
+            XCTAssertEqual(
+                AutoFixAppPolicyResolver.defaultPolicy(for: bundleID),
+                .autoMutate,
+                "\(bundleID) should default to auto-mutate"
+            )
+        }
     }
 
-    func test_jetbrains_defaults_to_suggest_only() {
-        XCTAssertEqual(
-            AutoFixAppPolicyResolver.defaultPolicy(for: "com.jetbrains.intellij"),
-            .suggestOnly
-        )
+    func test_user_override_takes_precedence_over_default() {
+        Defaults[.autoFixAppPolicyOverrides] = ["com.apple.Terminal": AutoFixAppPolicy.disabled.rawValue]
+
+        XCTAssertEqual(AutoFixAppPolicyResolver.policy(for: "com.apple.Terminal"), .disabled)
+        // An app without an override still uses the auto-mutate default.
+        XCTAssertEqual(AutoFixAppPolicyResolver.policy(for: "com.apple.Notes"), .autoMutate)
     }
 
-    func test_terminal_apps_default_to_disabled() {
-        XCTAssertEqual(
-            AutoFixAppPolicyResolver.defaultPolicy(for: "com.apple.Terminal"),
-            .disabled
-        )
-        XCTAssertEqual(
-            AutoFixAppPolicyResolver.defaultPolicy(for: "com.googlecode.iterm2"),
-            .disabled
-        )
-    }
-
-    func test_native_unknown_apps_default_to_auto_mutate() {
-        XCTAssertEqual(
-            AutoFixAppPolicyResolver.defaultPolicy(for: "com.apple.Notes"),
-            .autoMutate
-        )
+    func test_missing_bundle_id_defaults_to_suggest_only() {
+        XCTAssertEqual(AutoFixAppPolicyResolver.policy(for: nil), .suggestOnly)
+        XCTAssertEqual(AutoFixAppPolicyResolver.policy(for: ""), .suggestOnly)
     }
 }

@@ -59,6 +59,33 @@ final class AutoFixDecisionTests: XCTestCase {
         ))
     }
 
+    func test_shouldSuggestSingleTokenLayoutMistake_for_latin_to_ukrainian_word() {
+        XCTAssertTrue(AutoFixDecision.shouldSuggestSingleTokenLayoutMistake(
+            original: "yjhbfkbpe.",
+            candidate: "нормалізуй",
+            targetLanguage: "uk",
+            scoreCandidate: 0.91
+        ))
+    }
+
+    func test_shouldSuggestSingleTokenLayoutMistake_for_cyrillic_to_english_word() {
+        XCTAssertTrue(AutoFixDecision.shouldSuggestSingleTokenLayoutMistake(
+            original: "тщкьфдшяу",
+            candidate: "normalize",
+            targetLanguage: "en",
+            scoreCandidate: 0.91
+        ))
+    }
+
+    func test_shouldSuggestSingleTokenLayoutMistake_rejects_same_script_typos() {
+        XCTAssertFalse(AutoFixDecision.shouldSuggestSingleTokenLayoutMistake(
+            original: "normlaize",
+            candidate: "normalize",
+            targetLanguage: "en",
+            scoreCandidate: 0.91
+        ))
+    }
+
     func test_isWordBoundary_for_whitespace_keycodes() {
         XCTAssertTrue(AutoFixDecision.isWordBoundary(keyCode: 0x31, typedString: " "))   // space
         XCTAssertTrue(AutoFixDecision.isWordBoundary(keyCode: 0x24, typedString: "\n"))  // return

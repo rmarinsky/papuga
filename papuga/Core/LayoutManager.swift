@@ -131,6 +131,13 @@ final class LayoutManager {
         return result
     }
 
+    /// All configured (ordered, enabled) layouts except the current one — the set of plausible
+    /// targets auto-fix should evaluate. Unlike `nextLayout`, this does not assume the correct
+    /// target is the next one in the cycle; the caller scores every candidate and picks the best.
+    func candidateTargets(excluding currentID: String) -> [String] {
+        orderedLayouts().filter { $0 != currentID }
+    }
+
     func nextLayout(after currentID: String, direction: SwitchDirection) -> String? {
         AppLogger.pre(logger, "nextLayout(after: \(currentID), direction: \(String(describing: direction)))")
         let order = orderedLayouts()

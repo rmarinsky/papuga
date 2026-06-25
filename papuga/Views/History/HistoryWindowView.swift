@@ -69,6 +69,7 @@ struct HistoryWindowView: View {
             sidebarRow(.overview)
             sidebarRow(.history)
             sidebarRow(.mistakes, badge: openMistakeCount)
+            sidebarRow(.dictionary)
             sidebarRow(.clipboard)
 
             Color.clear.frame(height: 34)
@@ -78,6 +79,7 @@ struct HistoryWindowView: View {
             sidebarRow(.settingsLanguages)
             sidebarRow(.settingsRules)
             sidebarRow(.settingsShortcuts)
+            sidebarRow(.settingsAI)
             sidebarRow(.settingsAccount)
 
             Color.clear.frame(height: 18)
@@ -256,6 +258,10 @@ struct HistoryWindowView: View {
             ClipboardHistorySectionView()
         case .mistakes:
             MistakesView()
+        case .dictionary:
+            settingsDetail {
+                DictionaryTab()
+            }
         case .settingsGeneral:
             settingsDetail {
                 GeneralTab()
@@ -271,6 +277,10 @@ struct HistoryWindowView: View {
         case .settingsShortcuts:
             settingsDetail {
                 HotkeysTab()
+            }
+        case .settingsAI:
+            settingsDetail {
+                AISettingsTab()
             }
         case .settingsAccount:
             settingsDetail {

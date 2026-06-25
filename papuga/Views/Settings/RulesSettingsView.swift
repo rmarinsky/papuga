@@ -3,33 +3,14 @@ import Defaults
 import SwiftUI
 
 struct RulesSettingsView: View {
-    private enum RulesMode: String, CaseIterable, Identifiable {
-        case autoFix
-        case dictionary
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .autoFix: return "Автофікс"
-            case .dictionary: return "Словник"
-            }
-        }
-    }
-
     @Default(.autoFixEnabled) private var autoFixEnabled
-    @State private var mode: RulesMode = .autoFix
     @State private var accessibilityGranted = false
     @State private var inputMonitoringGranted = false
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            Divider()
-            VStack(spacing: 0) {
-                runtimeStatusBanner
-                detail
-            }
+            runtimeStatusBanner
+            AutoFixTab()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .task {
@@ -38,24 +19,6 @@ struct RulesSettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshPermissions()
         }
-    }
-
-    private var header: some View {
-        HStack(spacing: 12) {
-            Spacer()
-
-            Picker("", selection: $mode) {
-                ForEach(RulesMode.allCases) { mode in
-                    Text(mode.title).tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 16)
-        .padding(.bottom, 10)
     }
 
     private var runtimeReady: Bool {
@@ -70,9 +33,9 @@ struct RulesSettingsView: View {
                     .foregroundStyle(runtimeReady ? Color("BrandAccentDeep") : .orange)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(runtimeReady ? "Правила і словник активні" : "Правила і словник зараз не спрацюють")
+                    Text(runtimeReady ? "Правила активні" : "Правила зараз не спрацюють")
                         .font(.system(size: 13, weight: .semibold))
-                    Text("Для власних правил і списку «не чіпати» потрібні AutoFix, Спеціальні можливості та Моніторинг введення.")
+                    Text("Для власних правил потрібні AutoFix, Спеціальні можливості та Моніторинг введення.")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
@@ -131,16 +94,6 @@ struct RulesSettingsView: View {
         }
         .buttonStyle(.plain)
         .help(isReady ? "\(title): готово" : "Налаштувати \(title)")
-    }
-
-    @ViewBuilder
-    private var detail: some View {
-        switch mode {
-        case .autoFix:
-            AutoFixTab()
-        case .dictionary:
-            DictionaryTab()
-        }
     }
 
     private func refreshPermissions() {

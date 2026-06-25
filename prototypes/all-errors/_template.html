@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Papuga · Усі помилки — ШАБЛОН</title>
+<link rel="stylesheet" href="assets/shell.css">
+</head>
+<body>
+<div class="stage">
+  <div class="window">
+    <!-- title bar -->
+    <div class="titlebar">
+      <div class="lights"><span class="light r"></span><span class="light y"></span><span class="light g"></span></div>
+      <span class="title">Papuga — Історія</span>
+      <span class="spacer"></span>
+    </div>
+
+    <!-- sidebar -->
+    <aside class="sidebar">
+      <div class="side-item"><span class="ico">◔</span> Огляд</div>
+      <div class="side-item"><span class="ico">↺</span> Історія замін</div>
+      <div class="side-item active"><span class="ico">⚠</span> Помилки введення</div>
+      <div class="side-item"><span class="ico">✦</span> Підказки</div>
+      <div class="side-sep"></div>
+      <div class="side-item"><span class="ico">📋</span> Буфер обміну</div>
+      <div class="side-item"><span class="ico">⚙</span> Налаштування</div>
+    </aside>
+
+    <!-- content -->
+    <section class="content">
+      <div class="screen-head">
+        <div style="display:flex;align-items:center;gap:14px;">
+          <div>
+            <div class="screen-title">Помилки введення</div>
+            <div class="screen-sub">Papuga фоном аналізує все, що ти друкуєш, і пропонує заміни.</div>
+          </div>
+          <span class="spacer"></span>
+          <div class="seg">
+            <button>Поради</button>
+            <button class="on">Усі помилки</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- usefulness counter (the "коефіцієнт користі") -->
+      <div class="benefit" style="--pct:27">
+        <div class="ring"><i>27%</i></div>
+        <div class="txt">
+          Papuga помітила <b>1046</b> помилок і вже <b>знешкодила 282</b>
+          <span class="muted">(82 правила + 200 у словнику)</span>.<br>
+          <span class="muted">Це ≈ <b>7.5 хв</b> ручних виправлень, які тобі не довелося робити.</span>
+        </div>
+      </div>
+
+      <!-- stats -->
+      <div class="stats">
+        <div class="stat"><span class="ico">●</span><div class="v">819</div><div class="l">Помилок</div></div>
+        <div class="stat"><span class="ico">↺</span><div class="v">47</div><div class="l">Повторюваних</div></div>
+        <div class="stat"><span class="ico">✦</span><div class="v">82</div><div class="l">Правил заміни</div></div>
+        <div class="stat"><span class="ico">📖</span><div class="v">200</div><div class="l">У словнику</div></div>
+      </div>
+
+      <!-- ======================================================
+           TAB CONTENT — кожен прототип будує СВОЄ тут (#tab).
+           Доступні дані: window.PAPUGA_DEMO (errors/families/buckets/byApp/queue/stats)
+           Доступні класи з shell.css: .toolbar .search .btn .filter-chip
+             .row .checkbox .src .tgt .arrow .lang .count .chip .receipt
+             .section-label .scroll .foot-hint .kbd  тощо.
+           ====================================================== -->
+      <main id="tab" class="scroll">
+        <!-- build here -->
+      </main>
+
+      <div class="foot-hint">
+        <span><span class="kbd">↑↓</span> навігація</span>
+        <span><span class="kbd">⏎</span> правило</span>
+        <span><span class="kbd">⌫</span> сховати</span>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script>
+  // прототип-специфічний рендер підключається тут
+</script>
+</body>
+</html>

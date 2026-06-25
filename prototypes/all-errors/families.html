@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Papuga · Усі помилки — Родини схожості</title>
+<link rel="stylesheet" href="assets/shell.css">
+<style>
+  /* ---- prototype-specific layout only (atoms come from shell.css) ---- */
+  .helper-note {
+    margin: 0 20px 10px; font-size: 11.5px; color: var(--text-2);
+    display: flex; align-items: center; gap: 7px; line-height: 1.45;
+  }
+  .helper-note .glyph { color: var(--accent-deep); font-size: 13px; flex: none; }
+
+  .pad { padding: 6px 20px 18px; }
+
+  /* family cards grid */
+  .fam-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 6px; }
+  @media (max-width: 720px) { .fam-grid { grid-template-columns: 1fr; } }
+
+  .fam-card {
+    position: relative; overflow: hidden;
+    background: var(--window-bg); border: 0.5px solid var(--sep);
+    border-radius: var(--radius); padding: 12px 13px;
+    transition: box-shadow .16s ease, transform .16s ease, border-color .16s ease;
+  }
+  .fam-card:hover { border-color: var(--accent-border); box-shadow: 0 2px 10px -4px rgba(0,0,0,0.14); }
+  .fam-card.domain:hover { border-color: var(--sep); }
+
+  .fam-head { display: flex; align-items: center; gap: 10px; }
+  .fam-tile {
+    width: 34px; height: 34px; border-radius: 9px; flex: none;
+    display: grid; place-items: center; font-size: 16px;
+    background: var(--accent-soft); color: var(--accent-deep);
+    border: 0.5px solid var(--accent-border);
+  }
+  .fam-card.domain .fam-tile { background: var(--amber-soft); color: var(--amber); border-color: rgba(232,145,12,0.22); }
+  .fam-meta { min-width: 0; flex: 1; }
+  .fam-title { font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+  .fam-title .n { font-family: var(--rounded); }
+  .fam-sub { font-size: 11.5px; color: var(--text-2); margin-top: 2px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .fam-sub .tgt { font-weight: 700; }
+  .fam-sub .rep-name { color: var(--text); font-weight: 600; }
+
+  .fam-body { margin-top: 10px; }
+  .chip-cloud { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip-cloud.collapsed { max-height: 26px; overflow: hidden; }
+  .chip-cloud .chip { cursor: default; }
+  .chip.struck .src { text-decoration: line-through; text-decoration-color: var(--text-3); color: var(--text-2); }
+
+  .fam-foot { display: flex; align-items: center; gap: 8px; margin-top: 11px; }
+  .fam-foot .spacer { flex: 1; }
+  .more-toggle {
+    appearance: none; border: 0; background: transparent; cursor: pointer; font: inherit;
+    font-size: 11px; font-weight: 600; color: var(--text-2); padding: 3px 6px; border-radius: 6px;
+  }
+  .more-toggle:hover { background: var(--control-bg); color: var(--text); }
+
+  .fam-value {
+    margin-top: 10px; padding: 8px 10px; border-radius: 8px;
+    background: var(--accent-soft); border: 0.5px solid var(--accent-border);
+    font-size: 11.5px; color: var(--accent-deep); line-height: 1.45;
+  }
+  .fam-card.domain .fam-value { background: var(--amber-soft); border-color: rgba(232,145,12,0.22); color: var(--amber); }
+  .fam-value b { font-family: var(--rounded); }
+
+  /* curtain (done) state */
+  .fam-card.done { padding: 0; border-color: var(--accent-border); }
+  .fam-done {
+    display: none; align-items: center; gap: 10px;
+    padding: 13px 14px; background: var(--accent-soft);
+    font-size: 12.5px; color: var(--accent-deep); font-weight: 600;
+  }
+  .fam-card.done .fam-inner { display: none; }
+  .fam-card.done .fam-done { display: flex; }
+  .fam-done .undo {
+    margin-left: auto; appearance: none; border: 0; background: transparent; cursor: pointer;
+    font: inherit; font-size: 11.5px; font-weight: 600; color: var(--accent-deep); opacity: 0.85;
+    padding: 3px 8px; border-radius: 6px; text-decoration: underline; text-underline-offset: 2px;
+  }
+  .fam-done .undo:hover { opacity: 1; background: rgba(31,175,92,0.10); }
+  .fam-done .tick { font-size: 14px; }
+
+  /* singletons list */
+  .singles-head { display: flex; align-items: baseline; gap: 8px; padding: 14px 0 2px; }
+  .singles-head .section-label { padding: 0; }
+  .singles-head .cnt { font-size: 11px; color: var(--text-3); font-family: var(--rounded); font-weight: 700; }
+
+  .singles { border: 0.5px solid var(--sep-soft); border-radius: var(--radius); overflow: hidden; margin-top: 6px; background: var(--window-bg); }
+  .singles .row { padding-left: 14px; padding-right: 14px; }
+  .singles .row:last-child { border-bottom: 0; }
+  .singles .row .src { min-width: 96px; }
+  .singles .row .actions .btn { white-space: nowrap; }
+
+  .row.removing { opacity: 0; transform: translateX(8px); max-height: 0; padding-top: 0; padding-bottom: 0;
+    transition: opacity .16s ease, transform .18s ease, max-height .18s ease, padding .18s ease; }
+  .row.acted {
+    background: var(--accent-soft) !important; color: var(--accent-deep);
+  }
+  .row.acted .src { color: var(--accent-deep); }
+  .row-done { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--accent-deep); }
+  .row-done .undo { appearance: none; border: 0; background: transparent; cursor: pointer; font: inherit;
+    font-size: 11.5px; font-weight: 600; color: var(--accent-deep); text-decoration: underline; text-underline-offset: 2px; padding: 0; }
+
+  .empty-line { padding: 16px; text-align: center; font-size: 12px; color: var(--text-3); }
+
+  .badge-kind {
+    font-size: 9.5px; font-weight: 700; letter-spacing: 0.3px; text-transform: uppercase;
+    padding: 1px 6px; border-radius: 5px;
+  }
+  .badge-kind.typo   { background: var(--amber-soft); color: var(--amber); }
+  .badge-kind.domain { background: var(--accent-soft); color: var(--accent-deep); }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="window">
+    <!-- title bar -->
+    <div class="titlebar">
+      <div class="lights"><span class="light r"></span><span class="light y"></span><span class="light g"></span></div>
+      <span class="title">Papuga — Історія</span>
+      <span class="spacer"></span>
+    </div>
+
+    <!-- sidebar -->
+    <aside class="sidebar">
+      <div class="side-item"><span class="ico">◔</span> Огляд</div>
+      <div class="side-item"><span class="ico">↺</span> Історія замін</div>
+      <div class="side-item active"><span class="ico">⚠</span> Помилки введення</div>
+      <div class="side-item"><span class="ico">✦</span> Підказки</div>
+      <div class="side-sep"></div>
+      <div class="side-item"><span class="ico">📋</span> Буфер обміну</div>
+      <div class="side-item"><span class="ico">⚙</span> Налаштування</div>
+    </aside>
+
+    <!-- content -->
+    <section class="content">
+      <div class="screen-head">
+        <div style="display:flex;align-items:center;gap:14px;">
+          <div>
+            <div class="screen-title">Помилки введення</div>
+            <div class="screen-sub">Papuga фоном аналізує все, що ти друкуєш, і пропонує заміни.</div>
+          </div>
+          <span class="spacer"></span>
+          <div class="seg">
+            <button>Поради</button>
+            <button class="on">Усі помилки</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- usefulness counter (the "коефіцієнт користі") -->
+      <div class="benefit" style="--pct:27">
+        <div class="ring"><i>27%</i></div>
+        <div class="txt">
+          Papuga помітила <b>1046</b> помилок і вже <b>знешкодила 282</b>
+          <span class="muted">(82 правила + 200 у словнику)</span>.<br>
+          <span class="muted">Це ≈ <b>7.5 хв</b> ручних виправлень, які тобі не довелося робити.</span>
+        </div>
+      </div>
+
+      <!-- stats -->
+      <div class="stats">
+        <div class="stat"><span class="ico">●</span><div class="v">819</div><div class="l">Помилок</div></div>
+        <div class="stat"><span class="ico">↺</span><div class="v">47</div><div class="l">Повторюваних</div></div>
+        <div class="stat"><span class="ico">✦</span><div class="v">82</div><div class="l">Правил заміни</div></div>
+        <div class="stat"><span class="ico">📖</span><div class="v">200</div><div class="l">У словнику</div></div>
+      </div>
+
+      <!-- ====================================================== -->
+      <main id="tab" class="scroll">
+        <div class="helper-note">
+          <span class="glyph">⊜</span>
+          <span>Схожі помилки Papuga групує сама — за <b>редакційною відстанню</b> (edit-distance) та <b>спільною заміною</b>. Одна дія виправляє всю родину.</span>
+        </div>
+
+        <div class="pad">
+          <div class="section-label">Схожі між собою</div>
+          <div class="fam-grid" id="famGrid"></div>
+
+          <div class="singles-head">
+            <div class="section-label">Поодинокі</div>
+            <span class="cnt" id="singlesCount"></span>
+          </div>
+          <div class="singles" id="singles"></div>
+        </div>
+      </main>
+
+      <div class="foot-hint">
+        <span><span class="kbd">↑↓</span> навігація</span>
+        <span><span class="kbd">⏎</span> правило</span>
+        <span><span class="kbd">⌫</span> сховати</span>
+        <span class="spacer" style="flex:1"></span>
+        <span class="dim" id="liveTally"></span>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script>
+(function () {
+  const D = window.PAPUGA_DEMO;
+  const grid = document.getElementById('famGrid');
+  const singlesEl = document.getElementById('singles');
+  const singlesCountEl = document.getElementById('singlesCount');
+  const tallyEl = document.getElementById('liveTally');
+
+  // running tally of what the demo has "knocked out"
+  let madeRules = 0, savedDict = 0, hidden = 0;
+  function tally() {
+    const parts = [];
+    if (madeRules) parts.push(madeRules + ' прав.');
+    if (savedDict) parts.push(savedDict + ' у словник');
+    if (hidden) parts.push(hidden + ' сховано');
+    tallyEl.textContent = parts.length ? ('Опрацьовано: ' + parts.join(' · ')) : '';
+  }
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  /* =====================  FAMILIES  ===================== */
+  D.families.forEach(fam => {
+    const isTypo = !!fam.target;            // typo family → has shared target
+    const card = document.createElement('div');
+    card.className = 'fam-card' + (isTypo ? '' : ' domain');
+
+    const memberChips = fam.members.map(m =>
+      `<span class="chip ${isTypo ? 'struck' : ''}"><span class="src">${esc(m)}</span></span>`
+    ).join('');
+
+    const collapsible = fam.members.length > 4;
+
+    // header subtitle differs for typo vs domain
+    const sub = isTypo
+      ? `<span class="lang">${esc(fam.lang)}</span><span class="arrow">→</span><span class="tgt">${esc(fam.target)}</span><span class="badge-kind typo">одруки</span>`
+      : `<span class="lang">${esc(fam.lang)}</span>родина «<span class="rep-name">${esc(fam.rep)}…</span>»<span class="badge-kind domain">твої слова</span>`;
+
+    const actionBtn = isTypo
+      ? `<button class="btn accent small" data-act="rules">Створити ${fam.members.length} правил</button>`
+      : `<button class="btn accent small" data-act="dict">Усі в словник</button>`;
+
+    const valueText = isTypo
+      ? `ці <b>${fam.members.length}</b> описки = одне слово «<b>${esc(fam.target)}</b>» → виправити всі однією дією`
+      : `<b>${fam.members.length}</b> форми одного слова «<b>${esc(fam.rep)}</b>» → один запис у словник покриває всі`;
+
+    card.innerHTML = `
+      <div class="fam-inner">
+        <div class="fam-head">
+          <div class="fam-tile">${isTypo ? '⊜' : '𝐀'}</div>
+          <div class="fam-meta">
+            <div class="fam-title"><span class="n">${fam.members.length}</span> схожих</div>
+            <div class="fam-sub">${sub}</div>
+          </div>
+        </div>
+        <div class="fam-body">
+          <div class="chip-cloud ${collapsible ? 'collapsed' : ''}">${memberChips}</div>
+        </div>
+        <div class="fam-value">${valueText}</div>
+        <div class="fam-foot">
+          ${actionBtn}
+          ${collapsible ? `<button class="more-toggle">показати всі (${fam.members.length})</button>` : ''}
+        </div>
+      </div>
+      <div class="fam-done">
+        <span class="tick">✓</span>
+        <span class="done-text"></span>
+        <button class="undo">↩︎ скасувати</button>
+      </div>
+    `;
+    grid.appendChild(card);
+
+    // expand / collapse member chips
+    if (collapsible) {
+      const cloud = card.querySelector('.chip-cloud');
+      const toggle = card.querySelector('.more-toggle');
+      toggle.addEventListener('click', () => {
+        const collapsed = cloud.classList.toggle('collapsed');
+        toggle.textContent = collapsed ? `показати всі (${fam.members.length})` : 'згорнути';
+      });
+    }
+
+    // primary family action → curtain the whole family out
+    const actBtn = card.querySelector('[data-act]');
+    const doneText = card.querySelector('.done-text');
+    actBtn.addEventListener('click', () => {
+      card.classList.add('done');
+      if (isTypo) {
+        madeRules += fam.members.length;
+        doneText.textContent = `${fam.members.length} правил створено → «${fam.target}»`;
+      } else {
+        savedDict += fam.members.length;
+        doneText.textContent = `${fam.members.length} форм збережено у словник`;
+      }
+      tally();
+    });
+    card.querySelector('.undo').addEventListener('click', () => {
+      card.classList.remove('done');
+      if (isTypo) madeRules -= fam.members.length; else savedDict -= fam.members.length;
+      tally();
+    });
+  });
+
+  /* =====================  SINGLETONS  ===================== */
+  const singles = D.errors.filter(e => e.fam === null);
+  singlesCountEl.textContent = singles.length + ' слів';
+
+  function langApp(e) {
+    return `<span class="lang">${esc(e.lang)}</span>` +
+           `<span class="app-tag">${esc(e.app)}</span>` +
+           `<span class="muted small">${esc(e.last)}</span>`;
+  }
+
+  function receipt(e) {
+    if (e.target) {
+      return `<span class="receipt"><span class="src struck">${esc(e.source)}</span>` +
+             `<span class="arrow">→</span><span class="tgt">${esc(e.target)}</span></span>`;
+    }
+    if (e.kind === 'gibberish') return `<span class="no-tgt">обрізок / мойібейк</span>`;
+    return `<span class="no-tgt">без заміни</span>`;
+  }
+
+  // primary per-row action reflects data reality
+  function primaryAction(e) {
+    if (e.target) return { act: 'rule', label: '⊕ правило', cls: 'btn accent small' };
+    if (e.kind === 'gibberish') return { act: 'hide', label: 'Сховати', cls: 'btn small ghost' };
+    return { act: 'dict', label: '📖 словник', cls: 'btn small' };
+  }
+
+  function buildRow(e, idx) {
+    const row = document.createElement('div');
+    row.className = 'row zebra';
+    if (idx % 2 === 0) row.classList.remove('zebra'); // alternate
+
+    const pa = primaryAction(e);
+    const secondary = e.target
+      ? `<button class="btn small ghost" data-act="dict">📖</button>`
+      : (e.kind === 'gibberish' ? '' : `<button class="btn small ghost" data-act="hide">сховати</button>`);
+
+    row.innerHTML = `
+      <div class="checkbox"></div>
+      <span class="src">${esc(e.source)}</span>
+      <div class="grow">${receipt(e)}</div>
+      ${langApp(e)}
+      <span class="count">×${e.count}</span>
+      <div class="actions">
+        <button class="${pa.cls}" data-act="${pa.act}">${pa.label}</button>
+        ${secondary}
+      </div>
+    `;
+
+    function act(kind) {
+      // mark + curtain out
+      const actions = row.querySelector('.actions');
+      const grow = row.querySelector('.grow');
+      row.classList.add('acted');
+      let msg = '';
+      if (kind === 'rule') { madeRules += 1; msg = `✓ правило створено → «${e.target}»`; }
+      else if (kind === 'dict') { savedDict += 1; msg = `✓ збережено у словник`; }
+      else { hidden += 1; msg = `✓ сховано`; }
+      tally();
+      actions.innerHTML = '';
+      grow.innerHTML = `<span class="row-done">${msg} <button class="undo">↩︎ скасувати</button></span>`;
+      grow.querySelector('.undo').addEventListener('click', restore);
+      // deplete after a beat
+      row._timer = setTimeout(() => {
+        row.classList.add('removing');
+        row._gone = setTimeout(() => { row.style.display = 'none'; }, 200);
+      }, 1400);
+    }
+
+    function restore() {
+      clearTimeout(row._timer); clearTimeout(row._gone);
+      row.classList.remove('acted', 'removing');
+      row.style.display = ''; row.style.maxHeight = '';
+      // roll back tally — recompute by primary kind isn't tracked precisely; decrement generically
+      // (simple demo rollback)
+      if (e.target) madeRules = Math.max(0, madeRules - 1);
+      else if (e.kind === 'gibberish') hidden = Math.max(0, hidden - 1);
+      else savedDict = Math.max(0, savedDict - 1);
+      tally();
+      rebuildRowBody();
+    }
+
+    function rebuildRowBody() {
+      const pa2 = primaryAction(e);
+      const secondary2 = e.target
+        ? `<button class="btn small ghost" data-act="dict">📖</button>`
+        : (e.kind === 'gibberish' ? '' : `<button class="btn small ghost" data-act="hide">сховати</button>`);
+      row.querySelector('.grow').innerHTML = receipt(e);
+      const actionsEl = row.querySelector('.actions');
+      actionsEl.innerHTML =
+        `<button class="${pa2.cls}" data-act="${pa2.act}">${pa2.label}</button>${secondary2}`;
+      wire();
+    }
+
+    function wire() {
+      row.querySelectorAll('.actions [data-act]').forEach(b => {
+        b.addEventListener('click', ev => { ev.stopPropagation(); act(b.getAttribute('data-act')); });
+      });
+    }
+
+    // checkbox toggles, primary action on click
+    row.querySelector('.checkbox').addEventListener('click', function () {
+      this.classList.toggle('on');
+      this.textContent = this.classList.contains('on') ? '✓' : '';
+    });
+
+    wire();
+    return row;
+  }
+
+  singles.forEach((e, i) => singlesEl.appendChild(buildRow(e, i)));
+  if (!singles.length) singlesEl.innerHTML = '<div class="empty-line">Поодиноких немає — усе згруповано.</div>';
+
+  tally();
+})();
+</script>
+</body>
+</html>

@@ -1,6 +1,10 @@
 # macOS
 .DS_Store
 
+# Python caches (prototype scripts)
+__pycache__/
+*.pyc
+
 # JetBrains IDE
 .idea/
 
