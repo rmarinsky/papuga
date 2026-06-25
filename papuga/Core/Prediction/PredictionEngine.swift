@@ -22,6 +22,8 @@ final class PredictionEngine {
     private(set) var totalCount = 0
     private(set) var liveFeed: [FoundPair] = []
     private(set) var ranked: [PredictionGroup] = []
+    /// All mistakes grouped by mutual similarity — drives the "Усі" tab.
+    private(set) var errorClusters: [ErrorCluster] = []
 
     // MARK: Dependencies / tuning
 
@@ -148,6 +150,8 @@ final class PredictionEngine {
         phase = pending.isEmpty ? .ready : .analyzing
         publishRanked(groups: groups) // show whatever is already cached immediately
 
+        computeClusters(groups: groups)
+
         guard !pending.isEmpty else {
             saveCacheToDisk()
             return
@@ -188,6 +192,7 @@ final class PredictionEngine {
             }
             if Task.isCancelled { return }
             learnDomainVocabulary() // now that every group has candidates
+            computeClusters(groups: groups) // full similarity map for the "Усі" tab
             phase = .ready
             saveCacheToDisk()
             logger.notice("Prediction pass complete: \(self.totalCount, privacy: .public) groups")
@@ -253,11 +258,11 @@ final class PredictionEngine {
         }
     }
 
-    private func publishRanked(groups: [MistakeGroupData]) {
-        // Merge derived groups that LOOK the same to the user — same word, same
-        // language, same suggested correction — even if they came from different
-        // apps (bundleID) or differ only by whether a target was recorded. A rule
-        // is global, so showing one "кщьфт → roman 6×" card beats two "3×" cards.
+    /// Merge derived groups that LOOK the same to the user — same word, same
+    /// language, same suggested correction — even if they came from different
+    /// apps (bundleID) or differ only by whether a target was recorded. A rule
+    /// is global, so one "кщьфт → roman 6×" beats two "3×" cards.
+    private func mergedGroups(from groups: [MistakeGroupData]) -> [PredictionGroup] {
         var merged: [String: PredictionGroup] = [:]
         for group in groups {
             let candidates = cache[group.id]?.candidates ?? []
@@ -292,8 +297,11 @@ final class PredictionEngine {
                 )
             }
         }
+        return Array(merged.values)
+    }
 
-        ranked = merged.values.sorted { lhs, rhs in
+    private func publishRanked(groups: [MistakeGroupData]) {
+        ranked = mergedGroups(from: groups).sorted { lhs, rhs in
             if lhs.score != rhs.score { return lhs.score > rhs.score }
             if lhs.count != rhs.count { return lhs.count > rhs.count }
             return lhs.lastSeen > rhs.lastSeen
@@ -301,6 +309,19 @@ final class PredictionEngine {
         if ranked.count > maxRanked {
             ranked = Array(ranked.prefix(maxRanked))
         }
+    }
+
+    /// Cluster ALL current mistakes by similarity for the "Усі" tab.
+    private func computeClusters(groups: [MistakeGroupData]) {
+        let known = handledSourcesProvider().union(domainVocabulary)
+        let merged = mergedGroups(from: groups)
+            .filter { !known.contains(MistakeObservation.normalizedToken($0.source)) }
+        errorClusters = ErrorClustering.cluster(merged.map { group in
+            ErrorClustering.Item(
+                source: group.source, language: group.language, count: group.count,
+                target: group.primaryTarget, observationIDs: group.observationIDs
+            )
+        })
     }
 
     private func primaryTarget(for group: MistakeGroupData, candidates: [MistakeSuggestionCandidate]) -> String? {

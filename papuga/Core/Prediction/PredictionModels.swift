@@ -39,6 +39,30 @@ struct PredictionGroup: Identifiable, Equatable {
     }
 }
 
+/// One mistake inside a similarity cluster (the "Усі" tab).
+struct ErrorClusterMember: Identifiable, Equatable {
+    let id: String
+    let source: String
+    let language: String
+    let count: Int
+    let target: String?
+    let observationIDs: [UUID]
+}
+
+/// A group of mistakes that are similar to each other (small edit distance) or
+/// that correct to the same word — surfaced so the user can see patterns across
+/// ALL their errors, not just the recurring ones.
+struct ErrorCluster: Identifiable, Equatable {
+    let id: String
+    let representative: String
+    let language: String
+    let members: [ErrorClusterMember]
+
+    var totalCount: Int { members.reduce(0) { $0 + $1.count } }
+    var isSingleton: Bool { members.count == 1 }
+    var observationIDs: [UUID] { members.flatMap(\.observationIDs) }
+}
+
 /// A just-found (typo → suggestion) pair for the live "scanner" feed. Identity
 /// is unique per emission so SwiftUI animates each insert/removal.
 struct FoundPair: Identifiable, Equatable {

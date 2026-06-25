@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Papuga · Усі помилки — Корзини рішень</title>
+<link rel="stylesheet" href="assets/shell.css">
+<style>
+  /* ---- prototype-specific: decision buckets ---- */
+  #tab { padding: 4px 0 14px; }
+
+  .bucket {
+    margin: 8px 16px;
+    background: var(--window-bg);
+    border: 0.5px solid var(--sep);
+    border-radius: var(--radius);
+    overflow: hidden;
+    position: relative;
+    transition: box-shadow .18s ease, opacity .2s ease;
+  }
+  .bucket:hover { box-shadow: 0 1px 4px rgba(0,0,0,0.05); }
+  /* thin left color bar by tone */
+  .bucket::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: var(--bar, var(--accent));
+  }
+  .bucket[data-tone="accent"] { --bar: var(--accent);  --tint: var(--accent-soft);  --deep: var(--accent-deep); }
+  .bucket[data-tone="amber"]  { --bar: var(--amber);   --tint: var(--amber-soft);   --deep: var(--amber); }
+  .bucket[data-tone="slate"]  { --bar: var(--slate);   --tint: var(--control-bg);   --deep: var(--slate); }
+  .bucket[data-tone="rose"]   { --bar: var(--rose);    --tint: var(--rose-soft);    --deep: var(--rose); }
+
+  /* header */
+  .bk-head {
+    display: flex; align-items: center; gap: 11px;
+    padding: 12px 14px 12px 16px;
+    cursor: pointer; user-select: none;
+  }
+  .bk-head:hover { background: var(--control-bg); }
+  .bk-chev {
+    flex: none; width: 14px; text-align: center; color: var(--text-3); font-size: 11px;
+    transition: transform .18s ease;
+  }
+  .bucket.open .bk-chev { transform: rotate(90deg); }
+  .bk-emoji { flex: none; font-size: 16px; line-height: 1; width: 18px; text-align: center; }
+  .bk-titles { min-width: 0; }
+  .bk-title { font-size: 14px; font-weight: 700; letter-spacing: -0.1px; }
+  .bk-hint  { font-size: 11.5px; color: var(--text-2); margin-top: 1px; }
+  .bk-count {
+    font-family: var(--rounded); font-weight: 800; font-size: 22px; letter-spacing: -0.5px;
+    color: var(--deep); font-variant-numeric: tabular-nums; line-height: 1;
+  }
+  .bk-count-l { font-size: 10px; color: var(--text-3); text-align: right; margin-top: 2px; }
+  .bk-count-wrap { text-align: right; flex: none; }
+  .bk-bulk { flex: none; }
+  /* tone the bulk button (default .accent is green; override per tone) */
+  .bucket[data-tone="amber"] .btn.accent  { background: var(--amber); }
+  .bucket[data-tone="slate"] .btn.accent  { background: var(--slate); }
+  .bucket[data-tone="rose"]  .btn.accent  { background: var(--rose); }
+
+  /* collapsible body */
+  .bk-body {
+    overflow: hidden;
+    max-height: 0; opacity: 0;
+    transition: max-height .22s ease, opacity .18s ease;
+    border-top: 0.5px solid transparent;
+  }
+  .bucket.open .bk-body { max-height: 1200px; opacity: 1; border-top-color: var(--sep-soft); }
+
+  /* compact sample rows */
+  .bk-row {
+    display: flex; align-items: center; gap: 9px;
+    padding: 7px 16px 7px 18px;
+    border-bottom: 0.5px solid var(--sep-soft);
+    transition: background .12s ease, opacity .18s ease, transform .18s ease;
+  }
+  .bk-row:last-child { border-bottom: 0; }
+  .bk-row:hover { background: var(--control-bg); }
+  .bk-row .grow { flex: 1; min-width: 0; }
+  .bk-row.removing { opacity: 0; transform: translateX(-10px); }
+  .bk-row .r-acts { display: flex; gap: 5px; opacity: 0; transition: opacity .12s ease; }
+  .bk-row:hover .r-acts { opacity: 1; }
+  .bk-src { font-family: var(--mono); font-size: 12.5px; }
+  .bk-recv { font-size: 12px; color: var(--text-2); }
+
+  .bk-more {
+    padding: 8px 16px 9px 18px; font-size: 12px; color: var(--text-2);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .bk-more .gripple { color: var(--text-3); }
+
+  /* inline confirm bar */
+  .bk-confirm {
+    display: flex; align-items: center; gap: 10px;
+    padding: 11px 14px 11px 16px;
+    background: var(--tint);
+    border-top: 0.5px solid var(--sep-soft);
+    font-size: 12.5px; color: var(--text);
+    animation: drop .16s ease;
+  }
+  @keyframes drop { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+  .bk-confirm b { font-family: var(--rounded); }
+
+  /* done state */
+  .bucket.done { opacity: 0.86; }
+  .bucket.done .bk-head { cursor: default; }
+  .bk-done {
+    display: flex; align-items: center; gap: 9px;
+    padding: 13px 14px 13px 16px;
+    font-size: 13px; color: var(--deep); font-weight: 600;
+  }
+  .bk-done .undo {
+    margin-left: auto; font-size: 12px; color: var(--text-2); font-weight: 500;
+    cursor: pointer; padding: 3px 8px; border-radius: 6px;
+  }
+  .bk-done .undo:hover { background: var(--control-bg); color: var(--text); }
+
+  .pulse { animation: pulse .9s ease; }
+  @keyframes pulse {
+    0%,100% { background: var(--window-bg); }
+    30%     { background: var(--tint); }
+  }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="window">
+    <!-- title bar -->
+    <div class="titlebar">
+      <div class="lights"><span class="light r"></span><span class="light y"></span><span class="light g"></span></div>
+      <span class="title">Papuga — Історія</span>
+      <span class="spacer"></span>
+    </div>
+
+    <!-- sidebar -->
+    <aside class="sidebar">
+      <div class="side-item"><span class="ico">◔</span> Огляд</div>
+      <div class="side-item"><span class="ico">↺</span> Історія замін</div>
+      <div class="side-item active"><span class="ico">⚠</span> Помилки введення</div>
+      <div class="side-item"><span class="ico">✦</span> Підказки</div>
+      <div class="side-sep"></div>
+      <div class="side-item"><span class="ico">📋</span> Буфер обміну</div>
+      <div class="side-item"><span class="ico">⚙</span> Налаштування</div>
+    </aside>
+
+    <!-- content -->
+    <section class="content">
+      <div class="screen-head">
+        <div style="display:flex;align-items:center;gap:14px;">
+          <div>
+            <div class="screen-title">Помилки введення</div>
+            <div class="screen-sub">Papuga фоном аналізує все, що ти друкуєш, і пропонує заміни.</div>
+          </div>
+          <span class="spacer"></span>
+          <div class="seg">
+            <button>Поради</button>
+            <button class="on">Усі помилки</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- usefulness counter (the "коефіцієнт користі") -->
+      <div class="benefit" style="--pct:27">
+        <div class="ring"><i>27%</i></div>
+        <div class="txt">
+          Papuga помітила <b>1046</b> помилок і вже <b>знешкодила 282</b>
+          <span class="muted">(82 правила + 200 у словнику)</span>.<br>
+          <span class="muted">Це ≈ <b>7.5 хв</b> ручних виправлень, які тобі не довелося робити.</span>
+        </div>
+      </div>
+
+      <!-- stats -->
+      <div class="stats">
+        <div class="stat"><span class="ico">●</span><div class="v">819</div><div class="l">Помилок</div></div>
+        <div class="stat"><span class="ico">↺</span><div class="v">47</div><div class="l">Повторюваних</div></div>
+        <div class="stat"><span class="ico">✦</span><div class="v">82</div><div class="l">Правил заміни</div></div>
+        <div class="stat"><span class="ico">📖</span><div class="v">200</div><div class="l">У словнику</div></div>
+      </div>
+
+      <main id="tab" class="scroll">
+        <!-- buckets injected here -->
+      </main>
+
+      <div class="foot-hint">
+        <span>Натисни корзину, щоб розгорнути</span>
+        <span class="spacer"></span>
+        <span><b id="decision-tally">819</b> помилок → <b>4</b> рішення</span>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script>
+(function () {
+  const D = window.PAPUGA_DEMO;
+  const tab = document.getElementById('tab');
+  const tally = document.getElementById('decision-tally');
+
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+  // running total of items still "open" across all buckets (drives the foot-hint tally)
+  let remainingTotal = D.buckets.reduce((s, b) => s + b.total, 0);
+  function paintTally() { tally.textContent = remainingTotal; }
+  paintTally();
+
+  // per-row receipt: typo -> struck source ⇒ target ; domain/rare/gibberish -> "no confident target"
+  function rowReceipt(e) {
+    if (e.target) {
+      return `<span class="receipt">
+                <span class="src struck">${esc(e.source)}</span>
+                <span class="arrow">→</span>
+                <span class="tgt">${esc(e.target)}</span>
+              </span>`;
+    }
+    if (e.kind === 'gibberish')
+      return `<span class="bk-recv dim">— обрізок / мойібейк</span>`;
+    return `<span class="bk-recv">— без впевненої заміни</span>`;
+  }
+
+  // per-row primary action reflects data reality
+  function rowActions(e, tone) {
+    if (e.kind === 'gibberish')
+      return `<button class="btn small ghost" data-act="hide">Сховати</button>`;
+    if (e.target)
+      return `<button class="btn small ghost" data-act="dict">Словник</button>
+              <button class="btn small accent" data-act="rule">Правило…</button>`;
+    // domain / rare with no target → dictionary is primary
+    return `<button class="btn small accent" data-act="dict">Словник</button>`;
+  }
+
+  function rowHTML(e, tone) {
+    return `<div class="bk-row" data-id="${esc(e.id)}">
+      <span class="bk-src">${esc(e.source)}</span>
+      <span class="lang">${esc(e.lang.toUpperCase())}</span>
+      <span class="count">×${e.count}</span>
+      <span class="grow">${rowReceipt(e)}</span>
+      <span class="app-tag">${esc(e.app)}</span>
+      <span class="r-acts">${rowActions(e, tone)}</span>
+    </div>`;
+  }
+
+  function bucketHTML(b, idx) {
+    const open = idx === 0; // first bucket expanded by default
+    const sample = b.sample || [];
+    const remainder = b.total - sample.length;
+    const moreLine = remainder > 0
+      ? `<div class="bk-more"><span class="gripple">⋮</span> … ще ${remainder.toLocaleString('uk')} (гортай)</div>`
+      : '';
+    return `<div class="bucket ${open ? 'open' : ''}" data-tone="${b.tone}" data-id="${b.id}" data-total="${b.total}">
+      <div class="bk-head" role="button" tabindex="0" aria-expanded="${open}">
+        <span class="bk-chev">▶</span>
+        <span class="bk-emoji">${b.icon}</span>
+        <span class="bk-titles">
+          <div class="bk-title">${esc(b.title)}</div>
+          <div class="bk-hint">${esc(b.hint)}</div>
+        </span>
+        <span class="spacer"></span>
+        <span class="bk-count-wrap">
+          <div class="bk-count" data-count>${b.total.toLocaleString('uk')}</div>
+          <div class="bk-count-l">помилок</div>
+        </span>
+        <span class="bk-bulk">
+          <button class="btn accent small" data-bulk>${esc(b.action)}</button>
+        </span>
+      </div>
+      <div class="bk-body">
+        <div class="bk-list">
+          ${sample.map(e => rowHTML(e, b.tone)).join('')}
+        </div>
+        ${moreLine}
+      </div>
+    </div>`;
+  }
+
+  tab.innerHTML = D.buckets.map(bucketHTML).join('');
+
+  // ---- map bulk action verb → confirm wording + done wording ----
+  function bulkWords(b) {
+    if (b.tone === 'rose')  return { verb: 'Сховати',  q: 'Сховати',  noun: 'незрозумілих', donePast: 'сховано' };
+    if (b.id === 'typo')    return { verb: 'Створити',  q: 'Створити правила для', noun: 'одрук', donePast: 'правил створено' };
+    return { verb: 'Зберегти', q: 'Зберегти', noun: 'слів у словник', donePast: 'збережено' };
+  }
+
+  // ---- expand / collapse ----
+  function toggle(bucketEl) {
+    if (bucketEl.classList.contains('done')) return;
+    const willOpen = !bucketEl.classList.contains('open');
+    bucketEl.classList.toggle('open', willOpen);
+    bucketEl.querySelector('.bk-head').setAttribute('aria-expanded', String(willOpen));
+  }
+
+  // ---- decrement header count + global tally ----
+  function decrement(bucketEl, n) {
+    n = n || 1;
+    const cntEl = bucketEl.querySelector('[data-count]');
+    let total = parseInt(bucketEl.dataset.total, 10) - n;
+    if (total < 0) total = 0;
+    bucketEl.dataset.total = total;
+    cntEl.textContent = total.toLocaleString('uk');
+    remainingTotal -= n;
+    if (remainingTotal < 0) remainingTotal = 0;
+    paintTally();
+  }
+
+  // ---- remove a single row ----
+  function removeRow(rowEl, bucketEl) {
+    rowEl.classList.add('removing');
+    decrement(bucketEl, 1);
+    setTimeout(() => {
+      rowEl.style.maxHeight = '0';
+      rowEl.remove();
+    }, 180);
+  }
+
+  // ---- bulk: inline confirm bar ----
+  function askBulk(bucketEl, b) {
+    const body = bucketEl.querySelector('.bk-body');
+    if (bucketEl.querySelector('.bk-confirm')) return; // already asking
+    bucketEl.classList.add('open');
+    const w = bulkWords(b);
+    const total = parseInt(bucketEl.dataset.total, 10);
+    const bar = document.createElement('div');
+    bar.className = 'bk-confirm';
+    bar.innerHTML = `
+      <span>${w.q} <b>${total.toLocaleString('uk')}</b> ${w.noun}?</span>
+      <span class="spacer"></span>
+      <button class="btn small accent" data-yes>Так</button>
+      <button class="btn small ghost" data-no>Скасувати</button>`;
+    body.appendChild(bar);
+    bar.querySelector('[data-yes]').onclick = ev => { ev.stopPropagation(); commitBulk(bucketEl, b); };
+    bar.querySelector('[data-no]').onclick  = ev => { ev.stopPropagation(); bar.remove(); };
+  }
+
+  // ---- bulk commit → collapse to done state ----
+  function commitBulk(bucketEl, b) {
+    const w = bulkWords(b);
+    const total = parseInt(bucketEl.dataset.total, 10);
+    decrement(bucketEl, total);            // zero out the count + global tally
+    bucketEl.classList.remove('open');
+    bucketEl.classList.add('done', 'pulse');
+
+    const head = bucketEl.querySelector('.bk-head');
+    const body = bucketEl.querySelector('.bk-body');
+    body.innerHTML = '';
+    // swap header internals for a done line
+    head.innerHTML = `<div class="bk-done">
+        <span class="bk-emoji">${b.icon}</span>
+        <span>✓ ${total.toLocaleString('uk')} ${w.donePast}</span>
+        <span class="undo" data-undo>↩︎ скасувати</span>
+      </div>`;
+    head.querySelector('[data-undo]').onclick = ev => { ev.stopPropagation(); undoBulk(bucketEl, b, total); };
+  }
+
+  // ---- undo a bulk decision → rebuild the bucket ----
+  function undoBulk(bucketEl, b, total) {
+    remainingTotal += total;
+    paintTally();
+    const idx = D.buckets.indexOf(b);
+    const wrap = document.createElement('div');
+    wrap.innerHTML = bucketHTML(b, idx);
+    const fresh = wrap.firstElementChild;
+    fresh.classList.remove('open'); // restore collapsed after undo
+    bucketEl.replaceWith(fresh);
+    wireBucket(fresh, b);
+  }
+
+  // ---- wire one bucket's listeners ----
+  function wireBucket(bucketEl, b) {
+    const head = bucketEl.querySelector('.bk-head');
+
+    head.addEventListener('click', e => {
+      if (e.target.closest('[data-bulk]') || e.target.closest('[data-undo]')) return;
+      toggle(bucketEl);
+    });
+    head.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(bucketEl); }
+    });
+
+    const bulkBtn = bucketEl.querySelector('[data-bulk]');
+    if (bulkBtn) bulkBtn.addEventListener('click', e => { e.stopPropagation(); askBulk(bucketEl, b); });
+
+    // per-row actions (event delegation on the list)
+    bucketEl.querySelector('.bk-body').addEventListener('click', e => {
+      const btn = e.target.closest('[data-act]');
+      if (!btn) return;
+      e.stopPropagation();
+      const rowEl = btn.closest('.bk-row');
+      removeRow(rowEl, bucketEl);
+    });
+  }
+
+  D.buckets.forEach((b, i) => {
+    const el = tab.querySelectorAll('.bucket')[i];
+    wireBucket(el, b);
+  });
+})();
+</script>
+</body>
+</html>

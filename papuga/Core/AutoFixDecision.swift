@@ -53,6 +53,28 @@ enum AutoFixDecision {
         return commonHits >= 2 && hasMeaningfulWord
     }
 
+    static func shouldSuggestSingleTokenLayoutMistake(
+        original: String,
+        candidate: String,
+        targetLanguage: String,
+        scoreCandidate: Double
+    ) -> Bool {
+        guard original.count >= 3,
+              candidate.count >= 3,
+              scoreCandidate >= 0.64,
+              isCrossScriptConversion(original: original, candidate: candidate)
+        else {
+            return false
+        }
+
+        let normalizedLanguage = targetLanguage.lowercased()
+        if normalizedLanguage == "uk" || normalizedLanguage == "ru" {
+            return containsCyrillicLetter(candidate) && !containsLatinLetter(candidate)
+        }
+
+        return containsLatinLetter(candidate) && !containsCyrillicLetter(candidate)
+    }
+
     static func isWordBoundary(keyCode: UInt16, typedString: String) -> Bool {
         // Only whitespace is a universal word boundary. Punctuation like ';' or ','
         // is layout-dependent: ';' on US is `ж` on Ukrainian-PC, ',' on US is `б`
@@ -212,7 +234,7 @@ enum AutoFixDecision {
         return hasLatin && !hasCyrillic
     }
 
-    private static func isCrossScriptConversion(original: String, candidate: String) -> Bool {
+    static func isCrossScriptConversion(original: String, candidate: String) -> Bool {
         let originalLatin = containsLatinLetter(original)
         let originalCyrillic = containsCyrillicLetter(original)
         let candidateLatin = containsLatinLetter(candidate)
@@ -222,13 +244,13 @@ enum AutoFixDecision {
             || (originalCyrillic && candidateLatin && !candidateCyrillic)
     }
 
-    private static func containsLatinLetter(_ text: String) -> Bool {
+    static func containsLatinLetter(_ text: String) -> Bool {
         text.unicodeScalars.contains { scalar in
             (65...90).contains(Int(scalar.value)) || (97...122).contains(Int(scalar.value))
         }
     }
 
-    private static func containsCyrillicLetter(_ text: String) -> Bool {
+    static func containsCyrillicLetter(_ text: String) -> Bool {
         text.unicodeScalars.contains { scalar in
             (0x0400...0x04FF).contains(Int(scalar.value))
         }

@@ -286,21 +286,21 @@ struct HistoryRowActions: View {
     var body: some View {
         HStack(spacing: 8) {
             Button(action: onIgnore) {
-                Label("Ігнорувати", systemImage: "hand.raised")
+                Label("Зберегти в словник", systemImage: "character.book.closed")
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
             .disabled(!canAct)
-            .help(disabledReason ?? "Додати слово в «не чіпати»")
+            .help(disabledReason ?? "Зберегти слово у словник (Papuga не чіпатиме його)")
 
             Button(action: onCreateRule) {
-                Label("Створити правило", systemImage: "wand.and.stars")
+                Label("Створити правило заміни", systemImage: "wand.and.stars")
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
             .tint(Color("BrandAccentDeep"))
             .disabled(!canAct)
-            .help(disabledReason ?? "Відкрити модалку створення правила")
+            .help(disabledReason ?? "Відкрити модалку створення правила заміни")
         }
     }
 }

@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Papuga · Усі помилки — За застосунком</title>
+<link rel="stylesheet" href="assets/shell.css">
+<style>
+  /* ===== prototype-specific layout (PROTOTYPE 4 · "За застосунком") ===== */
+
+  /* top axis switcher row */
+  .axis-bar { display:flex; align-items:center; gap:10px; padding:0 20px 10px; }
+  .axis-switch { position:relative; }
+  .axis-btn {
+    appearance:none; border:0.5px solid var(--sep); background:var(--window-bg);
+    border-radius:var(--radius-s); cursor:pointer; font:inherit; font-size:12px; font-weight:600;
+    color:var(--text); padding:5px 10px; display:inline-flex; align-items:center; gap:7px;
+  }
+  .axis-btn:hover { background:var(--control-bg); }
+  .axis-btn .caret { color:var(--text-3); font-size:9px; transition:transform .16s ease; }
+  .axis-switch.open .axis-btn .caret { transform:rotate(180deg); }
+  .axis-menu {
+    position:absolute; top:calc(100% + 5px); left:0; z-index:30; min-width:190px;
+    background:var(--window-bg); border:0.5px solid var(--sep); border-radius:var(--radius);
+    box-shadow:0 10px 30px -8px rgba(0,0,0,0.3); padding:4px; display:none;
+  }
+  .axis-switch.open .axis-menu { display:block; }
+  .axis-opt {
+    display:flex; align-items:center; gap:9px; padding:7px 9px; border-radius:var(--radius-s);
+    font-size:12.5px; color:var(--text); cursor:pointer;
+  }
+  .axis-opt:hover { background:var(--control-bg); }
+  .axis-opt .tick { width:14px; text-align:center; color:var(--accent-deep); font-weight:800; opacity:0; }
+  .axis-opt.on .tick { opacity:1; }
+  .axis-opt .sub { color:var(--text-3); font-size:11px; margin-left:auto; }
+
+  /* ===== top proportion bar ===== */
+  .propwrap { padding:2px 20px 14px; }
+  .propbar {
+    display:flex; height:30px; border-radius:8px; overflow:hidden;
+    border:0.5px solid var(--sep); background:var(--control-bg);
+  }
+  .propseg {
+    height:100%; display:flex; align-items:center; justify-content:center;
+    color:#fff; font-family:var(--rounded); font-weight:800; font-size:11.5px;
+    font-variant-numeric:tabular-nums; cursor:pointer; min-width:0; overflow:hidden;
+    transition:width .42s cubic-bezier(.34,.9,.3,1), filter .14s ease, opacity .3s ease;
+    box-shadow:inset -1px 0 0 rgba(255,255,255,0.18);
+    text-shadow:0 1px 1px rgba(0,0,0,0.18); white-space:nowrap;
+  }
+  .propseg:last-child { box-shadow:none; }
+  .propseg:hover { filter:brightness(1.08); }
+  .propseg.dimmed { opacity:0.34; }
+  .propseg.active { box-shadow:inset 0 0 0 2px rgba(255,255,255,0.55); }
+  .propseg.zero { width:0 !important; }
+  .propcap { font-size:12px; color:var(--text-2); line-height:1.5; margin-top:9px; }
+  .propcap b { font-family:var(--rounded); color:var(--text); }
+  .legend { display:flex; flex-wrap:wrap; gap:6px 14px; margin-top:9px; }
+  .legitem {
+    display:inline-flex; align-items:center; gap:6px; font-size:11.5px; color:var(--text-2);
+    cursor:pointer; user-select:none; padding:1px 0;
+  }
+  .legitem:hover { color:var(--text); }
+  .legitem.off { opacity:0.4; text-decoration:line-through; text-decoration-color:var(--text-3); }
+  .legdot { width:9px; height:9px; border-radius:3px; flex:none; box-shadow:0 0 0 0.5px rgba(0,0,0,0.06); }
+  .legitem .n { font-family:var(--rounded); font-weight:700; color:var(--text-3); font-variant-numeric:tabular-nums; }
+
+  /* ===== app group (disclosure) ===== */
+  .groups { padding:2px 0 6px; }
+  .agroup { border-bottom:0.5px solid var(--sep-soft); }
+  .agroup.removed { display:none; }
+  .ahead {
+    display:flex; align-items:center; gap:11px; padding:9px 20px; cursor:pointer; user-select:none;
+    transition:background .12s ease;
+  }
+  .ahead:hover { background:var(--control-bg); }
+  .ahead .tw { color:var(--text-3); font-size:10px; width:10px; transition:transform .18s ease; flex:none; }
+  .agroup.open .ahead .tw { transform:rotate(90deg); }
+  .glyph {
+    width:30px; height:30px; border-radius:8px; flex:none; display:grid; place-items:center;
+    font-family:var(--rounded); font-weight:800; font-size:15px; color:#fff;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,0.25), 0 1px 2px rgba(0,0,0,0.14);
+  }
+  .anames { display:flex; flex-direction:column; min-width:0; }
+  .aname { font-size:13px; font-weight:700; letter-spacing:-0.1px; }
+  .asub { font-size:11px; color:var(--text-2); margin-top:-1px; }
+
+  /* mini proportion sparkline inside header */
+  .mini { display:flex; height:6px; width:88px; border-radius:4px; overflow:hidden; background:var(--control-bg); flex:none; }
+  .mini i { height:100%; display:block; }
+  .mini .typo  { background:var(--amber); }
+  .mini .domain{ background:var(--accent); }
+  .mini .gib   { background:var(--rose); }
+
+  .acount { font-family:var(--rounded); font-weight:800; font-size:14px; color:var(--accent-deep);
+    font-variant-numeric:tabular-nums; min-width:34px; text-align:right; }
+  .aopen-count { font-size:10.5px; color:var(--text-3); font-weight:600; }
+
+  /* body of a group */
+  .abody { overflow:hidden; transition:height .2s ease; }
+  .abody-inner { padding:2px 0 8px; }
+  .abody .row { padding-left:48px; }
+  .abody .row:hover { background:var(--zebra); }
+  .abody .empty { padding:10px 48px 14px; font-size:12px; color:var(--text-3); }
+
+  /* row internals */
+  .row .grow { display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
+  .kind-dot { width:7px; height:7px; border-radius:50%; flex:none; }
+  .kind-dot.typo  { background:var(--amber); }
+  .kind-dot.domain{ background:var(--accent); }
+  .kind-dot.gibberish { background:var(--rose); }
+  .meta { font-size:11px; color:var(--text-3); }
+
+  /* row removal animation */
+  .row.leaving {
+    animation:rowleave .28s cubic-bezier(.4,0,.2,1) forwards;
+    overflow:hidden; pointer-events:none;
+  }
+  @keyframes rowleave {
+    to { opacity:0; height:0; padding-top:0; padding-bottom:0; transform:translateX(14px); }
+  }
+
+  /* the curtain / undo affordance after acting */
+  .doneline {
+    display:flex; align-items:center; gap:10px; padding:6px 20px 6px 48px;
+    font-size:11.5px; color:var(--accent-deep); background:var(--accent-soft);
+    animation:donein .18s ease;
+  }
+  @keyframes donein { from { opacity:0; transform:translateY(-3px); } to { opacity:1; transform:none; } }
+  .doneline .undo {
+    margin-left:auto; appearance:none; border:0; background:transparent; cursor:pointer;
+    font:inherit; font-size:11.5px; font-weight:700; color:var(--accent-deep); padding:2px 6px; border-radius:5px;
+  }
+  .doneline .undo:hover { background:rgba(31,175,92,0.12); }
+
+  /* group-level done banner */
+  .agroup.cleared .ahead { opacity:0.55; }
+  .clearbanner {
+    display:flex; align-items:center; gap:10px; padding:9px 20px; font-size:12px;
+    color:var(--accent-deep); background:var(--accent-soft); border-top:0.5px solid var(--accent-border);
+  }
+  .clearbanner .undo {
+    margin-left:auto; appearance:none; border:0.5px solid var(--accent-border); background:var(--window-bg);
+    cursor:pointer; font:inherit; font-size:11.5px; font-weight:700; color:var(--accent-deep);
+    padding:3px 10px; border-radius:6px;
+  }
+  .clearbanner .undo:hover { background:var(--control-bg); }
+
+  /* primary row action coloring */
+  .btn.mk { color:var(--accent-deep); border-color:var(--accent-border); }
+  .btn.mk:hover { background:var(--accent-soft); }
+  .btn.dict { color:var(--text-2); }
+  .btn.hide { color:var(--rose); }
+
+  .row .actions { gap:5px; }
+  .row .actions .btn { white-space:nowrap; }
+
+  /* fade for the empty-everything state */
+  .allclear { padding:30px 20px; text-align:center; color:var(--text-2); font-size:13px; }
+  .allclear .big { font-family:var(--rounded); font-weight:800; font-size:34px; color:var(--accent-deep); }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="window">
+    <!-- title bar -->
+    <div class="titlebar">
+      <div class="lights"><span class="light r"></span><span class="light y"></span><span class="light g"></span></div>
+      <span class="title">Papuga — Історія</span>
+      <span class="spacer"></span>
+    </div>
+
+    <!-- sidebar -->
+    <aside class="sidebar">
+      <div class="side-item"><span class="ico">◔</span> Огляд</div>
+      <div class="side-item"><span class="ico">↺</span> Історія замін</div>
+      <div class="side-item active"><span class="ico">⚠</span> Помилки введення</div>
+      <div class="side-item"><span class="ico">✦</span> Підказки</div>
+      <div class="side-sep"></div>
+      <div class="side-item"><span class="ico">📋</span> Буфер обміну</div>
+      <div class="side-item"><span class="ico">⚙</span> Налаштування</div>
+    </aside>
+
+    <!-- content -->
+    <section class="content">
+      <div class="screen-head">
+        <div style="display:flex;align-items:center;gap:14px;">
+          <div>
+            <div class="screen-title">Помилки введення</div>
+            <div class="screen-sub">Papuga фоном аналізує все, що ти друкуєш, і пропонує заміни.</div>
+          </div>
+          <span class="spacer"></span>
+          <div class="seg">
+            <button>Поради</button>
+            <button class="on">Усі помилки</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- usefulness counter (the "коефіцієнт користі") -->
+      <div class="benefit" style="--pct:27">
+        <div class="ring"><i>27%</i></div>
+        <div class="txt">
+          Papuga помітила <b>1046</b> помилок і вже <b>знешкодила 282</b>
+          <span class="muted">(82 правила + 200 у словнику)</span>.<br>
+          <span class="muted">Це ≈ <b>7.5 хв</b> ручних виправлень, які тобі не довелося робити.</span>
+        </div>
+      </div>
+
+      <!-- stats -->
+      <div class="stats">
+        <div class="stat"><span class="ico">●</span><div class="v">819</div><div class="l">Помилок</div></div>
+        <div class="stat"><span class="ico">↺</span><div class="v">47</div><div class="l">Повторюваних</div></div>
+        <div class="stat"><span class="ico">✦</span><div class="v">82</div><div class="l">Правил заміни</div></div>
+        <div class="stat"><span class="ico">📖</span><div class="v">200</div><div class="l">У словнику</div></div>
+      </div>
+
+      <!-- ===== TAB CONTENT (#tab) — PROTOTYPE 4 "За застосунком" ===== -->
+      <main id="tab" class="scroll">
+
+        <!-- axis switcher: hints other grouping axes exist -->
+        <div class="axis-bar">
+          <span class="section-label">Групувати</span>
+          <div class="axis-switch" id="axisSwitch">
+            <button class="axis-btn" id="axisBtn">
+              <span id="axisLabel">за застосунком</span><span class="caret">▾</span>
+            </button>
+            <div class="axis-menu">
+              <div class="axis-opt on" data-axis="app"><span class="tick">✓</span> за застосунком <span class="sub">де друкуєш</span></div>
+              <div class="axis-opt" data-axis="lang"><span class="tick">✓</span> за мовою <span class="sub">uk / en</span></div>
+              <div class="axis-opt" data-axis="kind"><span class="tick">✓</span> за типом <span class="sub">одрук / слово</span></div>
+            </div>
+          </div>
+          <span class="spacer"></span>
+          <button class="btn ghost small" id="expandAll">Розгорнути все</button>
+          <button class="btn ghost small" id="collapseAll">Згорнути все</button>
+        </div>
+
+        <!-- top stacked proportion bar -->
+        <div class="propwrap">
+          <div class="propbar" id="propBar"></div>
+          <div class="propcap" id="propCap">
+            Найбільше помилок там, де ти найбільше друкуєш — у <b>Codex</b> та <b>Cursor</b>.
+          </div>
+          <div class="legend" id="legend"></div>
+        </div>
+
+        <!-- app groups -->
+        <div class="groups" id="groups"></div>
+
+      </main>
+
+      <div class="foot-hint">
+        <span><span class="kbd">▸</span> розгорнути застосунок</span>
+        <span><span class="kbd">⏎</span> правило</span>
+        <span><span class="kbd">⌫</span> сховати</span>
+        <span class="spacer"></span>
+        <span id="footTotal" class="muted"></span>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script>
+(function () {
+  const DEMO = window.PAPUGA_DEMO;
+
+  // brand-tinted palette for the 6 apps (green family + supporting brand signals)
+  const APP_COLOR = {
+    Codex:    '#178C4A',  // accent-deep
+    Cursor:   '#1FAF5C',  // accent
+    Telegram: '#3FB87B',  // mid green
+    Teams:    '#E8910C',  // amber
+    Terminal: '#6B7280',  // slate
+    Notes:    '#9AC6A8',  // pale green
+  };
+
+  // ---- working model: clone byApp so we can mutate counts as items are acted on ----
+  // We keep a "headline total" (true open count incl. long tail) and the visible sample items.
+  const model = DEMO.byApp.map(a => ({
+    name: a.name,
+    glyph: a.glyph,
+    sub: a.sub,
+    total: a.total,                                   // live headline (depletes on bulk)
+    baseTotal: a.total,
+    items: a.items.map(e => ({ ...e })),              // live visible rows
+    visible: true,
+    legendOff: false,
+  }));
+
+  // ---- DOM refs ----
+  const propBar  = document.getElementById('propBar');
+  const propCap  = document.getElementById('propCap');
+  const legendEl = document.getElementById('legend');
+  const groupsEl = document.getElementById('groups');
+  const footTotal= document.getElementById('footTotal');
+
+  // ===== top proportion bar + legend =====
+  function liveAppTotal(a) {
+    // headline reflects all open; when items removed individually, decrement headline too
+    return Math.max(0, a.total);
+  }
+  function grandTotal() {
+    return model.reduce((s, a) => s + (a.visible ? a.total : 0), 0);
+  }
+
+  function renderBar() {
+    const total = model.reduce((s, a) => s + a.total, 0) || 1;
+    propBar.innerHTML = '';
+    legendEl.innerHTML = '';
+    model.forEach(a => {
+      const pct = (a.total / total) * 100;
+      const seg = document.createElement('div');
+      seg.className = 'propseg' + (a.total === 0 ? ' zero' : '');
+      seg.style.width = pct + '%';
+      seg.style.background = APP_COLOR[a.name];
+      seg.dataset.app = a.name;
+      // label only if there is room
+      seg.textContent = pct >= 7 ? a.total : '';
+      seg.title = a.name + ' · ' + a.total + ' помилок';
+      seg.addEventListener('mouseenter', () => highlightApp(a.name, true));
+      seg.addEventListener('mouseleave', () => highlightApp(a.name, false));
+      seg.addEventListener('click', () => scrollToApp(a.name));
+      propBar.appendChild(seg);
+
+      // legend
+      const li = document.createElement('div');
+      li.className = 'legitem' + (a.total === 0 ? ' off' : '');
+      li.innerHTML = '<span class="legdot" style="background:' + APP_COLOR[a.name] + '"></span>' +
+                     a.name + ' <span class="n">' + a.total + '</span>';
+      li.addEventListener('click', () => scrollToApp(a.name));
+      li.addEventListener('mouseenter', () => highlightApp(a.name, true));
+      li.addEventListener('mouseleave', () => highlightApp(a.name, false));
+      legendEl.appendChild(li);
+    });
+    footTotal.textContent = grandTotal() + ' відкритих помилок · ' + model.filter(a=>a.total>0).length + ' застосунків';
+  }
+
+  function highlightApp(name, on) {
+    propBar.querySelectorAll('.propseg').forEach(s => {
+      if (s.dataset.app === name) s.classList.toggle('active', on);
+      else s.classList.toggle('dimmed', on);
+    });
+  }
+
+  function scrollToApp(name) {
+    const g = groupsEl.querySelector('.agroup[data-app="' + name + '"]');
+    if (!g) return;
+    if (!g.classList.contains('open')) toggleGroup(g, true);
+    g.scrollIntoView({ behavior:'smooth', block:'nearest' });
+    g.querySelector('.ahead').animate(
+      [{ background:'var(--accent-soft)' }, { background:'transparent' }],
+      { duration:700, easing:'ease-out' }
+    );
+  }
+
+  // ===== app groups =====
+  function kindMix(items) {
+    const m = { typo:0, domain:0, gibberish:0 };
+    items.forEach(e => { m[e.kind] = (m[e.kind]||0) + e.count; });
+    return m;
+  }
+
+  function rowPrimary(e) {
+    // data reality: target -> rule; domain -> dictionary; gibberish -> hide
+    if (e.kind === 'gibberish') return { label:'Сховати', cls:'hide', done:'↩︎ приховано' };
+    if (e.target)               return { label:'Створити ›', cls:'mk', done:'✓ правило створено' };
+    return { label:'Словник', cls:'dict', done:'✓ у словнику' };
+  }
+
+  function rowHTML(e) {
+    const tgt = e.target
+      ? '<span class="src struck">' + e.source + '</span> <span class="arrow">→</span> <span class="tgt">' + e.target + '</span>'
+      : '<span class="src">' + e.source + '</span>';
+    const p = rowPrimary(e);
+    return '' +
+      '<div class="row" data-id="' + e.id + '" data-app="' + e.app + '">' +
+        '<span class="kind-dot ' + e.kind + '"></span>' +
+        '<div class="grow">' +
+          tgt +
+          '<span class="lang">' + e.lang.toUpperCase() + '</span>' +
+          '<span class="count">×' + e.count + '</span>' +
+          '<span class="meta">' + e.last + '</span>' +
+        '</div>' +
+        '<div class="actions">' +
+          '<button class="btn small ' + p.cls + '" data-act="primary">' + p.label + '</button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function bodyHTML(a) {
+    if (!a.items.length) {
+      return '<div class="abody-inner"><div class="empty">Решта ' + a.total +
+             ' помилок — у довгому хвості (рідкісні, по одному разу).</div></div>';
+    }
+    return '<div class="abody-inner">' + a.items.map(rowHTML).join('') + '</div>';
+  }
+
+  function groupHTML(a, openDefault) {
+    const mix = kindMix(a.items);
+    const sum = (mix.typo + mix.domain + mix.gibberish) || 1;
+    const mini =
+      '<span class="mini">' +
+        '<i class="typo"  style="width:' + (mix.typo/sum*100)   + '%"></i>' +
+        '<i class="domain" style="width:' + (mix.domain/sum*100) + '%"></i>' +
+        '<i class="gib"   style="width:' + (mix.gibberish/sum*100)+ '%"></i>' +
+      '</span>';
+    return '' +
+      '<div class="agroup' + (openDefault ? ' open' : '') + '" data-app="' + a.name + '">' +
+        '<div class="ahead">' +
+          '<span class="tw">▶</span>' +
+          '<span class="glyph" style="background:' + APP_COLOR[a.name] + '">' + a.glyph + '</span>' +
+          '<span class="anames">' +
+            '<span class="aname">' + a.name + '</span>' +
+            '<span class="asub">' + a.sub + ' · <span class="aopen-count">' + a.items.length + ' видно</span></span>' +
+          '</span>' +
+          mini +
+          '<span class="spacer"></span>' +
+          '<span class="acount">' + a.total + '</span>' +
+          '<button class="btn small dict" data-act="bulk">Усі в словник</button>' +
+        '</div>' +
+        '<div class="abody" style="height:' + (openDefault ? 'auto' : '0') + '">' +
+          bodyHTML(a) +
+        '</div>' +
+      '</div>';
+  }
+
+  function renderGroups() {
+    // sorted by total desc; Codex open by default
+    const sorted = model.filter(a => a.visible).slice().sort((x, y) => y.total - x.total);
+    groupsEl.innerHTML = sorted.map(a => groupHTML(a, a.name === 'Codex')).join('');
+    // set natural heights for open groups
+    groupsEl.querySelectorAll('.agroup.open .abody').forEach(b => { b.style.height = 'auto'; });
+    if (!model.some(a => a.visible && a.total > 0)) renderAllClear();
+  }
+
+  function renderAllClear() {
+    groupsEl.innerHTML =
+      '<div class="allclear"><div class="big">✓</div>' +
+      'Усі помилки розібрані по застосунках. Чисто.<br>' +
+      '<span class="muted">Papuga продовжить ловити нові у фоні.</span></div>';
+  }
+
+  // ---- expand / collapse with height animation ----
+  function toggleGroup(g, forceOpen) {
+    const body = g.querySelector('.abody');
+    const willOpen = forceOpen !== undefined ? forceOpen : !g.classList.contains('open');
+    if (willOpen === g.classList.contains('open')) return;
+    if (willOpen) {
+      g.classList.add('open');
+      const h = body.querySelector('.abody-inner').offsetHeight;
+      body.style.height = '0px';
+      requestAnimationFrame(() => { body.style.height = h + 'px'; });
+      body.addEventListener('transitionend', function te() {
+        body.style.height = 'auto'; body.removeEventListener('transitionend', te);
+      });
+    } else {
+      const h = body.querySelector('.abody-inner').offsetHeight;
+      body.style.height = h + 'px';
+      requestAnimationFrame(() => { body.style.height = '0px'; });
+      g.classList.remove('open');
+    }
+  }
+
+  // ===== actions =====
+  function appByName(name) { return model.find(a => a.name === name); }
+
+  function actRow(rowEl, undoStack) {
+    const id = rowEl.dataset.id;
+    const a = appByName(rowEl.dataset.app);
+    const e = a.items.find(x => x.id === id);
+    if (!e) return;
+    const p = rowPrimary(e);
+
+    // remove from model, decrement headline by this item's occurrence count (so the bar depletes)
+    a.items = a.items.filter(x => x.id !== id);
+    a.total = Math.max(0, a.total - e.count);
+
+    // animate the row out, then drop in a small "done + undo" line
+    rowEl.classList.add('leaving');
+    rowEl.addEventListener('animationend', () => {
+      const done = document.createElement('div');
+      done.className = 'doneline';
+      done.innerHTML = '<span>' + p.done + ' · <b style="font-family:var(--mono)">' + e.source + '</b></span>' +
+                       '<button class="undo">↩︎ скасувати</button>';
+      rowEl.replaceWith(done);
+      // refresh header count + mini + bar
+      syncGroupHeader(a);
+      renderBar();
+      done.querySelector('.undo').addEventListener('click', () => {
+        // restore
+        a.items.push(e);
+        a.items.sort((x, y) => y.count - x.count);
+        a.total += e.count;
+        const fresh = document.createElement('div');
+        const tmp = document.createElement('div'); tmp.innerHTML = rowHTML(e);
+        fresh.replaceWith; // noop
+        done.replaceWith(tmp.firstElementChild);
+        syncGroupHeader(a);
+        renderBar();
+        // recalc open group height
+        const g = groupsEl.querySelector('.agroup[data-app="' + a.name + '"]');
+        if (g && g.classList.contains('open')) g.querySelector('.abody').style.height = 'auto';
+      });
+      // clean up the done line shortly (curtain fades, list stays depleted)
+      setTimeout(() => {
+        if (done.isConnected) {
+          done.style.transition = 'opacity .3s ease, height .3s ease, padding .3s ease';
+          done.style.overflow = 'hidden';
+          done.style.height = done.offsetHeight + 'px';
+          requestAnimationFrame(() => {
+            done.style.opacity = '0'; done.style.height = '0';
+            done.style.paddingTop = '0'; done.style.paddingBottom = '0';
+          });
+          setTimeout(() => { if (done.isConnected) done.remove(); checkEmptyGroup(a); }, 320);
+        }
+      }, 2600);
+    }, { once:true });
+  }
+
+  function syncGroupHeader(a) {
+    const g = groupsEl.querySelector('.agroup[data-app="' + a.name + '"]');
+    if (!g) return;
+    g.querySelector('.acount').textContent = a.total;
+    g.querySelector('.aopen-count').textContent = a.items.length + ' видно';
+    // refresh mini bar
+    const mix = kindMix(a.items);
+    const sum = (mix.typo + mix.domain + mix.gibberish) || 1;
+    const mini = g.querySelector('.mini');
+    if (mini) {
+      mini.querySelector('.typo').style.width   = (mix.typo/sum*100) + '%';
+      mini.querySelector('.domain').style.width = (mix.domain/sum*100) + '%';
+      mini.querySelector('.gib').style.width    = (mix.gibberish/sum*100) + '%';
+    }
+  }
+
+  function checkEmptyGroup(a) {
+    const g = groupsEl.querySelector('.agroup[data-app="' + a.name + '"]');
+    if (!g) return;
+    if (a.items.length === 0 && g.classList.contains('open')) {
+      const inner = g.querySelector('.abody-inner');
+      if (inner && !inner.querySelector('.row') && !inner.querySelector('.doneline') && !inner.querySelector('.empty')) {
+        inner.innerHTML = '<div class="empty">Решта ' + a.total +
+          ' помилок — у довгому хвості (рідкісні).</div>';
+        const body = g.querySelector('.abody');
+        if (body.style.height !== 'auto') body.style.height = 'auto';
+      }
+    }
+  }
+
+  function bulkApp(g) {
+    const a = appByName(g.dataset.app);
+    if (!a) return;
+    const before = a.total;
+    const had = a.items.length;
+    // act everything: send domain/typo to their homes, clear headline
+    a.items = [];
+    a.total = 0;
+    // body collapses into a clear banner with undo
+    const body = g.querySelector('.abody');
+    g.classList.add('cleared');
+    body.querySelector('.abody-inner').innerHTML = '';
+    body.style.height = 'auto';
+    body.querySelector('.abody-inner').innerHTML =
+      '<div class="clearbanner">✓ Усі помилки <b>' + a.name + '</b> (' + before + ') розібрані — ' +
+      'слова в словник, одруки в правила.' +
+      '<button class="undo">↩︎ скасувати</button></div>';
+    syncGroupHeader(a);
+    renderBar();
+
+    body.querySelector('.undo').addEventListener('click', () => {
+      a.total = before;
+      // restore the visible sample from the original dataset
+      a.items = DEMO.byApp.find(x => x.name === a.name).items.map(e => ({ ...e }));
+      g.classList.remove('cleared');
+      body.querySelector('.abody-inner').innerHTML = a.items.map(rowHTML).join('');
+      body.style.height = 'auto';
+      syncGroupHeader(a);
+      renderBar();
+    });
+  }
+
+  // ===== event wiring (delegation) =====
+  groupsEl.addEventListener('click', (ev) => {
+    const head = ev.target.closest('.ahead');
+    const bulkBtn = ev.target.closest('[data-act="bulk"]');
+    const primBtn = ev.target.closest('[data-act="primary"]');
+
+    if (bulkBtn) {
+      ev.stopPropagation();
+      bulkApp(bulkBtn.closest('.agroup'));
+      return;
+    }
+    if (primBtn) {
+      ev.stopPropagation();
+      actRow(primBtn.closest('.row'));
+      return;
+    }
+    if (head) {
+      toggleGroup(head.closest('.agroup'));
+    }
+  });
+
+  // expand / collapse all
+  document.getElementById('expandAll').addEventListener('click', () => {
+    groupsEl.querySelectorAll('.agroup').forEach(g => toggleGroup(g, true));
+  });
+  document.getElementById('collapseAll').addEventListener('click', () => {
+    groupsEl.querySelectorAll('.agroup').forEach(g => toggleGroup(g, false));
+  });
+
+  // ===== axis switcher (hints other grouping axes; "за застосунком" is the live one) =====
+  const axisSwitch = document.getElementById('axisSwitch');
+  const axisLabel  = document.getElementById('axisLabel');
+  document.getElementById('axisBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    axisSwitch.classList.toggle('open');
+  });
+  document.addEventListener('click', () => axisSwitch.classList.remove('open'));
+  axisSwitch.querySelectorAll('.axis-opt').forEach(opt => {
+    opt.addEventListener('click', (e) => {
+      e.stopPropagation();
+      axisSwitch.querySelectorAll('.axis-opt').forEach(o => o.classList.remove('on'));
+      opt.classList.add('on');
+      const axis = opt.dataset.axis;
+      axisLabel.textContent = opt.firstChild.nextSibling ? opt.textContent.trim().split('  ')[0].replace('✓','').trim() : 'за застосунком';
+      axisLabel.textContent = { app:'за застосунком', lang:'за мовою', kind:'за типом' }[axis];
+      axisSwitch.classList.remove('open');
+      if (axis === 'app') {
+        propCap.innerHTML = 'Найбільше помилок там, де ти найбільше друкуєш — у <b>Codex</b> та <b>Cursor</b>.';
+        renderGroups();
+      } else {
+        // other axes are hinted, not fully built — show a gentle note, keep app data
+        propCap.innerHTML = (axis === 'lang')
+          ? 'За мовою: майже все українською (<b>uk</b>), трохи англійською. <span class="muted">(демо-вісь — основна тут «за застосунком»)</span>'
+          : 'За типом: твої слова → словник, одруки → правила, сміття → сховати. <span class="muted">(демо-вісь — основна тут «за застосунком»)</span>';
+      }
+    });
+  });
+
+  // ===== keyboard: ▸ / ◂ expand-collapse focused group; type-ahead disabled =====
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'ArrowRight' || ev.key === 'ArrowLeft') {
+      const g = document.activeElement.closest && document.activeElement.closest('.agroup');
+      if (g) { toggleGroup(g, ev.key === 'ArrowRight'); ev.preventDefault(); }
+    }
+  });
+  // make headers focusable for keyboard demoing
+  function makeFocusable() {
+    groupsEl.querySelectorAll('.ahead').forEach(h => { h.tabIndex = 0; });
+  }
+
+  // ===== init =====
+  renderBar();
+  renderGroups();
+  makeFocusable();
+  // re-make focusable after any group re-render
+  const obs = new MutationObserver(makeFocusable);
+  obs.observe(groupsEl, { childList:true });
+})();
+</script>
+</body>
+</html>

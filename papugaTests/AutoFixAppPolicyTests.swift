@@ -23,6 +23,17 @@ final class AutoFixAppPolicyTests: XCTestCase {
         )
     }
 
+    func test_openai_apps_default_to_suggest_only() {
+        XCTAssertEqual(
+            AutoFixAppPolicyResolver.defaultPolicy(for: "com.openai.codex"),
+            .suggestOnly
+        )
+        XCTAssertEqual(
+            AutoFixAppPolicyResolver.defaultPolicy(for: "com.openai.chat"),
+            .suggestOnly
+        )
+    }
+
     func test_terminal_apps_default_to_disabled() {
         XCTAssertEqual(
             AutoFixAppPolicyResolver.defaultPolicy(for: "com.apple.Terminal"),

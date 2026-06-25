@@ -56,6 +56,8 @@ enum AutoFixAppPolicyResolver {
     }
 
     private static let suggestOnlyBundleIDs: Set<String> = [
+        "com.openai.codex",
+        "com.openai.chat",
         "com.microsoft.vscode",
         "com.microsoft.vscodeinsiders",
         "com.visualstudio.code.oss",

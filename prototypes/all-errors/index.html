@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Papuga · Помилки введення — прототипи групування</title>
+<link rel="stylesheet" href="assets/shell.css">
+<style>
+  html, body { height: 100%; }
+  .switch { display: grid; grid-template-rows: auto 1fr; height: 100vh; }
+  .bar {
+    display: flex; align-items: center; gap: 14px; padding: 12px 20px;
+    background: rgba(255,255,255,0.7); backdrop-filter: saturate(1.4) blur(20px);
+    border-bottom: 0.5px solid var(--sep);
+  }
+  @media (prefers-color-scheme: dark){ .bar{ background: rgba(28,28,30,0.7);} }
+  .bar .brand { font-weight: 800; font-size: 15px; letter-spacing: -0.2px; display:flex; gap:8px; align-items:center;}
+  .bar .brand .dot { width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);}
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+  .tab {
+    appearance: none; border: 0.5px solid var(--sep); background: var(--window-bg);
+    border-radius: 999px; padding: 6px 14px; font: inherit; font-size: 12.5px; font-weight: 600;
+    color: var(--text-2); cursor: pointer; display: flex; align-items: center; gap: 7px;
+  }
+  .tab .n { font-family: var(--rounded); font-weight: 800; color: var(--text-3); }
+  .tab.on { background: var(--accent-deep); color: #fff; border-color: transparent; }
+  .tab.on .n { color: rgba(255,255,255,0.7); }
+  .tab small { font-weight: 500; opacity: 0.7; }
+  .bar .grow { flex: 1; }
+  .open-link { font-size: 12px; color: var(--accent-deep); text-decoration: none; font-weight: 600; }
+
+  .body { display: grid; grid-template-columns: 1fr; min-height: 0; }
+  .frame-wrap { position: relative; overflow: auto; background:
+      radial-gradient(1200px 600px at 20% -10%, #d9eee2 0%, transparent 60%), #e6e6ea; }
+  @media (prefers-color-scheme: dark){ .frame-wrap{ background: radial-gradient(1200px 600px at 20% -10%, #11231a 0%, transparent 60%), #0e0e10;} }
+  iframe { width: 100%; height: 100%; border: 0; display: block; }
+
+  .desc {
+    position: absolute; left: 50%; transform: translateX(-50%); bottom: 16px;
+    background: rgba(255,255,255,0.85); backdrop-filter: blur(18px) saturate(1.4);
+    border: 0.5px solid var(--sep); border-radius: 12px; padding: 10px 16px;
+    font-size: 12.5px; color: var(--text-2); max-width: 760px; box-shadow: 0 8px 24px -8px rgba(0,0,0,0.25);
+    display: flex; gap: 10px; align-items: baseline;
+  }
+  @media (prefers-color-scheme: dark){ .desc{ background: rgba(28,28,30,0.85);} }
+  .desc b { color: var(--text); }
+  .desc .axis { color: var(--accent-deep); font-weight: 700; white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="switch">
+  <div class="bar">
+    <div class="brand"><span class="dot"></span> Papuga · «Усі помилки» — варіанти</div>
+    <div class="tabs" id="tabs"></div>
+    <span class="grow"></span>
+    <a class="open-link" id="openNew" href="inbox.html" target="_blank">Відкрити окремо ↗</a>
+  </div>
+  <div class="body">
+    <div class="frame-wrap">
+      <iframe id="frame" src="inbox.html"></iframe>
+      <div class="desc"><span class="axis" id="axis"></span><span id="descText"></span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const PROTOS = [
+  { f:'inbox.html',    t:'Інбокс',        axis:'групує: ніяк (плаский + фільтри)',
+    d:'Один список за частотою. 94% твоїх помилок — поодинокі, тож замість груп — фільтр-чипи (мова · лише з ціллю · поодинокі) і масовий вибір. <b>Рекомендований.</b>' },
+  { f:'buckets.html',  t:'Корзини',       axis:'групує: за дієздатністю',
+    d:'~4 корзини: твій сленг → у словник, ймовірні одруки → правила, рідкісні, незрозумілі. 800 пунктів = ~4 рішення однією дією на групу.' },
+  { f:'families.html', t:'Родини',        axis:'групує: за схожістю',
+    d:'Схожі описки збираються в родини (edit-distance + спільна ціль): «первірку/перевріку/превірку → перевірку» — 3 правила одним кліком. Поодинокі — спокійним списком.' },
+  { f:'by-app.html',   t:'За застосунком', axis:'групує: за місцем (де)',
+    d:'Де ти найбільше помиляєшся: Codex 265 · Cursor 192 · Telegram 94 … Смуга пропорцій + групи по застосунках з масовими діями.' },
+  { f:'queue.html',    t:'Черга',         axis:'групує: по одній (потік)',
+    d:'По одній помилці на екран: велика картка, інлайн-заміна, 3 кнопки, повна клавіатура, прогрес «12/240». Швидкий потоковий розбір.' },
+];
+const tabs = document.getElementById('tabs');
+const frame = document.getElementById('frame');
+const axis = document.getElementById('axis');
+const descText = document.getElementById('descText');
+const openNew = document.getElementById('openNew');
+let active = 0;
+function select(i){
+  active = i;
+  frame.src = PROTOS[i].f;
+  openNew.href = PROTOS[i].f;
+  axis.textContent = PROTOS[i].axis;
+  descText.innerHTML = PROTOS[i].d;
+  [...tabs.children].forEach((el,j)=>el.classList.toggle('on', j===i));
+}
+PROTOS.forEach((p,i)=>{
+  const b = document.createElement('button');
+  b.className = 'tab';
+  b.innerHTML = `<span class="n">${i+1}</span> ${p.t}`;
+  b.onclick = ()=>select(i);
+  tabs.appendChild(b);
+});
+select(0);
+// number keys 1-5 switch
+window.addEventListener('keydown', e=>{
+  const n = parseInt(e.key,10);
+  if(n>=1 && n<=PROTOS.length) select(n-1);
+});
+</script>
+</body>
+</html>

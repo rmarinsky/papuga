@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Papuga · Усі помилки — Список-інбокс</title>
+<link rel="stylesheet" href="assets/shell.css">
+<style>
+  /* ===== prototype-only layout bits (inbox) ===== */
+
+  /* sort control */
+  .sort {
+    display: inline-flex; align-items: center; gap: 4px; cursor: pointer; user-select: none;
+    font-size: 12px; font-weight: 600; color: var(--text-2);
+    background: var(--control-bg); border: 0.5px solid transparent; border-radius: var(--radius-s);
+    padding: 5px 9px;
+  }
+  .sort:hover { background: var(--control-bg-h); }
+  .sort .caret { font-size: 9px; opacity: 0.7; }
+
+  /* bulk bar */
+  .bulkbar {
+    display: flex; align-items: center; gap: 10px;
+    margin: 0 20px 10px; padding: 8px 12px;
+    background: var(--accent-soft); border: 0.5px solid var(--accent-border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    max-height: 0; opacity: 0; margin-bottom: 0; padding-top: 0; padding-bottom: 0;
+    transition: max-height .18s ease, opacity .18s ease, margin .18s ease, padding .18s ease;
+  }
+  .bulkbar.show { max-height: 56px; opacity: 1; margin-bottom: 10px; padding-top: 8px; padding-bottom: 8px; }
+  .bulkbar .sel { font-size: 12.5px; color: var(--accent-deep); font-weight: 600; }
+  .bulkbar .sel b { font-family: var(--rounded); }
+  .bulkbar .arrow-sep { color: var(--accent-deep); font-weight: 800; opacity: 0.55; }
+
+  /* list head (count headline above the rows) */
+  .list-head {
+    display: flex; align-items: baseline; gap: 8px;
+    padding: 2px 20px 8px;
+  }
+  .list-head .h { font-size: 13px; font-weight: 700; }
+  .list-head .h b { font-family: var(--rounded); color: var(--accent-deep); }
+  .list-head .sub { font-size: 11.5px; color: var(--text-3); }
+
+  /* row tuning specific to the inbox layout */
+  #list .row { padding-top: 9px; padding-bottom: 9px; }
+  #list .row.focus { box-shadow: inset 2px 0 0 var(--accent), inset 0 0 0 1px var(--accent-border); background: var(--control-bg); }
+  #list .row .last { font-size: 10.5px; color: var(--text-3); font-family: var(--rounded); white-space: nowrap; }
+  #list .row .no-tgt { white-space: nowrap; }
+  #list .row .receipt .tgt { white-space: nowrap; }
+
+  /* kind dot before src */
+  .kdot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .kdot.typo { background: var(--amber); }
+  .kdot.domain { background: var(--accent); }
+  .kdot.gibberish { background: var(--rose); }
+
+  /* "+N схожих" badge */
+  .fam-badge {
+    font-size: 10px; font-weight: 700; color: var(--accent-deep);
+    background: var(--accent-soft); border: 0.5px solid var(--accent-border);
+    border-radius: 999px; padding: 1px 7px; cursor: pointer; white-space: nowrap;
+    font-family: var(--rounded);
+  }
+  .fam-badge:hover { background: #fff; }
+
+  /* inline primary action: visible-but-quiet, strengthens on hover */
+  #list .row .prim {
+    transition: opacity .14s ease, transform .14s ease, background .12s ease, color .12s ease;
+    opacity: 0.55;
+  }
+  #list .row:hover .prim,
+  #list .row.focus .prim { opacity: 1; }
+  #list .row:hover .prim.accent,
+  #list .row.focus .prim.accent { background: var(--accent-deep); color: #fff; border-color: transparent; }
+
+  /* depleting animation */
+  #list .row.leaving {
+    overflow: hidden;
+    animation: rowleave .26s ease forwards;
+  }
+  @keyframes rowleave {
+    to { max-height: 0; padding-top: 0; padding-bottom: 0; opacity: 0; transform: translateX(8px); border-bottom-color: transparent; }
+  }
+  #list .row { max-height: 64px; }
+
+  /* per-row toast */
+  .toast {
+    position: absolute; right: 18px;
+    display: inline-flex; align-items: center; gap: 9px;
+    background: var(--text); color: var(--window-bg);
+    font-size: 11.5px; font-weight: 600;
+    border-radius: 999px; padding: 5px 12px;
+    box-shadow: 0 6px 18px -6px rgba(0,0,0,0.4);
+    z-index: 20; opacity: 0; transform: translateY(4px);
+    transition: opacity .16s ease, transform .16s ease;
+    pointer-events: auto;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast .undo { color: #66e2a0; cursor: pointer; font-weight: 700; }
+  .toast .undo:hover { text-decoration: underline; }
+  @media (prefers-color-scheme: dark) { .toast { color: #1b1b1c; } }
+
+  /* empty state */
+  .empty { text-align: center; color: var(--text-3); font-size: 13px; padding: 60px 20px; }
+  .empty .big { font-size: 30px; margin-bottom: 8px; opacity: 0.6; }
+
+  /* relative-position host for toasts */
+  #tab { position: relative; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="window">
+    <!-- title bar -->
+    <div class="titlebar">
+      <div class="lights"><span class="light r"></span><span class="light y"></span><span class="light g"></span></div>
+      <span class="title">Papuga — Історія</span>
+      <span class="spacer"></span>
+    </div>
+
+    <!-- sidebar -->
+    <aside class="sidebar">
+      <div class="side-item"><span class="ico">◔</span> Огляд</div>
+      <div class="side-item"><span class="ico">↺</span> Історія замін</div>
+      <div class="side-item active"><span class="ico">⚠</span> Помилки введення</div>
+      <div class="side-item"><span class="ico">✦</span> Підказки</div>
+      <div class="side-sep"></div>
+      <div class="side-item"><span class="ico">📋</span> Буфер обміну</div>
+      <div class="side-item"><span class="ico">⚙</span> Налаштування</div>
+    </aside>
+
+    <!-- content -->
+    <section class="content">
+      <div class="screen-head">
+        <div style="display:flex;align-items:center;gap:14px;">
+          <div>
+            <div class="screen-title">Помилки введення</div>
+            <div class="screen-sub">Papuga фоном аналізує все, що ти друкуєш, і пропонує заміни.</div>
+          </div>
+          <span class="spacer"></span>
+          <div class="seg">
+            <button>Поради</button>
+            <button class="on">Усі помилки</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- usefulness counter (the "коефіцієнт користі") -->
+      <div class="benefit" style="--pct:27">
+        <div class="ring"><i>27%</i></div>
+        <div class="txt">
+          Papuga помітила <b>1046</b> помилок і вже <b>знешкодила 282</b>
+          <span class="muted">(82 правила + 200 у словнику)</span>.<br>
+          <span class="muted">Це ≈ <b>7.5 хв</b> ручних виправлень, які тобі не довелося робити.</span>
+        </div>
+      </div>
+
+      <!-- stats -->
+      <div class="stats">
+        <div class="stat"><span class="ico">●</span><div class="v">819</div><div class="l">Помилок</div></div>
+        <div class="stat"><span class="ico">↺</span><div class="v">47</div><div class="l">Повторюваних</div></div>
+        <div class="stat"><span class="ico">✦</span><div class="v">82</div><div class="l">Правил заміни</div></div>
+        <div class="stat"><span class="ico">📖</span><div class="v">200</div><div class="l">У словнику</div></div>
+      </div>
+
+      <!-- ====================================================== -->
+      <main id="tab" class="scroll">
+
+        <!-- toolbar: search · sort · filter chips -->
+        <div class="toolbar">
+          <label class="search">
+            <span>⌕</span>
+            <input id="search" type="text" placeholder="Пошук слова…" autocomplete="off" spellcheck="false">
+          </label>
+          <div class="sort" id="sort" title="Перемкнути сортування">
+            <span id="sortLabel">Частіші</span><span class="caret">▾</span>
+          </div>
+          <span class="spacer"></span>
+          <div class="filter-chip on" data-filter="uk"><span class="dot"></span>Українська</div>
+          <div class="filter-chip" data-filter="en">English</div>
+          <div class="filter-chip" data-filter="hastarget">лише з ціллю</div>
+          <div class="filter-chip" data-filter="singles">поодинокі</div>
+        </div>
+
+        <!-- bulk bar (hidden until ≥1 selected) -->
+        <div class="bulkbar" id="bulkbar">
+          <span class="sel">вибрано <b id="selCount">0</b></span>
+          <span class="arrow-sep">→</span>
+          <button class="btn accent small" id="bulkRules">Створити правила (<span id="kCount">0</span>)</button>
+          <button class="btn small" id="bulkDict">У словник</button>
+          <button class="btn small" id="bulkHide">Сховати</button>
+          <span class="spacer"></span>
+          <button class="icon-btn" id="bulkClear" title="Зняти виділення">✕</button>
+        </div>
+
+        <!-- list headline -->
+        <div class="list-head">
+          <span class="h">Усі <b id="headCount">0</b></span>
+          <span class="sub" id="headSub">відсортовано за частотою</span>
+        </div>
+
+        <!-- the flat list -->
+        <div id="list"></div>
+
+      </main>
+
+      <div class="foot-hint">
+        <span><span class="kbd">↑↓</span> навігація</span>
+        <span><span class="kbd">Space</span> вибрати</span>
+        <span><span class="kbd">⏎</span> дія</span>
+        <span><span class="kbd">⌫</span> сховати</span>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script src="assets/data.js"></script>
+<script>
+(function () {
+  const D = window.PAPUGA_DEMO;
+
+  // ---- working model: copy of errors so acting can remove them ----
+  let items = D.errors.map(e => ({ ...e }));
+
+  // count of similar items sharing a family (for the "+N схожих" badge)
+  const famCounts = {};
+  D.errors.forEach(e => { if (e.fam) famCounts[e.fam] = (famCounts[e.fam] || 0) + 1; });
+  // representative row per family = the highest-count member; badge shows the OTHERS
+  const famRep = {};
+  Object.keys(famCounts).forEach(fam => {
+    const members = D.errors.filter(e => e.fam === fam);
+    members.sort((a, b) => b.count - a.count);
+    famRep[fam] = members[0].id;
+  });
+
+  // numeric weight for "newest" sort
+  const lastWeight = { 'сьогодні': 0, 'вчора': 1, '2 дні': 2, '3 дні': 3, '4 дні': 4, 'тиждень': 7 };
+
+  // ---- ui state ----
+  const state = {
+    search: '',
+    sort: 'count',                 // 'count' | 'recent'
+    filters: { uk: true, en: false, hastarget: false, singles: false },
+    selected: new Set(),           // ids
+    focusId: null,
+  };
+
+  const els = {
+    list: document.getElementById('list'),
+    search: document.getElementById('search'),
+    sort: document.getElementById('sort'),
+    sortLabel: document.getElementById('sortLabel'),
+    bulkbar: document.getElementById('bulkbar'),
+    selCount: document.getElementById('selCount'),
+    kCount: document.getElementById('kCount'),
+    headCount: document.getElementById('headCount'),
+    headSub: document.getElementById('headSub'),
+    bulkClear: document.getElementById('bulkClear'),
+    bulkRules: document.getElementById('bulkRules'),
+    bulkDict: document.getElementById('bulkDict'),
+    bulkHide: document.getElementById('bulkHide'),
+    tab: document.getElementById('tab'),
+  };
+
+  // ---- helpers ----
+  function primaryKind(e) {
+    // returns {label, type} for the per-row primary action
+    if (e.kind === 'gibberish') return { label: 'Сховати', type: 'hide', accent: false };
+    if (e.target)               return { label: 'Створити ›', type: 'rule', accent: true };
+    return { label: 'Словник', type: 'dict', accent: false };
+  }
+
+  function langLabel(l) { return l === 'uk' ? 'UK' : 'EN'; }
+
+  function matches(e) {
+    const f = state.filters;
+    // language chips: if neither on, show all langs; otherwise OR of the on-langs
+    const langOn = (f.uk || f.en);
+    if (langOn) {
+      if (e.lang === 'uk' && !f.uk) return false;
+      if (e.lang === 'en' && !f.en) return false;
+    }
+    if (f.hastarget && !e.target) return false;
+    if (f.singles && e.count !== 1) return false;
+    if (state.search) {
+      const q = state.search.toLowerCase();
+      const hay = (e.source + ' ' + (e.target || '')).toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  }
+
+  function visibleItems() {
+    let v = items.filter(matches);
+    if (state.sort === 'count') {
+      v.sort((a, b) => b.count - a.count || (lastWeight[a.last] - lastWeight[b.last]));
+    } else {
+      v.sort((a, b) => (lastWeight[a.last] - lastWeight[b.last]) || b.count - a.count);
+    }
+    return v;
+  }
+
+  // ---- render ----
+  function render() {
+    const v = visibleItems();
+    els.headCount.textContent = v.length;
+    els.headSub.textContent = state.sort === 'count' ? 'відсортовано за частотою' : 'відсортовано за новизною';
+
+    // prune selection / focus to what's visible
+    const visIds = new Set(v.map(e => e.id));
+    [...state.selected].forEach(id => { if (!visIds.has(id)) state.selected.delete(id); });
+    if (state.focusId && !visIds.has(state.focusId)) state.focusId = null;
+
+    els.list.innerHTML = '';
+    if (v.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.innerHTML = '<div class="big">✓</div>Тут порожньо — за цим фільтром помилок немає.';
+      els.list.appendChild(empty);
+      updateBulk();
+      return;
+    }
+
+    v.forEach((e, i) => els.list.appendChild(rowEl(e, i)));
+    updateBulk();
+  }
+
+  function rowEl(e, i) {
+    const row = document.createElement('div');
+    row.className = 'row' + (i % 2 ? ' zebra' : '');
+    if (state.focusId === e.id) row.classList.add('focus');
+    row.dataset.id = e.id;
+
+    const pk = primaryKind(e);
+    const isSel = state.selected.has(e.id);
+
+    // checkbox
+    const cb = document.createElement('span');
+    cb.className = 'checkbox' + (isSel ? ' on' : '');
+    cb.innerHTML = isSel ? '✓' : '';
+    cb.title = 'Вибрати';
+    cb.addEventListener('click', (ev) => { ev.stopPropagation(); toggleSelect(e.id); });
+    row.appendChild(cb);
+
+    // kind dot
+    const dot = document.createElement('span');
+    dot.className = 'kdot ' + e.kind;
+    dot.title = e.kind === 'typo' ? 'ймовірна одрука' : e.kind === 'domain' ? 'схоже на твоє слово' : 'незрозуміле';
+    row.appendChild(dot);
+
+    // source word
+    const src = document.createElement('span');
+    src.className = 'src' + (e.target ? ' struck' : '');
+    src.textContent = e.source;
+    row.appendChild(src);
+
+    // lang badge
+    const lang = document.createElement('span');
+    lang.className = 'lang';
+    lang.textContent = langLabel(e.lang);
+    row.appendChild(lang);
+
+    // count
+    const cnt = document.createElement('span');
+    cnt.className = 'count';
+    cnt.textContent = e.count + '×';
+    row.appendChild(cnt);
+
+    // receipt (→ target) OR — нема цілі
+    if (e.target) {
+      const rec = document.createElement('span');
+      rec.className = 'receipt';
+      rec.innerHTML = '<span class="arrow">→</span><span class="tgt">' + e.target + '</span>';
+      row.appendChild(rec);
+    } else {
+      const nt = document.createElement('span');
+      nt.className = 'no-tgt';
+      nt.textContent = '— нема цілі';
+      row.appendChild(nt);
+    }
+
+    // "+N схожих" badge on the representative family row
+    if (e.fam && famRep[e.fam] === e.id && famCounts[e.fam] > 1) {
+      const badge = document.createElement('span');
+      badge.className = 'fam-badge';
+      badge.textContent = '+' + (famCounts[e.fam] - 1) + ' схожих';
+      badge.title = 'Згорнуто схожі написання — діятимуть разом';
+      badge.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        // select the whole family for a bulk action
+        items.filter(x => x.fam === e.fam).forEach(x => state.selected.add(x.id));
+        render();
+      });
+      row.appendChild(badge);
+    }
+
+    // spacer
+    const sp = document.createElement('span');
+    sp.className = 'spacer';
+    row.appendChild(sp);
+
+    // last-seen
+    const last = document.createElement('span');
+    last.className = 'last';
+    last.textContent = e.last;
+    row.appendChild(last);
+
+    // inline primary action
+    const prim = document.createElement('button');
+    prim.className = 'btn small prim' + (pk.accent ? ' accent' : '');
+    prim.textContent = pk.label;
+    prim.title = pk.type === 'rule' ? 'Створити правило заміни'
+               : pk.type === 'dict' ? 'Зберегти в словник (це твоє слово)'
+               : 'Сховати — користі нема';
+    prim.addEventListener('click', (ev) => { ev.stopPropagation(); actOn(e.id, pk.type); });
+    row.appendChild(prim);
+
+    // overflow ⋯
+    const more = document.createElement('button');
+    more.className = 'icon-btn';
+    more.textContent = '⋯';
+    more.title = 'Більше';
+    more.addEventListener('click', (ev) => { ev.stopPropagation(); actOn(e.id, pk.type); });
+    row.appendChild(more);
+
+    // clicking the row body sets focus
+    row.addEventListener('click', () => { state.focusId = e.id; refreshFocus(); });
+
+    return row;
+  }
+
+  function refreshFocus() {
+    els.list.querySelectorAll('.row').forEach(r => {
+      r.classList.toggle('focus', r.dataset.id === state.focusId);
+    });
+  }
+
+  // ---- selection / bulk bar ----
+  function toggleSelect(id) {
+    if (state.selected.has(id)) state.selected.delete(id);
+    else state.selected.add(id);
+    state.focusId = id;
+    render();
+  }
+
+  function updateBulk() {
+    const n = state.selected.size;
+    els.selCount.textContent = n;
+    // K = selected rows that have a target (rule-eligible)
+    let k = 0;
+    state.selected.forEach(id => {
+      const e = items.find(x => x.id === id);
+      if (e && e.target) k++;
+    });
+    els.kCount.textContent = k;
+    els.bulkbar.classList.toggle('show', n > 0);
+  }
+
+  // ---- acting on items (depletes the list) ----
+  const labelFor = { rule: '✓ правило створено', dict: '✓ у словнику', hide: '✓ сховано' };
+
+  function actOn(id, type) {
+    const rowEl = els.list.querySelector('.row[data-id="' + id + '"]');
+    const e = items.find(x => x.id === id);
+    if (!rowEl || !e) return;
+
+    // toast anchored to the row, with undo
+    spawnToast(rowEl, labelFor[type] || '✓ готово', () => {
+      // undo: do nothing destructive yet happened (we remove after animation),
+      // so cancel by re-rendering with the item still present.
+      undone = true;
+      clearTimeout(removeTimer);
+      rowEl.classList.remove('leaving');
+    });
+
+    let undone = false;
+    rowEl.classList.add('leaving');
+
+    const removeTimer = setTimeout(() => {
+      if (undone) return;
+      // commit removal
+      items = items.filter(x => x.id !== id);
+      state.selected.delete(id);
+      if (state.focusId === id) state.focusId = null;
+      render();
+    }, 1900);
+
+    // also pre-empt: if animation done and not undone, the timer commits.
+  }
+
+  function spawnToast(rowEl, text, onUndo) {
+    const t = document.createElement('div');
+    t.className = 'toast';
+    t.innerHTML = '<span>' + text + '</span><span class="undo">↩︎ скасувати</span>';
+    // position near the row, inside #tab
+    const tabRect = els.tab.getBoundingClientRect();
+    const rowRect = rowEl.getBoundingClientRect();
+    t.style.top = (rowRect.top - tabRect.top + els.tab.scrollTop + 4) + 'px';
+    els.tab.appendChild(t);
+    requestAnimationFrame(() => t.classList.add('show'));
+
+    let dead = false;
+    t.querySelector('.undo').addEventListener('click', () => {
+      if (dead) return; dead = true;
+      onUndo();
+      dismissToast(t);
+    });
+    setTimeout(() => { if (!dead) { dead = true; dismissToast(t); } }, 2000);
+  }
+
+  function dismissToast(t) {
+    t.classList.remove('show');
+    setTimeout(() => t.remove(), 200);
+  }
+
+  // ---- bulk actions ----
+  function bulkAct(type) {
+    const ids = [...state.selected];
+    ids.forEach((id, idx) => {
+      const e = items.find(x => x.id === id);
+      if (!e) return;
+      // for "rules" only act on items with a target; others stay (will still be selectable)
+      if (type === 'rule' && !e.target) return;
+      // remove with a tiny stagger so it reads as a sweep
+      setTimeout(() => {
+        items = items.filter(x => x.id !== id);
+        state.selected.delete(id);
+        render();
+      }, idx * 45);
+    });
+    // toast on the bulk bar
+    spawnBulkToast(type, ids.length);
+  }
+
+  function spawnBulkToast(type, n) {
+    const map = { rule: 'правил створено', dict: 'збережено в словник', hide: 'сховано' };
+    const t = document.createElement('div');
+    t.className = 'toast show';
+    t.style.position = 'static';
+    t.style.margin = '0 20px 10px';
+    t.innerHTML = '<span>✓ ' + n + ' ' + map[type] + '</span>';
+    els.bulkbar.after(t);
+    setTimeout(() => dismissToast(t), 2000);
+  }
+
+  // ---- wire events ----
+  els.search.addEventListener('input', () => { state.search = els.search.value.trim(); render(); });
+
+  els.sort.addEventListener('click', () => {
+    state.sort = state.sort === 'count' ? 'recent' : 'count';
+    els.sortLabel.textContent = state.sort === 'count' ? 'Частіші' : 'Найновіші';
+    render();
+  });
+
+  document.querySelectorAll('.filter-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const f = chip.dataset.filter;
+      state.filters[f] = !state.filters[f];
+      chip.classList.toggle('on', state.filters[f]);
+      render();
+    });
+  });
+
+  els.bulkClear.addEventListener('click', () => { state.selected.clear(); render(); });
+  els.bulkRules.addEventListener('click', () => bulkAct('rule'));
+  els.bulkDict.addEventListener('click', () => bulkAct('dict'));
+  els.bulkHide.addEventListener('click', () => bulkAct('hide'));
+
+  // ---- keyboard navigation ----
+  document.addEventListener('keydown', (ev) => {
+    // ignore typing in the search box (except Escape to blur)
+    if (document.activeElement === els.search) {
+      if (ev.key === 'Escape') els.search.blur();
+      return;
+    }
+    const v = visibleItems();
+    if (v.length === 0) return;
+    let idx = v.findIndex(e => e.id === state.focusId);
+
+    if (ev.key === 'ArrowDown') {
+      ev.preventDefault();
+      idx = idx < 0 ? 0 : Math.min(idx + 1, v.length - 1);
+      state.focusId = v[idx].id; refreshFocus(); scrollFocusIntoView();
+    } else if (ev.key === 'ArrowUp') {
+      ev.preventDefault();
+      idx = idx < 0 ? 0 : Math.max(idx - 1, 0);
+      state.focusId = v[idx].id; refreshFocus(); scrollFocusIntoView();
+    } else if (ev.key === ' ' || ev.code === 'Space') {
+      ev.preventDefault();
+      if (state.focusId) toggleSelect(state.focusId);
+    } else if (ev.key === 'Enter') {
+      ev.preventDefault();
+      if (state.focusId) {
+        const e = items.find(x => x.id === state.focusId);
+        if (e) { const next = nextFocusAfter(v, idx); actOn(e.id, primaryKind(e).type); queueFocus(next); }
+      }
+    } else if (ev.key === 'Backspace') {
+      ev.preventDefault();
+      if (state.focusId) {
+        const e = items.find(x => x.id === state.focusId);
+        if (e) { const next = nextFocusAfter(v, idx); actOn(e.id, 'hide'); queueFocus(next); }
+      }
+    }
+  });
+
+  function nextFocusAfter(v, idx) {
+    if (idx < 0) return null;
+    return v[idx + 1] ? v[idx + 1].id : (v[idx - 1] ? v[idx - 1].id : null);
+  }
+  function queueFocus(id) {
+    // apply after the act's re-render (which clears focus)
+    setTimeout(() => { state.focusId = id; refreshFocus(); }, 1950);
+  }
+
+  function scrollFocusIntoView() {
+    const r = els.list.querySelector('.row.focus');
+    if (r) r.scrollIntoView({ block: 'nearest' });
+  }
+
+  // ---- go ----
+  render();
+})();
+</script>
+</body>
+</html>

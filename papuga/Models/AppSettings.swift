@@ -134,6 +134,10 @@ extension Defaults.Keys {
     static let autoFixEnabled = Key<Bool>("autoFixEnabled", default: true)
     static let autoFixAlgorithm = Key<String>("autoFixAlgorithm", default: LanguageScorerAlgorithm.appleNL.rawValue)
     static let autoFixThreshold = Key<Double>("autoFixThreshold", default: 0.3)
+    /// Minimum gap between the top two candidate layouts' scores before we trust the winner. When
+    /// two layouts (e.g. Ukrainian vs Russian) score within this margin the direction is ambiguous,
+    /// so we surface a proposal instead of silently auto-applying a guess. 0 = always pick the top.
+    static let autoFixCandidateSeparation = Key<Double>("autoFixCandidateSeparation", default: 0.15)
     static let autoFixMinWordLength = Key<Int>("autoFixMinWordLength", default: 3)
     static let autoFixUndoWindow = Key<Double>("autoFixUndoWindow", default: 1.5)
     static let autoFixBlocklist = Key<[String]>("autoFixBlocklist", default: [])
@@ -148,7 +152,7 @@ extension Defaults.Keys {
     static let autoFixAppPolicyOverrides = Key<[String: String]>("autoFixAppPolicyOverrides", default: [:])
     static let autoFixLayoutSwitchPolicy = Key<String>(
         "autoFixLayoutSwitchPolicy",
-        default: AutoFixLayoutSwitchPolicy.adaptive.rawValue
+        default: AutoFixLayoutSwitchPolicy.alwaysSwitchToReplacementLayout.rawValue
     )
 
     static let replacementHistoryEnabled = Key<Bool>("replacementHistoryEnabled", default: true)
@@ -165,6 +169,11 @@ extension Defaults.Keys {
     static let mistakeObservationRetention = Key<String>(
         "mistakeObservationRetention",
         default: MistakeObservationRetention.oneMonth.rawValue
+    )
+    /// Chosen grouping format for the "Усі помилки" browser (MistakesGroupingMode raw value).
+    static let mistakesGroupingMode = Key<String>(
+        "mistakesGroupingMode",
+        default: MistakesGroupingMode.byApp.rawValue
     )
 }
 

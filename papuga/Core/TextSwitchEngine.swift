@@ -23,11 +23,6 @@ final class TextSwitchEngine {
             AppLogger.warn(logger, "[\(operationID)] Aborted: service is disabled")
             return
         }
-        guard clipboardManager.hasSelectedTextInFocusedElement() else {
-            AppLogger.warn(logger, "[\(operationID)] Aborted: no selected text in focused element")
-            return
-        }
-
         let historyManager = clipboardHistoryManager
         historyManager?.suspendTracking(reason: "textSwitch:\(operationID)")
         AppLogger.action(logger, "[\(operationID)] Saving clipboard state")
@@ -47,9 +42,9 @@ final class TextSwitchEngine {
             let text = await getTextWithRetry(previousChangeCount: changeCountBefore, operationID: operationID)
 
             guard let text, !text.isEmpty else {
-                AppLogger.warn(logger, "[\(operationID)] Aborted: copied text is empty")
+                AppLogger.warn(logger, "[\(operationID)] Aborted: copied text is unavailable or empty")
                 clipboardManager.restore(savedState)
-                AppLogger.post(logger, "[\(operationID)] Clipboard restored after empty text")
+                AppLogger.post(logger, "[\(operationID)] Clipboard restored after failed text capture")
                 return
             }
             AppLogger.post(logger, "[\(operationID)] Text captured (\(text.count) chars)")
@@ -136,10 +131,8 @@ final class TextSwitchEngine {
                 try? await Task.sleep(for: .seconds(Constants.clipboardRetryInterval))
             }
         }
-        AppLogger.warn(logger, "[\(operationID)] Clipboard did not change after retries, reading current value")
-        let fallbackText = clipboardManager.getText()
-        AppLogger.post(logger, "[\(operationID)] getTextWithRetry completed with fallback value")
-        return fallbackText
+        AppLogger.warn(logger, "[\(operationID)] Clipboard did not change after retries; copy likely failed or no text is selected")
+        return nil
     }
 
     private func updateAnalytics(text: String, operationID: String) {
