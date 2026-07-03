@@ -118,6 +118,10 @@ extension Defaults.Keys {
     static let savedSecondsToday = Key<Int>("savedSecondsToday", default: 0)
     static let dailyStatsHistory = Key<[PapugaDailyStats]>("dailyStatsHistory", default: [])
     static let dailyStatsHistoryMigrated = Key<Bool>("dailyStatsHistoryMigrated", default: false)
+    /// User's measured typing speed (net WPM) from the typing-speed test. `0`
+    /// means "not measured yet" — the time-saved estimate falls back to
+    /// `Constants.defaultTypingWordsPerMinute`.
+    static let measuredTypingWPM = Key<Double>("measuredTypingWPM", default: 0)
     static let clipboardHistoryRetention = Key<String>(
         "clipboardHistoryRetention",
         default: ClipboardHistoryRetentionPreset.oneDay.rawValue

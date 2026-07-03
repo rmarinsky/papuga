@@ -94,6 +94,13 @@ final class ReplacementHistoryStore {
         }
     }
 
+    /// Synchronously reads and decodes every entry straight from disk, bypassing
+    /// the in-memory cache. Used by the analytics recovery backfill at launch,
+    /// which may run before `bootstrap()` has populated `entries`.
+    func loadEntriesSync() -> [ReplacementHistoryEntry] {
+        loadEntriesFromDisk()
+    }
+
     func entries(filter kind: ReplacementHistoryEntry.Kind? = nil, since: Date? = nil) -> [ReplacementHistoryEntry] {
         entries.filter { entry in
             if let kind, entry.kind != kind { return false }

@@ -45,7 +45,7 @@ enum PapugaStatsAggregator {
             Defaults[.dailyStatsHistoryMigrated] = true
             return
         }
-        let legacySeconds = Int((Double(legacyWords) * Constants.estimatedManualReplacementSecondsPerWord).rounded())
+        let legacySeconds = Constants.estimatedSecondsSaved(replacementCount: legacyCount, totalWords: legacyWords)
         let today = PapugaDailyStats.dayString()
         var history = Defaults[.dailyStatsHistory]
         if let idx = history.firstIndex(where: { $0.day == today }) {
@@ -63,6 +63,59 @@ enum PapugaStatsAggregator {
         history.sort { $0.day < $1.day }
         Defaults[.dailyStatsHistory] = history
         Defaults[.dailyStatsHistoryMigrated] = true
+    }
+
+    /// Recovery safety net. The analytics hero number lives in
+    /// `dailyStatsHistory` (UserDefaults), which — unlike AppCat's `stats.json`
+    /// or Diduny's on-the-fly recompute — is NOT rebuildable from anything
+    /// durable. A lost or swapped preferences plist (reinstall, bundle-ID change
+    /// dev↔release, sandbox-container migration, prefs reset) silently zeroes the
+    /// "зекономлено" total even though every replacement is still on disk in
+    /// `replacement-history.jsonl`. When the daily history is empty but the
+    /// replacement log survives, rebuild the per-day stats from it so the number
+    /// recovers instead of resetting to zero. Mirrors AppCat's
+    /// `StatsManager.backfillIfNeeded()`.
+    ///
+    /// Empty-only by design: it never overwrites a non-empty history, so it can't
+    /// fight an intentional reset, and it can't be tripped by `jsonl` retention
+    /// pruning (default 1 month) clobbering the 365-day analytics window.
+    static func rebuildDailyStatsFromHistoryIfNeeded(using store: ReplacementHistoryStore = .shared) {
+        guard Defaults[.dailyStatsHistory].isEmpty else { return }
+        let rebuilt = dailyStats(from: store.loadEntriesSync())
+        guard !rebuilt.isEmpty else { return }
+        Defaults[.dailyStatsHistory] = rebuilt
+        // The jsonl already reflects real lifetime activity, so mark the legacy
+        // counter migration done to avoid double-counting it into today.
+        Defaults[.dailyStatsHistoryMigrated] = true
+    }
+
+    /// Aggregates raw replacement-log entries into per-day totals, netting out
+    /// undone auto-fixes exactly as the live counters do (`reverseReplacement`
+    /// subtracts the same word count that the apply added). Word counts come from
+    /// the stored `converted` text; entries truncated at 80 chars slightly
+    /// undercount, which keeps the recovered number conservative.
+    static func dailyStats(from entries: [ReplacementHistoryEntry]) -> [PapugaDailyStats] {
+        var byDay: [String: PapugaDailyStats] = [:]
+        for entry in entries {
+            let sign = entry.kind == .autoFixUndone ? -1 : 1
+            let words = max(1, entry.converted.split(separator: " ").count)
+            let seconds = Constants.secondsSaved(words: words)
+            let day = PapugaDailyStats.dayString(for: entry.timestamp)
+            var stat = byDay[day] ?? PapugaDailyStats(day: day, replacementCount: 0, wordsCount: 0, secondsSaved: 0)
+            stat.replacementCount += sign
+            stat.wordsCount += sign * words
+            stat.secondsSaved += sign * seconds
+            byDay[day] = stat
+        }
+        return byDay.values
+            .filter { $0.replacementCount > 0 }
+            .map { PapugaDailyStats(
+                day: $0.day,
+                replacementCount: max(0, $0.replacementCount),
+                wordsCount: max(0, $0.wordsCount),
+                secondsSaved: max(0, $0.secondsSaved)
+            ) }
+            .sorted { $0.day < $1.day }
     }
 
     static func bumpToday(words: Int, seconds: Int, sign: Int = 1) {

@@ -58,6 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppLogger.pre(logger, "applicationDidFinishLaunching")
         _ = updaterManager
         PapugaEventLog.shared.pruneOldEntries()
+        PapugaStatsAggregator.rebuildDailyStatsFromHistoryIfNeeded()
         PapugaStatsAggregator.migrateLegacyCountersIfNeeded()
         Defaults[.mistakeObservationEnabled] = true
         Defaults[.grammarObservationBetaEnabled] = true
