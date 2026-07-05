@@ -31,11 +31,22 @@ open papuga.xcodeproj          # Run "papuga" scheme
 xcodebuild -project papuga.xcodeproj -scheme papuga -configuration Debug build
 ```
 
+## Done criteria
+
+If a prompt changes source code (`*.swift`, project config, resources, scripts used by the app), finish by running the dev build:
+
+```bash
+./scripts/dev-install.sh --build-only
+```
+
+Docs-only changes do not need a build.
+
 ## Release process
 
 **NEVER push directly to `main`** — not commits, not tags. Everything goes through a PR.
 **NEVER create or push `v*` tags by hand** — CI does that.
 **NEVER hand-edit** `MARKETING_VERSION` in the Xcode project or the Sparkle `appcast.xml`.
+**Every release must go through a PR and the release-label version flow.** No direct release without a version update/tag produced by CI.
 
 To ship a release:
 
@@ -58,6 +69,18 @@ Version math: `scripts/next-version.sh`.
 Sparkle EdDSA: `SPARKLE_EDDSA_PRIVATE_KEY` secret holds the raw 44-char
 base64 seed exported via Sparkle's `generate_keys`. Do not add a length
 guard — `sign_update` is the source of truth for key validity.
+
+## Task tracking
+
+Tasks live in `backlog/` (Backlog.md CLI format). Use `backlog task list --plain`, `backlog board`, `backlog task create` — do not use any `mcp__vatra-*` tool, the hosted Vatra Ops service was decommissioned 2026-07.
+
+## Ponytail rules
+
+- Use the smallest change that preserves behavior: reuse existing managers/services before adding new layers.
+- Prefer deleting stale docs or instructions over adding new explanatory pages.
+- Documentation should describe shipped behavior, build/release commands, permissions, and real ownership boundaries only. Do not document "planned" providers or engines unless the user explicitly asks for a roadmap.
+- When code changes user-facing behavior, update the nearest doc in the same PR; otherwise leave docs alone.
+- After source-code changes, run the dev build before the final response.
 
 ## Architecture
 
