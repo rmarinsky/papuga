@@ -12,9 +12,9 @@ struct ReplacementHistoryEntry: Codable, Identifiable, Equatable {
         var displayName: String {
             switch self {
             case .manualSwitch: return "Ручне"
-            case .autoFixApplied: return "AutoFix"
+            case .autoFixApplied: return "Автозаміна"
             case .autoRuleApplied: return "Правило задіяно"
-            case .autoFixUndone: return "Скасоване AutoFix"
+            case .autoFixUndone: return "Скасована автозаміна"
             }
         }
 

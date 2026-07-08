@@ -65,11 +65,11 @@ struct ClipboardHistorySectionView: View {
                 Image(systemName: "trash")
             }
             .buttonStyle(.borderless)
-            .help("Очистити копіопасти \(range.clearScopeTitle)")
+            .help("Очистити історію буфера \(range.clearScopeTitle)")
             .accessibilityLabel("Очистити")
             .disabled(rangeEntries.isEmpty)
             .confirmationDialog(
-                "Очистити копіопасти \(range.clearScopeTitle)?",
+                "Очистити історію буфера \(range.clearScopeTitle)?",
                 isPresented: $showingClearConfirmation,
                 titleVisibility: .visible
             ) {
@@ -91,7 +91,7 @@ struct ClipboardHistorySectionView: View {
                 .foregroundStyle(.tertiary)
             Text("Історія порожня")
                 .font(.headline)
-            Text("Скопіюйте щось у буфер обміну, і воно з'явиться тут.")
+            Text("Скопіюй щось у буфер обміну, і воно з'явиться тут.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

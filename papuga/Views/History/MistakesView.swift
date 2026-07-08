@@ -110,7 +110,7 @@ struct MistakesView: View {
             Button {
                 showingAIAssist = true
             } label: {
-                Label("Покращити з AI", systemImage: "sparkles")
+                Label("Покращити з ШІ", systemImage: "sparkles")
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)

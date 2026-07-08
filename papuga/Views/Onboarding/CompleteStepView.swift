@@ -25,7 +25,7 @@ struct CompleteStepView: View {
                 Text("Все готово!")
                     .font(.system(size: 28, weight: .bold, design: .rounded))
 
-                Text("Виділіть текст та натисніть Opt+Shift, Cmd+Shift або Ctrl+Shift двічі\nдля перемикання розкладки.")
+                Text("Виділи текст і натисни Opt+Shift, Cmd+Shift або Ctrl+Shift двічі\nдля перемикання розкладки.")
                     .font(.body)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)

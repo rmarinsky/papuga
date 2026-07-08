@@ -37,7 +37,7 @@ struct AISuggestionReviewView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("✨ AI розібрав \(recognized.count) \(pluralWords(recognized.count))")
+            Text("ШІ розібрав \(recognized.count) \(pluralWords(recognized.count))")
                 .font(.system(size: 15, weight: .semibold))
 
             if !safe.isEmpty { safeCard }
@@ -92,7 +92,7 @@ struct AISuggestionReviewView: View {
         }
     }
 
-    // MARK: не впевнені (collapsed; AI не знає — шум чи рідкісне слово)
+    // MARK: не впевнені (collapsed; ШІ не знає — шум чи рідкісне слово)
 
     private var uncertainSection: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -106,7 +106,7 @@ struct AISuggestionReviewView: View {
             .contentShape(Rectangle())
             .onTapGesture { withAnimation { showUncertain.toggle() } }
             if showUncertain {
-                Text("AI не певний — шум це чи справжнє рідкісне слово. Обери дію для тих, що впізнав; решту лиши як «Прибрати».")
+                Text("ШІ не певний — шум це чи справжнє рідкісне слово. Обери дію для тих, що впізнав; решту лиши як «Прибрати».")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 rowList(uncertain, showReason: true)
             }

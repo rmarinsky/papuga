@@ -419,7 +419,7 @@ private let products: [AboutProduct] = [
         id: .appCat,
         name: "AppCat",
         tagline: "Контроль над тим, куди відкриваються посилання",
-        description: "Роутить URL, браузери, профілі й апки без копіпасту між Chrome, Safari, Slack і IDE.",
+        description: "Роутить URL, браузери, профілі й апки без ручного перекидання між Chrome, Safari, Slack і IDE.",
         systemImage: "cat.fill",
         tintSoft: Color(red: 254.0 / 255.0, green: 242.0 / 255.0, blue: 232.0 / 255.0),
         tintBorder: Color(red: 245.0 / 255.0, green: 123.0 / 255.0, blue: 23.0 / 255.0).opacity(0.18),

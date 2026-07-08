@@ -35,7 +35,7 @@ struct RulesSettingsView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(runtimeReady ? "Правила активні" : "Правила зараз не спрацюють")
                         .font(.system(size: 13, weight: .semibold))
-                    Text("Для власних правил потрібні AutoFix, Спеціальні можливості та Моніторинг введення.")
+                    Text("Для власних правил потрібні автозаміна, Спеціальні можливості та Моніторинг введення.")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
@@ -50,7 +50,7 @@ struct RulesSettingsView: View {
             }
 
             HStack(spacing: 8) {
-                requirementPill(title: "AutoFix", isReady: autoFixEnabled) {
+                requirementPill(title: "Автозаміна", isReady: autoFixEnabled) {
                     autoFixEnabled = true
                 }
                 requirementPill(title: "Спеціальні можливості", isReady: accessibilityGranted) {
@@ -76,7 +76,8 @@ struct RulesSettingsView: View {
     }
 
     private func requirementPill(title: String, isReady: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        let setupTitle = title == "Автозаміна" ? "автозаміну" : title
+        return Button(action: action) {
             HStack(spacing: 5) {
                 Image(systemName: isReady ? "checkmark.circle.fill" : "xmark.circle.fill")
                     .font(.system(size: 10, weight: .semibold))
@@ -93,7 +94,7 @@ struct RulesSettingsView: View {
             )
         }
         .buttonStyle(.plain)
-        .help(isReady ? "\(title): готово" : "Налаштувати \(title)")
+        .help(isReady ? "\(title): готово" : "Налаштувати \(setupTitle)")
     }
 
     private func refreshPermissions() {

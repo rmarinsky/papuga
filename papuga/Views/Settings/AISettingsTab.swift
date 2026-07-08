@@ -1,7 +1,7 @@
 import Defaults
 import SwiftUI
 
-/// "AI" settings: how the "Покращити з AI" flow gets classifications, plus the privacy
+/// "AI" settings: how the "Покращити з ШІ" flow gets classifications, plus the privacy
 /// switches that gate it. Consent is OFF by default and the secret scrubber is ON by
 /// default (AI-ASSIST.md §8). Only paste mode is functional today.
 struct AISettingsTab: View {
@@ -22,7 +22,7 @@ struct AISettingsTab: View {
             } header: {
                 Text("Спосіб")
             } footer: {
-                Text("«Покращити з AI» бере твій штучний інтелект і класифікує рідкісні помилки, які прості правила не ловлять. Відкривається у вкладці «Помилки введення» кнопкою «Покращити з AI».")
+                Text("«Покращити з ШІ» бере твій штучний інтелект і класифікує рідкісні помилки, які прості правила не ловлять. Відкривається у вкладці «Помилки введення» кнопкою «Покращити з ШІ».")
             }
 
             if selectedProvider == .openRouter {
