@@ -24,10 +24,10 @@ struct MenuBarView: View {
 
             Divider()
 
-            Menu("Попередні копіопасти") {
+            Menu("Історія буфера") {
                 let entries = filteredHistoryEntries
                 if entries.isEmpty {
-                    Text("За вибраний період історія порожня")
+                    Text("За вибраний період історія буфера порожня")
                 } else {
                     ForEach(entries) { entry in
                         Button {

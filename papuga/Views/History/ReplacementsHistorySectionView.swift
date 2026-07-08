@@ -380,7 +380,7 @@ private struct ReplacementHistorySuggestion: Identifiable {
         case .makeRule:
             return "Ця пара повторюється. Можна зробити її правилом або додати джерело в «не чіпати»."
         case .ignoreWord:
-            return "AutoFix для цього слова часто відкатували. Ймовірно, його краще не чіпати."
+            return "Автозаміну для цього слова часто відкатували. Ймовірно, його краще не чіпати."
         }
     }
 }
