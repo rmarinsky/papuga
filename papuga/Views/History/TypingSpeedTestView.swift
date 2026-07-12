@@ -1,3 +1,4 @@
+import Defaults
 import SwiftUI
 
 struct TypingSpeedTestView: View {
@@ -189,6 +190,9 @@ struct TypingSpeedTestView: View {
                     Text("Результат: \(Int(metrics.wordsPerMinute.rounded())) WPM, \(Int((metrics.accuracy * 100).rounded()))% точності, \(metrics.errorCharacters) помилок.")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
+                    Text("Тепер зекономлений час рахується з твоєї швидкості друку.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button {
@@ -263,9 +267,20 @@ struct TypingSpeedTestView: View {
         if value == activePrompt.text, finishedAt == nil {
             finishedAt = Date()
             now = finishedAt ?? now
+            persistMeasuredSpeed()
         } else if value != activePrompt.text {
             finishedAt = nil
         }
+    }
+
+    /// Persists the completed test's net WPM so the time-saved estimate is
+    /// computed from the user's real speed instead of the 40 WPM default.
+    private func persistMeasuredSpeed() {
+        let result = metrics
+        guard result.isComplete,
+              result.wordsPerMinute.isFinite,
+              result.wordsPerMinute >= 5 else { return }
+        Defaults[.measuredTypingWPM] = Constants.sanitizedTypingWordsPerMinute(result.wordsPerMinute)
     }
 
     private func reset() {

@@ -59,6 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = updaterManager
         PapugaEventLog.shared.pruneOldEntries()
         PapugaStatsAggregator.migrateLegacyCountersIfNeeded()
+        PapugaStatsAggregator.rebuildDailyStatsFromHistoryIfNeeded()
         Defaults[.mistakeObservationEnabled] = true
         Defaults[.grammarObservationBetaEnabled] = true
         ReplacementHistoryStore.shared.bootstrap()
