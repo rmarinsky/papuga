@@ -33,4 +33,11 @@ enum OnboardingPermission {
         case .inputMonitoring: return 1
         }
     }
+
+    var permissionType: PermissionType {
+        switch self {
+        case .accessibility: return .accessibility
+        case .inputMonitoring: return .inputMonitoring
+        }
+    }
 }

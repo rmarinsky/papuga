@@ -25,4 +25,8 @@ struct CustomAutoReplaceRule: Codable, Identifiable, Hashable, Defaults.Serializ
     func matches(_ word: String) -> Bool {
         source.caseInsensitiveCompare(word) == .orderedSame
     }
+
+    func matches(_ token: BufferedToken) -> Bool {
+        matches(token.core)
+    }
 }

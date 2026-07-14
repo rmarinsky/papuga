@@ -166,6 +166,11 @@ extension Defaults.Keys {
     )
     static let openHistoryOnAppLaunch = Key<Bool>("openHistoryOnAppLaunch", default: true)
     static let customAutoReplaceRules = Key<[CustomAutoReplaceRule]>("customAutoReplaceRules", default: [])
+    static let quarantinedAutoReplaceRules = Key<[CustomAutoReplaceRule]>("quarantinedAutoReplaceRules", default: [])
+    static let autoFixPunctuationKnowledgeMigrationVersion = Key<Int>(
+        "autoFixPunctuationKnowledgeMigrationVersion",
+        default: 0
+    )
     static let dismissedRecommendations = Key<[String]>("dismissedRecommendations", default: [])
 
     static let mistakeObservationEnabled = Key<Bool>("mistakeObservationEnabled", default: true)

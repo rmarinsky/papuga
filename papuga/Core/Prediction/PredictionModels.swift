@@ -32,6 +32,19 @@ struct PredictionGroup: Identifiable, Equatable {
     let primaryTarget: String?
     let observationIDs: [UUID]
 
+    var renderedPrimaryTarget: String? {
+        guard let primaryTarget else { return nil }
+        if let plan = candidates.first(where: {
+            MistakeObservation.normalizedToken($0.text)
+                == MistakeObservation.normalizedToken(primaryTarget)
+        })?.replacementPlan {
+            return plan.renderedReplacement
+        }
+        return BufferedToken(rawText: source, keyCodes: []).render(
+            correctedCore: BufferedToken.normalizedCore(from: primaryTarget)
+        )
+    }
+
     /// Frequency × confidence — "найчастіші + найбільш схожі".
     var score: Double {
         let confidence = candidates.first?.confidence ?? 0
@@ -46,7 +59,34 @@ struct ErrorClusterMember: Identifiable, Equatable {
     let language: String
     let count: Int
     let target: String?
+    let replacementPlan: ReplacementPlan?
+    let canCreateCoreRule: Bool?
     let observationIDs: [UUID]
+
+    var isCoreRuleCreationAllowed: Bool {
+        canCreateCoreRule ?? replacementPlan?.canCreateCoreRule ?? true
+    }
+
+    init(
+        id: String,
+        source: String,
+        language: String,
+        count: Int,
+        target: String?,
+        replacementPlan: ReplacementPlan? = nil,
+        canCreateCoreRule: Bool? = nil,
+        observationIDs: [UUID]
+    ) {
+        self.id = id
+        self.source = source
+        self.language = language
+        self.count = count
+        self.target = target
+        self.replacementPlan = replacementPlan
+        self.canCreateCoreRule = canCreateCoreRule
+        self.observationIDs = observationIDs
+    }
+
 }
 
 /// A group of mistakes that are similar to each other (small edit distance) or
@@ -70,4 +110,8 @@ struct FoundPair: Identifiable, Equatable {
     let source: String
     let target: String
     let kind: MistakeSuggestionKind
+
+    var renderedTarget: String {
+        target
+    }
 }

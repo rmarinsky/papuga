@@ -17,6 +17,7 @@ struct AutoFixProposal: Identifiable, Equatable {
     let createdAt: TimeInterval
     let canApplyDirectly: Bool
     let targetSession: AutoFixTargetSession?
+    let replacementPlan: ReplacementPlan
 
     var margin: Double {
         scoreCandidate - scoreOriginal

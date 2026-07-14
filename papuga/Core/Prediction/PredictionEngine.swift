@@ -58,7 +58,8 @@ final class PredictionEngine {
 
     // MARK: Cache (in-memory + disk)
 
-    private static let cacheVersion = 1
+    // v6 also AND-merges rule safety across application-specific groups.
+    private static let cacheVersion = 6
     private var cache: [String: WordPrediction] = [:]
     private let cacheURL: URL
     private let domainVocabURL: URL
@@ -181,7 +182,7 @@ final class PredictionEngine {
                         pushLive(FoundPair(
                             id: "\(group.id)#\(analyzedCount)",
                             source: group.source,
-                            target: best.text,
+                            target: best.replacementPlan?.renderedReplacement ?? best.text,
                             kind: best.kind
                         ))
                     }
@@ -274,13 +275,17 @@ final class PredictionEngine {
             ].joined(separator: "|")
 
             if let existing = merged[key] {
+                let mergedCandidates = mergeCandidateSafety(
+                    existing: existing.candidates,
+                    incoming: candidates
+                )
                 merged[key] = PredictionGroup(
                     id: key,
                     source: existing.source,
                     language: existing.language,
                     count: existing.count + group.count,
                     lastSeen: Swift.max(existing.lastSeen, group.lastSeen),
-                    candidates: existing.candidates.isEmpty ? candidates : existing.candidates,
+                    candidates: mergedCandidates,
                     primaryTarget: existing.primaryTarget ?? target,
                     observationIDs: existing.observationIDs + group.observationIDs
                 )
@@ -300,6 +305,29 @@ final class PredictionEngine {
         return Array(merged.values)
     }
 
+    private func mergeCandidateSafety(
+        existing: [MistakeSuggestionCandidate],
+        incoming: [MistakeSuggestionCandidate]
+    ) -> [MistakeSuggestionCandidate] {
+        guard !existing.isEmpty else {
+            // A missing candidate set is missing safety evidence, not approval.
+            return incoming.map { $0.withCoreRuleCreationAllowed(false) }
+        }
+        guard !incoming.isEmpty else {
+            return existing.map { $0.withCoreRuleCreationAllowed(false) }
+        }
+
+        return existing.map { candidate in
+            let targetKey = MistakeObservation.normalizedToken(candidate.text)
+            let matching = incoming.first {
+                MistakeObservation.normalizedToken($0.text) == targetKey
+            }
+            return candidate.withCoreRuleCreationAllowed(
+                candidate.canCreateCoreRule && (matching?.canCreateCoreRule == true)
+            )
+        }
+    }
+
     private func publishRanked(groups: [MistakeGroupData]) {
         ranked = mergedGroups(from: groups).sorted { lhs, rhs in
             if lhs.score != rhs.score { return lhs.score > rhs.score }
@@ -317,9 +345,19 @@ final class PredictionEngine {
         let merged = mergedGroups(from: groups)
             .filter { !known.contains(MistakeObservation.normalizedToken($0.source)) }
         errorClusters = ErrorClustering.cluster(merged.map { group in
-            ErrorClustering.Item(
+            let targetCandidate = group.primaryTarget.flatMap { target in
+                group.candidates.first {
+                    MistakeObservation.normalizedToken($0.text)
+                        == MistakeObservation.normalizedToken(target)
+                }
+            }
+            return ErrorClustering.Item(
                 source: group.source, language: group.language, count: group.count,
-                target: group.primaryTarget, observationIDs: group.observationIDs
+                target: group.primaryTarget,
+                renderedTarget: group.renderedPrimaryTarget,
+                replacementPlan: targetCandidate?.replacementPlan,
+                canCreateCoreRule: targetCandidate?.canCreateCoreRule,
+                observationIDs: group.observationIDs
             )
         })
     }

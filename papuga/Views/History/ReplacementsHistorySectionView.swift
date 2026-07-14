@@ -136,6 +136,20 @@ struct ReplacementsHistorySectionView: View {
                         truncated: suggestion.sourceTruncated
                     )
                     let target = ruleTarget(source: suggestion.source, target: suggestion.target)
+                    let candidateList = candidates(
+                        source: suggestion.source,
+                        target: target,
+                        sourceLayoutID: suggestion.sourceLayoutID,
+                        rawSources: [suggestion.source] + suggestion.rawSources.filter {
+                            $0 != suggestion.source
+                        }
+                    )
+                    let targetCandidate = target.flatMap { target in
+                        candidateList.first {
+                            MistakeObservation.normalizedToken($0.text)
+                                == MistakeObservation.normalizedToken(target)
+                        }
+                    }
                     return ActionableSuggestionItem(
                         id: suggestion.id,
                         icon: suggestion.kind.icon,
@@ -144,13 +158,10 @@ struct ReplacementsHistorySectionView: View {
                         source: suggestion.source,
                         target: target,
                         countText: "\(suggestion.count)×",
-                        candidates: candidates(
-                            source: suggestion.source,
-                            target: target,
-                            sourceLayoutID: suggestion.sourceLayoutID
-                        ),
+                        candidates: candidateList,
                         canAct: disabledReason == nil,
                         disabledReason: disabledReason,
+                        ruleDisabledReason: HistoryWordActionPolicy.ruleDisabledReason(for: targetCandidate),
                         onCreateRule: { target in
                             openRuleEditor(source: suggestion.source, target: target ?? suggestion.target)
                         },
@@ -177,9 +188,14 @@ struct ReplacementsHistorySectionView: View {
         )
     }
 
-    private func candidates(source: String, target: String?, sourceLayoutID: String?) -> [MistakeSuggestionCandidate] {
+    private func candidates(
+        source: String,
+        target: String?,
+        sourceLayoutID: String?,
+        rawSources: [String]? = nil
+    ) -> [MistakeSuggestionCandidate] {
         analyzer.candidates(
-            for: source,
+            forRawSources: rawSources ?? [source],
             language: sourceLayoutID.map(AutoFixDecision.languageHintForLayoutID) ?? "",
             recordedTargets: target.map { [$0] } ?? [],
             layoutManager: layoutManager,
@@ -251,6 +267,7 @@ private struct ReplacementActionRow: View {
                 )
 
                 HistoryCandidateStrip(candidates: candidates) { candidate in
+                    guard candidate.canCreateCoreRule else { return }
                     onCreateRule(candidate.text)
                 }
             }
@@ -260,6 +277,7 @@ private struct ReplacementActionRow: View {
             HistoryRowActions(
                 canAct: disabledReason == nil,
                 disabledReason: disabledReason,
+                ruleDisabledReason: HistoryWordActionPolicy.ruleDisabledReason(for: primaryCandidate),
                 onCreateRule: { onCreateRule(primaryTarget) },
                 onIgnore: onIgnore
             )
@@ -270,6 +288,15 @@ private struct ReplacementActionRow: View {
 
     private var primaryTarget: String? {
         HistoryWordActionPolicy.sanitizedTarget(entry.converted, truncated: entry.convertedTruncated)
+    }
+
+    private var primaryCandidate: MistakeSuggestionCandidate? {
+        primaryTarget.flatMap { target in
+            candidates.first {
+                MistakeObservation.normalizedToken($0.text)
+                    == MistakeObservation.normalizedToken(target)
+            }
+        }
     }
 
     private var disabledReason: String? {
@@ -343,6 +370,7 @@ private struct ReplacementHistorySuggestion: Identifiable {
     let source: String
     let target: String?
     let sourceLayoutID: String?
+    let rawSources: [String]
     let sourceTruncated: Bool
     let count: Int
     let lastSeen: Date
@@ -363,6 +391,7 @@ private func aggregateReplacementSuggestions(_ entries: [ReplacementHistoryEntry
         var source: String
         var target: String?
         var sourceLayoutID: String?
+        var rawSources: Set<String>
         var sourceTruncated: Bool
         var count: Int
         var lastSeen: Date
@@ -370,8 +399,8 @@ private func aggregateReplacementSuggestions(_ entries: [ReplacementHistoryEntry
 
     var map: [String: Acc] = [:]
     for entry in entries {
-        let source = HistoryWordActionPolicy.normalizedSource(entry.original)
-        guard !source.isEmpty else { continue }
+        let sourceCore = HistoryWordActionPolicy.normalizedSource(entry.original)
+        guard !sourceCore.isEmpty else { continue }
 
         let kind: ReplacementHistorySuggestion.Kind
         let target: String?
@@ -379,23 +408,24 @@ private func aggregateReplacementSuggestions(_ entries: [ReplacementHistoryEntry
         if entry.kind == .autoFixUndone {
             kind = .ignoreWord
             target = nil
-            key = "ignore:\(source.lowercased())"
+            key = "ignore:\(sourceCore.lowercased())"
         } else {
             guard !entry.originalTruncated,
                   !entry.convertedTruncated,
                   let sanitizedTarget = HistoryWordActionPolicy.sanitizedTarget(entry.converted),
-                  sanitizedTarget.caseInsensitiveCompare(source) != .orderedSame else {
+                  sanitizedTarget.caseInsensitiveCompare(sourceCore) != .orderedSame else {
                 continue
             }
             kind = .makeRule
             target = sanitizedTarget
-            key = "rule:\(source.lowercased())->\(sanitizedTarget.lowercased())"
+            key = "rule:\(sourceCore.lowercased())->\(sanitizedTarget.lowercased())"
         }
 
         if var acc = map[key] {
             acc.count += 1
+            acc.rawSources.insert(entry.original)
             if entry.timestamp > acc.lastSeen {
-                acc.source = source
+                acc.source = entry.original
                 acc.target = target
                 acc.sourceLayoutID = entry.sourceLayoutID
                 acc.sourceTruncated = entry.originalTruncated
@@ -405,9 +435,10 @@ private func aggregateReplacementSuggestions(_ entries: [ReplacementHistoryEntry
         } else {
             map[key] = Acc(
                 kind: kind,
-                source: source,
+                source: entry.original,
                 target: target,
                 sourceLayoutID: entry.sourceLayoutID,
+                rawSources: [entry.original],
                 sourceTruncated: entry.originalTruncated,
                 count: 1,
                 lastSeen: entry.timestamp
@@ -422,6 +453,7 @@ private func aggregateReplacementSuggestions(_ entries: [ReplacementHistoryEntry
             source: acc.source,
             target: acc.target,
             sourceLayoutID: acc.sourceLayoutID,
+            rawSources: acc.rawSources.sorted(),
             sourceTruncated: acc.sourceTruncated,
             count: acc.count,
             lastSeen: acc.lastSeen
