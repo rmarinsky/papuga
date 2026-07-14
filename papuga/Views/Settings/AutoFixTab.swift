@@ -195,8 +195,8 @@ private enum AutoFixSensitivityPreset: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .careful: return "Обережно"
-        case .balanced: return "Баланс"
+        case .careful: return "Обмежено"
+        case .balanced: return "Збалансовано"
         case .moreHints: return "Більше підказок"
         }
     }
@@ -204,11 +204,11 @@ private enum AutoFixSensitivityPreset: String, CaseIterable, Identifiable {
     var description: String {
         switch self {
         case .careful:
-            return "Менше втручань: Papuga чекає сильнішого сигналу і частіше мовчить."
+            return "Лише дуже впевнені випадки. Сумнівні слова Papuga переважно ігнорує, а підказки показує рідко."
         case .balanced:
-            return "Нормальний режим для щоденного набору: очевидне замінює, сумнівне показує як підказку."
+            return "Впевнені помилки Papuga замінює автоматично, сумнівні показує як підказку, а слабкі сигнали ігнорує."
         case .moreHints:
-            return "Більше підказок для коротких слів і фраз, включно з випадками на кшталт кирилиця → English."
+            return "Papuga частіше пропонує варіант для сумнівних і коротких слів, але автоматично замінює лише впевнені випадки."
         }
     }
 
