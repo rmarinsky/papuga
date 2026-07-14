@@ -36,9 +36,9 @@ jobs:
         env:
           LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
         run: |
-          if   echo "$LABELS" | grep -q '"release:major"'; then bump=major
-          elif echo "$LABELS" | grep -q '"release:minor"'; then bump=minor
-          elif echo "$LABELS" | grep -q '"release:patch"'; then bump=patch
+          if   echo "$LABELS" | grep -q '"release:major"'; then bump="major"
+          elif echo "$LABELS" | grep -q '"release:minor"'; then bump="minor"
+          elif echo "$LABELS" | grep -q '"release:patch"'; then bump="patch"
           else
             echo "No release:patch|minor|major label (release:skip or none) — nothing to release."
             echo "skip=true" >> "$GITHUB_OUTPUT"

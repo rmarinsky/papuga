@@ -6,35 +6,61 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: papuga-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
     runs-on: macos-15
+    env:
+      SWIFTPM_PACKAGES_PATH: ${{ github.workspace }}/.ci/SourcePackages
     steps:
       - uses: actions/checkout@v4
+
+      - name: Validate CI workflow contract
+        run: bash scripts/check-ci-workflow.sh
 
       - name: Select Xcode
         run: sudo xcode-select -switch /Applications/Xcode.app/Contents/Developer
 
-      - name: Resolve packages
-        run: xcodebuild -resolvePackageDependencies -project papuga.xcodeproj -scheme papuga
+      - name: Fingerprint Xcode
+        id: xcode
+        run: echo "version=$(xcodebuild -version | shasum -a 256 | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
 
-      - name: Build (Debug)
+      - name: Cache resolved Swift packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.SWIFTPM_PACKAGES_PATH }}
+          key: swiftpm-${{ runner.os }}-${{ steps.xcode.outputs.version }}-${{ hashFiles('papuga.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+
+      - name: Resolve packages
+        run: >-
+          xcodebuild -resolvePackageDependencies
+          -project papuga.xcodeproj
+          -scheme papuga
+          -clonedSourcePackagesDirPath "$SWIFTPM_PACKAGES_PATH"
+
+      - name: Build tests
         run: |
-          xcodebuild build \
+          set -o pipefail
+          xcodebuild build-for-testing \
             -project papuga.xcodeproj \
             -scheme papuga \
             -configuration Debug \
             -destination 'platform=macOS' \
+            -clonedSourcePackagesDirPath "$SWIFTPM_PACKAGES_PATH" \
             CODE_SIGNING_ALLOWED=NO \
-            | xcbeautify --renderer github-actions || xcodebuild build \
-                -project papuga.xcodeproj -scheme papuga -configuration Debug \
-                -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO
+            | xcbeautify --renderer github-actions
 
       - name: Run unit tests
         run: |
-          xcodebuild test \
+          set -o pipefail
+          xcodebuild test-without-building \
             -project papuga.xcodeproj \
             -scheme papuga \
             -destination 'platform=macOS' \
+            -clonedSourcePackagesDirPath "$SWIFTPM_PACKAGES_PATH" \
             -only-testing:papugaTests \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=NO \
+            | xcbeautify --renderer github-actions
