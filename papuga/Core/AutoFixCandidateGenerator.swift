@@ -6,6 +6,24 @@ struct AutoFixTargetCandidate: Equatable {
     let targetLang: String
     let candidate: String
     let scoreCandidate: Double
+    let replacementPlan: ReplacementPlan?
+    let isInterpretationAmbiguous: Bool
+
+    init(
+        targetID: String,
+        targetLang: String,
+        candidate: String,
+        scoreCandidate: Double,
+        replacementPlan: ReplacementPlan? = nil,
+        isInterpretationAmbiguous: Bool = false
+    ) {
+        self.targetID = targetID
+        self.targetLang = targetLang
+        self.candidate = candidate
+        self.scoreCandidate = scoreCandidate
+        self.replacementPlan = replacementPlan
+        self.isInterpretationAmbiguous = isInterpretationAmbiguous
+    }
 }
 
 /// Pure selection logic for choosing the best target layout among several candidates.

@@ -66,6 +66,31 @@ final class MistakeObservationEngineTests: XCTestCase {
         XCTAssertEqual(result?.bundleID, "com.example.editor")
     }
 
+    func test_observeCompletedWord_spellchecksCoreAndKeepsPunctuationForRendering() {
+        let spellChecker = FakeSpellChecker()
+        spellChecker.misspelled = ["можі"]
+        spellChecker.guessesByWord = ["можі": ["може"]]
+        let store = RecordingStore()
+        let engine = MistakeObservationEngine(spellChecker: spellChecker, store: store)
+
+        let result = engine.observeCompletedWord(CompletedWordObservation(
+            word: "“можі?”",
+            language: "uk",
+            bundleID: "com.example.editor",
+            timestamp: Date(timeIntervalSince1970: 10),
+            allowlist: [],
+            blocklist: [],
+            minWordLength: 3
+        ))
+
+        XCTAssertEqual(result?.source, "“можі?”")
+        XCTAssertEqual(result?.sourceCore, "можі")
+        XCTAssertEqual(result?.leadingPunctuation, "“")
+        XCTAssertEqual(result?.trailingPunctuation, "?”")
+        XCTAssertEqual(result?.suggestedTarget, "може")
+        XCTAssertEqual(result?.renderedSuggestedTarget, "“може?”")
+    }
+
     func test_observeCompletedWord_skipsSensitiveAndIgnoredTokens() {
         let spellChecker = FakeSpellChecker()
         spellChecker.misspelled = ["test123", "ignored", "blocked"]
@@ -139,6 +164,28 @@ final class MistakeObservationEngineTests: XCTestCase {
         XCTAssertTrue(candidates.allSatisfy { $0.kind == .spelling })
     }
 
+    func test_suggestionAnalyzerUsesCoreForPunctuationBearingSource() {
+        let spellChecker = FakeSpellChecker()
+        spellChecker.guessesByWord = ["unfortunatly": ["Unfortunately"]]
+        let analyzer = MistakeSuggestionAnalyzer(spellChecker: spellChecker)
+
+        let candidates = analyzer.candidates(for: "Unfortunatly,", language: "en", limit: 4)
+
+        XCTAssertTrue(candidates.contains {
+            $0.kind == .spelling && $0.text == "Unfortunately"
+        })
+        XCTAssertEqual(
+            candidates.first(where: { $0.text == "Unfortunately" })?.replacementPlan?.renderedReplacement,
+            "Unfortunately,"
+        )
+
+        let periodCandidates = analyzer.candidates(for: "Unfortunatly.", language: "en", limit: 4)
+        XCTAssertEqual(
+            periodCandidates.first(where: { $0.text == "Unfortunately" })?.replacementPlan?.renderedReplacement,
+            "Unfortunately."
+        )
+    }
+
     func test_suggestionAnalyzer_keepsRecordedTargetFirstAndDeduplicates() {
         let spellChecker = FakeSpellChecker()
         spellChecker.guessesByWord = [
@@ -157,6 +204,86 @@ final class MistakeObservationEngineTests: XCTestCase {
         XCTAssertEqual(candidates.first?.kind, .recorded)
         XCTAssertEqual(candidates.filter { $0.text == "pomylka" }.count, 1)
         XCTAssertTrue(candidates.contains { $0.text == "pomilka" && $0.kind == .spelling })
+    }
+
+    func test_recordedTargetFallbackFailsClosedForEdgeBearingCrossScriptPair() {
+        let analyzer = MistakeSuggestionAnalyzer(spellChecker: FakeSpellChecker())
+
+        let unsafe = analyzer.candidates(
+            for: "nfrj;",
+            language: "en",
+            recordedTargets: ["також"],
+            layoutManager: nil,
+            limit: 4
+        ).first
+        let safeSpelling = analyzer.candidates(
+            for: "можі,",
+            language: "uk",
+            recordedTargets: ["може"],
+            layoutManager: nil,
+            limit: 4
+        ).first
+
+        XCTAssertEqual(unsafe?.kind, .recorded)
+        XCTAssertEqual(unsafe?.canCreateCoreRule, false)
+        XCTAssertEqual(safeSpelling?.canCreateCoreRule, true)
+    }
+
+    func test_groupedCandidatesRequireRuleSafetyAcrossEveryRawSource() throws {
+        let unsafeGroupEntries = [
+            MistakeObservation(
+                issueType: .manualCorrection,
+                source: "nfrj",
+                suggestedTarget: "також",
+                language: "en",
+                confidence: 0.9
+            ),
+            MistakeObservation(
+                issueType: .manualCorrection,
+                source: "nfrj;",
+                suggestedTarget: "також",
+                language: "en",
+                confidence: 0.9
+            )
+        ]
+        let safeGroupEntries = [
+            MistakeObservation(
+                issueType: .spelling,
+                source: "можі",
+                suggestedTarget: "може",
+                language: "uk",
+                confidence: 0.9
+            ),
+            MistakeObservation(
+                issueType: .spelling,
+                source: "можі,",
+                suggestedTarget: "може",
+                language: "uk",
+                confidence: 0.9
+            )
+        ]
+        let analyzer = MistakeSuggestionAnalyzer(spellChecker: FakeSpellChecker())
+        let unsafeGroup = try XCTUnwrap(
+            MistakesScreenDerivation.groups(from: unsafeGroupEntries, filter: .all, query: "").first
+        )
+        let safeGroup = try XCTUnwrap(
+            MistakesScreenDerivation.groups(from: safeGroupEntries, filter: .all, query: "").first
+        )
+
+        let unsafeCandidate = MistakesScreenDerivation.candidates(
+            for: unsafeGroup,
+            analyzer: analyzer,
+            layoutManager: nil
+        ).first
+        let safeCandidate = MistakesScreenDerivation.candidates(
+            for: safeGroup,
+            analyzer: analyzer,
+            layoutManager: nil
+        ).first
+
+        XCTAssertEqual(Set(unsafeGroup.rawSources), ["nfrj", "nfrj;"])
+        XCTAssertEqual(unsafeCandidate?.canCreateCoreRule, false)
+        XCTAssertEqual(safeCandidate?.canCreateCoreRule, true)
     }
 
     func test_suggestionAnalyzer_includesKeyboardLayoutCandidateWhenLayoutsExist() throws {
@@ -186,9 +313,49 @@ final class MistakeObservationEngineTests: XCTestCase {
             limit: 6
         )
 
-        XCTAssertTrue(candidates.contains { candidate in
+        let yuriy = candidates.first { candidate in
             candidate.kind == .keyboardLayout && candidate.text.lowercased() == "юрій"
-        })
+        }
+        XCTAssertNotNil(yuriy)
+        XCTAssertEqual(yuriy?.replacementPlan?.interpretationReason, .layoutFullToken)
+        XCTAssertEqual(yuriy?.replacementPlan?.renderedReplacement.lowercased(), "юрій")
+
+        let terminalSemicolon = analyzer.candidates(
+            for: "nfrj;",
+            language: "en",
+            layoutManager: layoutManager,
+            limit: 8
+        ).first { $0.text.lowercased() == "також" }
+        XCTAssertEqual(terminalSemicolon?.replacementPlan?.interpretationReason, .layoutFullToken)
+        XCTAssertEqual(terminalSemicolon?.replacementPlan?.renderedReplacement.lowercased(), "також")
+        XCTAssertEqual(terminalSemicolon?.canCreateCoreRule, false)
+
+        let recordedFullToken = analyzer.candidates(
+            for: "nfrj;",
+            language: "en",
+            recordedTargets: ["також"],
+            layoutManager: layoutManager,
+            limit: 8
+        ).first
+        XCTAssertEqual(recordedFullToken?.kind, .recorded)
+        XCTAssertEqual(recordedFullToken?.replacementPlan?.interpretationReason, .layoutFullToken)
+        XCTAssertEqual(recordedFullToken?.replacementPlan?.renderedReplacement.lowercased(), "також")
+        XCTAssertEqual(recordedFullToken?.canCreateCoreRule, false)
+
+        let recordedCoreWithComma = analyzer.candidates(
+            for: "ghbdsn,",
+            language: "en",
+            recordedTargets: ["привіт"],
+            layoutManager: layoutManager,
+            limit: 8
+        ).first
+        XCTAssertEqual(recordedCoreWithComma?.kind, .recorded)
+        XCTAssertEqual(
+            recordedCoreWithComma?.replacementPlan?.interpretationReason,
+            .layoutCorePreservingEdges
+        )
+        XCTAssertEqual(recordedCoreWithComma?.replacementPlan?.renderedReplacement.lowercased(), "привіт,")
+        XCTAssertEqual(recordedCoreWithComma?.canCreateCoreRule, true)
     }
 
     func test_recordManualCorrection_recordsSourceAndTarget() {

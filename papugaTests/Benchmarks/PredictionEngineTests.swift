@@ -64,6 +64,45 @@ final class PredictionEngineTests: XCTestCase {
         XCTAssertEqual(second.phase, .ready)
     }
 
+    func test_engineAndMergesRuleSafetyAcrossApps() async throws {
+        let entries = [
+            MistakeObservation(
+                issueType: .manualCorrection,
+                source: "nfrj",
+                suggestedTarget: "також",
+                language: "en",
+                bundleID: "com.example.app-a",
+                confidence: 0.9
+            ),
+            MistakeObservation(
+                issueType: .manualCorrection,
+                source: "nfrj;",
+                suggestedTarget: "також",
+                language: "en",
+                bundleID: "com.example.app-b",
+                confidence: 0.9
+            )
+        ]
+        let cache = tempCacheURL()
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let engine = PredictionEngine(
+            analyzer: MistakeSuggestionAnalyzer(spellChecker: CountingSpellChecker()),
+            cacheURL: cache
+        )
+        engine.handledSourcesProvider = { [] }
+        engine.domainLearningEnabled = false
+
+        await engine.analyzeToCompletionForTesting(observations: entries, force: false)
+
+        let merged = try XCTUnwrap(engine.ranked.first)
+        XCTAssertEqual(merged.count, 2)
+        XCTAssertEqual(merged.candidates.first?.text, "також")
+        XCTAssertEqual(merged.candidates.first?.canCreateCoreRule, false)
+        let clusterMember = try XCTUnwrap(engine.errorClusters.first?.members.first)
+        XCTAssertEqual(clusterMember.target, "також")
+        XCTAssertEqual(clusterMember.isCoreRuleCreationAllowed, false)
+    }
+
     // MARK: - Benchmark on real data (gated)
 
     func test_bench_engine_realData() async throws {

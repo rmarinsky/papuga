@@ -115,6 +115,7 @@ struct ActionableSuggestionItem: Identifiable {
     let candidates: [MistakeSuggestionCandidate]
     let canAct: Bool
     let disabledReason: String?
+    let ruleDisabledReason: String?
     let onCreateRule: (String?) -> Void
     let onIgnore: () -> Void
 }
@@ -204,6 +205,7 @@ private struct ActionableSuggestionCard: View {
                 )
 
                 HistoryCandidateStrip(candidates: item.candidates) { candidate in
+                    guard candidate.canCreateCoreRule else { return }
                     item.onCreateRule(candidate.text)
                 }
             }
@@ -213,6 +215,7 @@ private struct ActionableSuggestionCard: View {
             HistoryRowActions(
                 canAct: item.canAct,
                 disabledReason: item.disabledReason,
+                ruleDisabledReason: item.ruleDisabledReason,
                 onCreateRule: { item.onCreateRule(item.target) },
                 onIgnore: item.onIgnore
             )
@@ -252,7 +255,7 @@ struct HistoryCandidateStrip: View {
                         HStack(spacing: 4) {
                             Image(systemName: candidate.kind.systemImage)
                                 .font(.system(size: 10, weight: .semibold))
-                            Text(candidate.text)
+                            Text(candidate.replacementPlan?.renderedReplacement ?? candidate.text)
                                 .lineLimit(1)
                             Text(candidate.kind.title)
                                 .foregroundStyle(.secondary)
@@ -270,7 +273,10 @@ struct HistoryCandidateStrip: View {
                         )
                     }
                     .buttonStyle(.plain)
-                    .help("Створити правило для «\(candidate.text)»")
+                    .disabled(!candidate.canCreateCoreRule)
+                    .help(candidate.canCreateCoreRule
+                        ? "Створити правило для «\(candidate.replacementPlan?.renderedReplacement ?? candidate.text)»"
+                        : HistoryWordActionPolicy.fullTokenLayoutRuleReason)
                 }
             }
         }
@@ -280,6 +286,7 @@ struct HistoryCandidateStrip: View {
 struct HistoryRowActions: View {
     let canAct: Bool
     let disabledReason: String?
+    let ruleDisabledReason: String?
     let onCreateRule: () -> Void
     let onIgnore: () -> Void
 
@@ -299,16 +306,25 @@ struct HistoryRowActions: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
             .tint(Color("BrandAccentDeep"))
-            .disabled(!canAct)
-            .help(disabledReason ?? "Відкрити модалку створення правила заміни")
+            .disabled(!canAct || ruleDisabledReason != nil)
+            .help(ruleDisabledReason ?? disabledReason ?? "Відкрити модалку створення правила заміни")
         }
     }
 }
 
 enum HistoryWordActionPolicy {
+    static let fullTokenLayoutRuleReason =
+        "Ця розкладкова заміна використовує крайній знак як літеру, тому її не можна зберегти як правило слова."
+    static let unverifiedEdgeRuleReason =
+        "Дочекайтеся аналізу розкладки: Papuga ще не може безпечно визначити, чи крайній знак є пунктуацією."
+
+    static func ruleDisabledReason(for candidate: MistakeSuggestionCandidate?) -> String? {
+        guard let candidate, !candidate.canCreateCoreRule else { return nil }
+        return fullTokenLayoutRuleReason
+    }
+
     static func normalizedSource(_ text: String) -> String {
-        text.trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: .punctuationCharacters)
+        BufferedToken.normalizedCore(from: text)
     }
 
     static func canUseSource(_ text: String, truncated: Bool) -> Bool {
@@ -331,7 +347,7 @@ enum HistoryWordActionPolicy {
 
     static func sanitizedTarget(_ text: String?, truncated: Bool = false) -> String? {
         guard !truncated, let text else { return nil }
-        let target = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let target = BufferedToken.normalizedCore(from: text)
         guard !target.isEmpty, !target.contains(where: \.isWhitespace) else { return nil }
         return target
     }

@@ -82,9 +82,15 @@ enum AISuggestionApplier {
             guard let target = HistoryWordActionPolicy.sanitizedTarget(rawTarget),
                   !source.isEmpty,
                   source.caseInsensitiveCompare(target) != .orderedSame else { return }
+            guard item.canCreateCoreRule(target: target, tag: suggestion.tag) else { return }
 
-            Defaults[.autoFixAllowlist].removeAll { $0.caseInsensitiveCompare(source) == .orderedSame }
-            if !Defaults[.customAutoReplaceRules].contains(where: { $0.source.lowercased() == source.lowercased() }) {
+            Defaults[.autoFixAllowlist].removeAll {
+                HistoryWordActionPolicy.normalizedSource($0).caseInsensitiveCompare(source) == .orderedSame
+            }
+            if !Defaults[.customAutoReplaceRules].contains(where: {
+                HistoryWordActionPolicy.normalizedSource($0.source)
+                    .caseInsensitiveCompare(source) == .orderedSame
+            }) {
                 Defaults[.customAutoReplaceRules].append(
                     CustomAutoReplaceRule(source: source, target: target, createdFromRecommendation: true)
                 )

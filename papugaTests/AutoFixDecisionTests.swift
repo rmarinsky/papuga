@@ -234,6 +234,36 @@ final class AutoFixDecisionTests: XCTestCase {
         XCTAssertFalse(assessment.shouldSuppressAutoReplace)
     }
 
+    func test_phraseGuard_suppressesYoyMargeToCyrillicProposal() {
+        XCTAssertTrue(AutoFixDecision.shouldSuppressPhraseAutoReplace(
+            original: "yoy marge to",
+            candidate: "нщн ьфкпу ещ",
+            sourceLanguage: "en",
+            targetLanguage: "uk",
+            allowlist: [],
+            isKnownCorrect: { word, _ in ["yoy", "marge", "to"].contains(word.lowercased()) }
+        ))
+    }
+
+    func test_phraseGuard_suppressesProtectedEnglishPhraseButAllowsGenuineWrongLayout() {
+        XCTAssertTrue(AutoFixDecision.shouldSuppressPhraseAutoReplace(
+            original: "supplier directory alli tests",
+            candidate: "ігзздшук вшкусещкн фддш еуіеі",
+            sourceLanguage: "en",
+            targetLanguage: "uk",
+            allowlist: [],
+            isKnownCorrect: { _, _ in true }
+        ))
+        XCTAssertFalse(AutoFixDecision.shouldSuppressPhraseAutoReplace(
+            original: ",ed nb nen",
+            candidate: "був ти тут",
+            sourceLanguage: "en",
+            targetLanguage: "uk",
+            allowlist: [],
+            isKnownCorrect: { _, _ in false }
+        ))
+    }
+
     func test_languageHint_recognises_known_layouts() {
         XCTAssertEqual(AutoFixDecision.languageHintForLayoutID("com.apple.keylayout.Ukrainian-PC"), "uk")
         XCTAssertEqual(AutoFixDecision.languageHintForLayoutID("com.apple.keylayout.Russian"), "ru")

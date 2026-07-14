@@ -22,7 +22,9 @@ enum IgnoreWordService {
 
         var allowlist = Defaults[.autoFixAllowlist]
         let addedToAllowlist: Bool
-        if allowlist.contains(where: { $0.caseInsensitiveCompare(word) == .orderedSame }) {
+        if allowlist.contains(where: {
+            normalizedWord($0).caseInsensitiveCompare(word) == .orderedSame
+        }) {
             addedToAllowlist = false
         } else {
             allowlist.append(word)
@@ -34,7 +36,9 @@ enum IgnoreWordService {
         if removeReplacementRules {
             var rules = Defaults[.customAutoReplaceRules]
             let originalCount = rules.count
-            rules.removeAll { $0.source.caseInsensitiveCompare(word) == .orderedSame }
+            rules.removeAll {
+                normalizedWord($0.source).caseInsensitiveCompare(word) == .orderedSame
+            }
             removedReplacementRuleCount = originalCount - rules.count
             if removedReplacementRuleCount > 0 {
                 Defaults[.customAutoReplaceRules] = rules
@@ -61,9 +65,7 @@ enum IgnoreWordService {
     }
 
     static func normalizedWord(_ rawWord: String) -> String {
-        rawWord
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: edgePunctuation)
+        BufferedToken.normalizedCore(from: rawWord)
     }
 
     static func shouldTeachAppleSpelling(_ rawWord: String) -> Bool {
@@ -113,6 +115,5 @@ enum IgnoreWordService {
         return Array(Set(variants))
     }
 
-    private static let edgePunctuation = CharacterSet(charactersIn: " \t\n\r.,;:!?()[]{}<>\"'`“”‘’")
     private static let allowedWordScalars = CharacterSet(charactersIn: "-_+&")
 }

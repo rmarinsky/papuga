@@ -62,6 +62,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PapugaStatsAggregator.rebuildDailyStatsFromHistoryIfNeeded()
         Defaults[.mistakeObservationEnabled] = true
         Defaults[.grammarObservationBetaEnabled] = true
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
+            CorrectionKnowledgePunctuationMigration.runIfNeeded()
+        }
         ReplacementHistoryStore.shared.bootstrap()
         MistakeObservationStore.shared.bootstrap()
         setupHotkeyListener()

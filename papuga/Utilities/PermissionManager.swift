@@ -2,7 +2,7 @@ import AppKit
 import ApplicationServices
 import CoreGraphics
 
-enum PermissionType {
+enum PermissionType: Equatable {
     case accessibility
     case inputMonitoring
 }
@@ -84,7 +84,11 @@ final class PermissionManager {
         }
     }
 
-    func openSystemSettingsForPermission(_ type: PermissionType) {
+    @discardableResult
+    func openSystemSettingsForPermission(
+        _ type: PermissionType,
+        preferGeneralPrivacy: Bool = false
+    ) -> PermissionSettingsOpenResult {
         var urlString: String?
 
         switch type {
@@ -94,9 +98,23 @@ final class PermissionManager {
             urlString = "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
         }
 
-        if let urlString, let url = URL(string: urlString) {
-            NSWorkspace.shared.open(url)
+        if !preferGeneralPrivacy,
+           let urlString,
+           let url = URL(string: urlString),
+           NSWorkspace.shared.open(url) {
+            return .permissionPane
         }
+
+        let fallbacks = [
+            "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension",
+            "x-apple.systempreferences:com.apple.preference.security"
+        ]
+        for fallback in fallbacks {
+            if let url = URL(string: fallback), NSWorkspace.shared.open(url) {
+                return .privacyAndSecurity
+            }
+        }
+        return .failed
     }
 
     // MARK: - Permission Prompt UI
@@ -172,5 +190,37 @@ final class PermissionManager {
         }
 
         return status
+    }
+}
+
+extension PermissionManager: PermissionClient {
+    func isGranted(_ type: PermissionType) -> Bool {
+        switch type {
+        case .accessibility:
+            return checkAccessibilityPermission()
+        case .inputMonitoring:
+            return checkInputMonitoringPermission()
+        }
+    }
+
+    @discardableResult
+    func request(_ type: PermissionType) -> Bool {
+        switch type {
+        case .accessibility:
+            return requestAccessibilityPermission()
+        case .inputMonitoring:
+            return requestInputMonitoringPermission()
+        }
+    }
+
+    @discardableResult
+    func openSettings(
+        _ type: PermissionType,
+        preferGeneralPrivacy: Bool
+    ) -> PermissionSettingsOpenResult {
+        openSystemSettingsForPermission(
+            type,
+            preferGeneralPrivacy: preferGeneralPrivacy
+        )
     }
 }

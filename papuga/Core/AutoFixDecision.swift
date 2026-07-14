@@ -75,6 +75,37 @@ enum AutoFixDecision {
         return containsLatinLetter(candidate) && !containsCyrillicLetter(candidate)
     }
 
+    static func shouldSuppressPhraseAutoReplace(
+        original: String,
+        candidate: String,
+        sourceLanguage: String,
+        targetLanguage: String,
+        allowlist: [String],
+        isKnownCorrect: ((String, String) -> Bool)? = nil
+    ) -> Bool {
+        let source = sourceLanguage.lowercased()
+        let target = targetLanguage.lowercased()
+        guard source == "en",
+              target == "uk" || target == "ru",
+              isCrossScriptConversion(original: original, candidate: candidate)
+        else {
+            return false
+        }
+
+        let originalWords = words(in: original)
+        guard originalWords.count >= 3 else { return false }
+        let spellcheck = isKnownCorrect ?? { word, language in
+            AutoFixDecision.isCorrectlySpelled(word, language: language)
+        }
+
+        return originalWords.allSatisfy { word in
+            isInAllowlist(word, allowlist: allowlist)
+                || ProtectedLexiconStore.shared.isProtectedSource(word)
+                || AutoFixTokenClassifier.isIntentionalMixedLanguageToken(word)
+                || spellcheck(word, source)
+        }
+    }
+
     static func isWordBoundary(keyCode: UInt16, typedString: String) -> Bool {
         // Only whitespace is a universal word boundary. Punctuation like ';' or ','
         // is layout-dependent: ';' on US is `ж` on Ukrainian-PC, ',' on US is `б`
