@@ -77,8 +77,8 @@ struct MistakesView: View {
             engine.configure(layoutManager: layoutManager)
             engine.bootstrap()
         }
-        .onChange(of: store.entries.count) {
-            engine.noteNewObservations()
+        .onChange(of: store.entries) {
+            engine.noteInputsChanged()
         }
         .sheet(item: $editorSeed) { seed in
             RuleEditorSheet(
@@ -722,7 +722,7 @@ struct MistakesView: View {
                 .filter { $0.status == .open && keys.contains($0.normalizedSource) }
                 .map(\.id)
             store.updateStatus(forIDs: ids, to: .addedToDictionary)
-            engine.noteNewObservations()
+            engine.noteInputsChanged()
         }
     }
 
@@ -739,14 +739,14 @@ struct MistakesView: View {
                 .filter { $0.status == .open && $0.normalizedSource == key }
                 .map(\.id)
             store.updateStatus(forIDs: ids, to: .addedToDictionary)
-            engine.noteNewObservations()
+            engine.noteInputsChanged()
         }
     }
 
     private func markPending(_ status: MistakeObservation.Status) {
         store.updateStatus(forIDs: pendingObservationIDs, to: status)
         pendingObservationIDs = []
-        engine.noteNewObservations()
+        engine.noteInputsChanged()
     }
 }
 

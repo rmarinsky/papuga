@@ -2,17 +2,37 @@ import Defaults
 import SwiftUI
 
 struct ReplacementsHistorySectionView: View {
+    private enum Mode: String, CaseIterable, Identifiable {
+        case completed
+        case potential
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .completed: return "Виконані"
+            case .potential: return "Потенційні"
+            }
+        }
+    }
+
     var compactChrome = false
 
     @Environment(LayoutManager.self) private var layoutManager
 
     @State private var analyzer = MistakeSuggestionAnalyzer()
     @State private var store = ReplacementHistoryStore.shared
+    @State private var mistakeStore = MistakeObservationStore.shared
+    @State private var predictionEngine = PredictionEngine.shared
+    @State private var mode: Mode = .completed
     @State private var range: HistoryTimeRange = .today
     @State private var query = ""
     @State private var editorSeed: RuleEditorSeed?
+    @State private var pendingPotentialObservationID: UUID?
 
     @Default(.replacementHistoryEnabled) private var historyEnabled
+    @Default(.autoFixAllowlist) private var autoFixAllowlist
+    @Default(.customAutoReplaceRules) private var customAutoReplaceRules
 
     init(compactChrome: Bool = false) {
         self.compactChrome = compactChrome
@@ -22,26 +42,68 @@ struct ReplacementsHistorySectionView: View {
         ActionableHistoryScreen(
             range: $range,
             query: $query,
-            clearDisabled: rangeEntries.isEmpty,
+            clearDisabled: mode == .potential || rangeEntries.isEmpty,
             clearConfirmationTitle: "Очистити історію замін \(range.clearScopeTitle)?",
             onClear: clearCurrentRange
         ) {
             VStack(alignment: .leading, spacing: 14) {
-                if historyEnabled {
-                    ActionableSuggestionsSection(items: suggestionItems)
-                    content
-                } else {
-                    disabledView
+                modePicker
+                switch mode {
+                case .completed:
+                    if historyEnabled {
+                        ActionableSuggestionsSection(items: suggestionItems)
+                        completedContent
+                    } else {
+                        disabledView
+                    }
+                case .potential:
+                    potentialContent
                 }
             }
         }
         .sheet(item: $editorSeed) { seed in
-            RuleEditorSheet(seed: seed) { editorSeed = nil }
+            RuleEditorSheet(
+                seed: seed,
+                onClose: {
+                    editorSeed = nil
+                    pendingPotentialObservationID = nil
+                },
+                onSave: { result in
+                    resolvePendingPotential(
+                        as: result.mode == .replace ? .convertedToRule : .addedToDictionary
+                    )
+                }
+            )
+        }
+        .task {
+            predictionEngine.configure(layoutManager: layoutManager)
+            predictionEngine.bootstrap()
+        }
+        .onChange(of: mistakeStore.entries) {
+            predictionEngine.noteInputsChanged()
+        }
+        .onChange(of: autoFixAllowlist) {
+            predictionEngine.noteInputsChanged()
+        }
+        .onChange(of: customAutoReplaceRules) {
+            predictionEngine.noteInputsChanged()
         }
     }
 
+    private var modePicker: some View {
+        Picker("Тип історії", selection: $mode) {
+            ForEach(Mode.allCases) { mode in
+                Text(mode.title).tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(maxWidth: 280)
+        .accessibilityLabel("Тип історії замін")
+    }
+
     @ViewBuilder
-    private var content: some View {
+    private var completedContent: some View {
         if visibleEntries.isEmpty {
             emptyView
         } else {
@@ -60,6 +122,63 @@ struct ReplacementsHistorySectionView: View {
             }
             .background(historyCardBackground)
         }
+    }
+
+    @ViewBuilder
+    private var potentialContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "wand.and.stars")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color("BrandAccentDeep"))
+                Text("Журнал потенційних замін")
+                    .font(.system(size: 13, weight: .semibold))
+                Spacer()
+                if predictionEngine.phase == .analyzing {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel("Papuga аналізує історію")
+                } else {
+                    Text("\(visiblePotentialEntries.count)")
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
+
+            if visiblePotentialEntries.isEmpty {
+                potentialEmptyView
+            } else {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(visiblePotentialEntries.enumerated()), id: \.element.id) { index, entry in
+                        if index > 0 { Divider().opacity(0.45) }
+                        PotentialReplacementActionRow(
+                            entry: entry,
+                            onCreateRule: { openRuleEditor(for: entry) },
+                            onIgnore: { ignore(entry) }
+                        )
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .background(historyCardBackground)
+    }
+
+    private var potentialEmptyView: some View {
+        HStack(spacing: 10) {
+            Image(systemName: predictionEngine.phase == .analyzing ? "hourglass" : "checkmark.circle")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(.tertiary)
+            Text(
+                predictionEngine.phase == .analyzing
+                    ? "Papuga аналізує збережену історію — записи зʼявлятимуться тут."
+                    : (query.isEmpty ? "Потенційних замін у цьому періоді немає." : "Нічого не знайдено.")
+            )
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 8)
     }
 
     private var disabledView: some View {
@@ -107,6 +226,39 @@ struct ReplacementsHistorySectionView: View {
     }
 
     // MARK: - Derived Data
+
+    private var handledSources: Set<String> {
+        LearnedVocabulary.handledSources(
+            allowlist: autoFixAllowlist,
+            rules: customAutoReplaceRules
+        )
+        .union(predictionEngine.domainVocabulary)
+    }
+
+    private var potentialEntries: [PotentialReplacementLogEntry] {
+        PotentialReplacementLogEntry.derive(
+            observations: mistakeStore.entries,
+            predictedTargetsByObservationID: predictionEngine.actionableTargetsByObservationID,
+            handledSources: handledSources
+        )
+    }
+
+    private var rangePotentialEntries: [PotentialReplacementLogEntry] {
+        let now = Date()
+        return potentialEntries.filter { range.contains($0.timestamp, now: now) }
+    }
+
+    private var visiblePotentialEntries: [PotentialReplacementLogEntry] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !q.isEmpty else { return rangePotentialEntries }
+        return rangePotentialEntries.filter { entry in
+            let inText = entry.source.lowercased().contains(q) || entry.target.lowercased().contains(q)
+            let inApp = entry.bundleID.map {
+                AppContextProvider.displayName(forBundleID: $0).lowercased().contains(q)
+            } ?? false
+            return inText || inApp || entry.origin.searchText.contains(q)
+        }
+    }
 
     private var rangeEntries: [ReplacementHistoryEntry] {
         let now = Date()
@@ -207,6 +359,11 @@ struct ReplacementsHistorySectionView: View {
         openRuleEditor(source: entry.original, target: target ?? entry.converted)
     }
 
+    private func openRuleEditor(for entry: PotentialReplacementLogEntry) {
+        pendingPotentialObservationID = entry.id
+        openRuleEditor(source: entry.source, target: entry.target)
+    }
+
     private func openRuleEditor(source: String, target: String? = nil) {
         editorSeed = RuleEditorSeed(
             source: HistoryWordActionPolicy.normalizedSource(source),
@@ -217,6 +374,19 @@ struct ReplacementsHistorySectionView: View {
 
     private func ignore(_ entry: ReplacementHistoryEntry) {
         IgnoreWordService.add(entry.original)
+    }
+
+    private func ignore(_ entry: PotentialReplacementLogEntry) {
+        IgnoreWordService.add(entry.source)
+        mistakeStore.updateStatus(forIDs: [entry.id], to: .addedToDictionary)
+        predictionEngine.noteInputsChanged()
+    }
+
+    private func resolvePendingPotential(as status: MistakeObservation.Status) {
+        guard let id = pendingPotentialObservationID else { return }
+        mistakeStore.updateStatus(forIDs: [id], to: status)
+        pendingPotentialObservationID = nil
+        predictionEngine.noteInputsChanged()
     }
 
     private func ruleTarget(
@@ -231,6 +401,123 @@ struct ReplacementsHistorySectionView: View {
         guard target.caseInsensitiveCompare(source) != .orderedSame else { return nil }
         return target
     }
+}
+
+private extension PotentialReplacementLogEntry.Origin {
+    var title: String {
+        switch self {
+        case .recorded: return "Записана корекція"
+        case .prediction: return "Прогноз Papuga"
+        }
+    }
+
+    var searchText: String { title.lowercased() }
+
+    var systemImage: String {
+        switch self {
+        case .recorded: return "arrow.uturn.backward.circle"
+        case .prediction: return "wand.and.stars"
+        }
+    }
+}
+
+private struct PotentialReplacementActionRow: View {
+    let entry: PotentialReplacementLogEntry
+    let onCreateRule: () -> Void
+    let onIgnore: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            appGlyph
+                .frame(width: 24, height: 24)
+
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 8) {
+                    Label(entry.origin.title, systemImage: entry.origin.systemImage)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    if let appName {
+                        Text(appName)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Text(timestampText)
+                        .font(.system(size: 11).monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                }
+
+                ReplacementReceipt(
+                    source: entry.source,
+                    target: entry.target,
+                    strikethroughSource: true
+                )
+            }
+
+            Spacer(minLength: 12)
+
+            HStack(spacing: 8) {
+                Button(action: onIgnore) {
+                    Label("Не чіпати", systemImage: "character.book.closed")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("Зберегти слово у словник — Papuga більше не пропонуватиме цю заміну")
+
+                Button(action: onCreateRule) {
+                    Label("Створити правило", systemImage: "wand.and.stars")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .tint(Color("BrandAccentDeep"))
+                .help("Створити правило з цієї потенційної заміни")
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var appGlyph: some View {
+        if let bundleID = entry.bundleID, !bundleID.isEmpty,
+           let icon = AppContextProvider.icon(forBundleID: bundleID) {
+            Image(nsImage: icon)
+                .resizable()
+                .interpolation(.high)
+        } else {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color("BrandTintSoft"))
+                Image(systemName: entry.origin.systemImage)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color("BrandAccentDeep"))
+            }
+        }
+    }
+
+    private var appName: String? {
+        guard let bundleID = entry.bundleID, !bundleID.isEmpty else { return nil }
+        return AppContextProvider.displayName(forBundleID: bundleID)
+    }
+
+    private var timestampText: String {
+        "\(relativeDay), \(Self.timeFormatter.string(from: entry.timestamp))"
+    }
+
+    private var relativeDay: String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(entry.timestamp) { return "сьогодні" }
+        if calendar.isDateInYesterday(entry.timestamp) { return "вчора" }
+        return entry.timestamp.formatted(.dateTime.weekday(.abbreviated))
+    }
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = .current
+        formatter.setLocalizedDateFormatFromTemplate("HH:mm")
+        return formatter
+    }()
 }
 
 private struct ReplacementActionRow: View {

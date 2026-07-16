@@ -22,6 +22,9 @@ final class PredictionEngine {
     private(set) var totalCount = 0
     private(set) var liveFeed: [FoundPair] = []
     private(set) var ranked: [PredictionGroup] = []
+    /// Concrete target per retained observation, used by History to render one
+    /// potential-replacement log row per occurrence.
+    private(set) var actionableTargetsByObservationID: [UUID: String] = [:]
     /// All mistakes grouped by mutual similarity — drives the "Усі" tab.
     private(set) var errorClusters: [ErrorCluster] = []
 
@@ -65,6 +68,7 @@ final class PredictionEngine {
     private let domainVocabURL: URL
     private var analysisTask: Task<Void, Never>?
     private var noteDebounce: Task<Void, Never>?
+    private var hasBootstrapped = false
     private let logger = Logger(subsystem: Constants.bundleIdentifier, category: "Prediction")
 
     init(
@@ -102,6 +106,11 @@ final class PredictionEngine {
     /// Call once at launch: load the disk cache, then background-analyze anything
     /// not yet cached.
     func bootstrap() {
+        if hasBootstrapped {
+            analyze(observations: store.entries, force: false)
+            return
+        }
+        hasBootstrapped = true
         loadCacheFromDisk()
         loadDomainVocabularyFromDisk()
         harvestProducedCorpus()
@@ -113,8 +122,9 @@ final class PredictionEngine {
         analyze(observations: store.entries, force: force)
     }
 
-    /// A new mistake was just recorded — fold it in without a full rescan.
-    func noteNewObservations() {
+    /// Observations or handled vocabulary changed — refresh the current snapshot.
+    func noteInputsChanged() {
+        phase = .analyzing
         noteDebounce?.cancel()
         noteDebounce = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(400))
@@ -329,7 +339,14 @@ final class PredictionEngine {
     }
 
     private func publishRanked(groups: [MistakeGroupData]) {
-        ranked = mergedGroups(from: groups).sorted { lhs, rhs in
+        let merged = mergedGroups(from: groups)
+        actionableTargetsByObservationID = merged.reduce(into: [:]) { targets, group in
+            guard let target = group.primaryTarget else { return }
+            for observationID in group.observationIDs {
+                targets[observationID] = target
+            }
+        }
+        ranked = merged.sorted { lhs, rhs in
             if lhs.score != rhs.score { return lhs.score > rhs.score }
             if lhs.count != rhs.count { return lhs.count > rhs.count }
             return lhs.lastSeen > rhs.lastSeen
@@ -363,6 +380,7 @@ final class PredictionEngine {
     }
 
     private func primaryTarget(for group: MistakeGroupData, candidates: [MistakeSuggestionCandidate]) -> String? {
+        guard !group.sourceTruncated else { return nil }
         if let target = group.target,
            !group.targetTruncated,
            let sanitized = HistoryWordActionPolicy.sanitizedTarget(target),
@@ -421,6 +439,11 @@ final class PredictionEngine {
     /// Run one full analysis synchronously to completion (benchmark/test only).
     func analyzeToCompletionForTesting(observations: [MistakeObservation], force: Bool) async {
         analyze(observations: observations, force: force)
+        await analysisTask?.value
+    }
+
+    func bootstrapToCompletionForTesting() async {
+        bootstrap()
         await analysisTask?.value
     }
 

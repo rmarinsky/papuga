@@ -28,7 +28,7 @@ enum AISuggestionApplier {
         for suggestion in suggestions {
             applyOne(suggestion, items: items, store: store, openCheck: openCheck, outcome: &outcome)
         }
-        engine.noteNewObservations()
+        engine.noteInputsChanged()
         return outcome
     }
 
@@ -49,7 +49,7 @@ enum AISuggestionApplier {
             progress?(index + 1, total)
             await Task.yield()
         }
-        engine.noteNewObservations()
+        engine.noteInputsChanged()
         return outcome
     }
 
