@@ -7,6 +7,70 @@ enum PredictionPhase: Equatable {
     case ready       // everything in the current dataset is analyzed
 }
 
+/// One chronological History row for a change Papuga could make but has not
+/// applied. Every retained occurrence gets its own row, including repeats.
+struct PotentialReplacementLogEntry: Identifiable, Equatable {
+    enum Origin: Equatable {
+        case recorded
+        case prediction
+    }
+
+    let id: UUID
+    let timestamp: Date
+    let source: String
+    let target: String
+    let language: String
+    let bundleID: String?
+    let origin: Origin
+
+    static func derive(
+        observations: [MistakeObservation],
+        predictedTargetsByObservationID: [UUID: String],
+        handledSources: Set<String>
+    ) -> [PotentialReplacementLogEntry] {
+        observations.compactMap { observation in
+            guard observation.status == .open,
+                  !observation.sourceTruncated,
+                  !handledSources.contains(observation.normalizedSource) else {
+                return nil
+            }
+
+            let recordedTarget = concreteRecordedTarget(observation)
+            let predictedTarget = concreteTarget(
+                predictedTargetsByObservationID[observation.id],
+                source: observation.source
+            )
+            guard let target = recordedTarget ?? predictedTarget else { return nil }
+
+            return PotentialReplacementLogEntry(
+                id: observation.id,
+                timestamp: observation.timestamp,
+                source: observation.source,
+                target: target,
+                language: observation.language,
+                bundleID: observation.bundleID,
+                origin: recordedTarget == nil ? .prediction : .recorded
+            )
+        }
+        .sorted { lhs, rhs in
+            if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
+            return lhs.id.uuidString < rhs.id.uuidString
+        }
+    }
+
+    private static func concreteRecordedTarget(_ observation: MistakeObservation) -> String? {
+        guard !observation.targetTruncated else { return nil }
+        return concreteTarget(observation.suggestedTarget, source: observation.source)
+    }
+
+    private static func concreteTarget(_ target: String?, source: String) -> String? {
+        guard let target = HistoryWordActionPolicy.sanitizedTarget(target) else { return nil }
+        let source = HistoryWordActionPolicy.normalizedSource(source)
+        guard target.caseInsensitiveCompare(source) != .orderedSame else { return nil }
+        return target
+    }
+}
+
 /// The expensive, cacheable part of a prediction: the candidate corrections for
 /// one (source, language) — stable across re-renders and app launches. Persisted
 /// to disk so a relaunch doesn't recompute what hasn't changed.
