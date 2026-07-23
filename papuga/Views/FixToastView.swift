@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// Floating "papuga did a flip" toast that appears near the cursor for ~2 s after
-/// an auto-fix. Click it to undo the fix and add the original word to the allowlist
-/// so it won't be auto-fixed again.
+/// an auto-fix. Clicking it only undoes that occurrence; persistent ignoring is a
+/// separate, explicitly labelled proposal action.
 struct FixToastView: View {
     let onClick: () -> Void
 
@@ -65,6 +65,7 @@ struct FixToastView: View {
             .opacity(opacity)
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("autofix-undo-action")
         .onHover { hover = $0 }
         .onAppear {
             withAnimation(.spring(response: 0.55, dampingFraction: 0.65)) {
@@ -76,5 +77,25 @@ struct FixToastView: View {
                 spin = 360
             }
         }
+    }
+}
+
+struct FixRecoveryView: View {
+    let title: String
+    let onClick: () -> Void
+
+    var body: some View {
+        Button(action: onClick) {
+            Label(title, systemImage: "arrow.uturn.backward.circle.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color("BrandAccentDeep"))
+                .padding(.horizontal, 12)
+                .frame(height: 34)
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay(Capsule().strokeBorder(.white.opacity(0.28), lineWidth: 0.8))
+                .shadow(color: .black.opacity(0.18), radius: 8, x: 0, y: 4)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("autofix-recovery-action")
     }
 }

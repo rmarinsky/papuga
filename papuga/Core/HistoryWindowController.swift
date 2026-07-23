@@ -21,7 +21,7 @@ enum HistorySection: String, Identifiable, CaseIterable {
         switch self {
         case .overview: return "Огляд"
         case .typingTest: return "Тест набору"
-        case .history: return "Історія замін"
+        case .history: return "Рішення Papuga"
         case .clipboard: return "Копіопасти"
         case .mistakes: return "Помилки введення"
         case .dictionary: return "Словник"
@@ -38,7 +38,7 @@ enum HistorySection: String, Identifiable, CaseIterable {
         switch self {
         case .overview: return "square.grid.2x2"
         case .typingTest: return "keyboard"
-        case .history: return "clock.arrow.circlepath"
+        case .history: return "function"
         case .clipboard: return "doc.on.clipboard"
         case .mistakes: return "text.magnifyingglass"
         case .dictionary: return "book.closed"

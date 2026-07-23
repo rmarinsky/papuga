@@ -8,7 +8,7 @@ struct SpellingTypoGuardAssessment: Equatable {
 }
 
 enum AutoFixDecision {
-    static func shouldSkipWord(_ word: String, minLength: Int = 3) -> SkipReason? {
+    static func shouldSkipWord(_ word: String, minLength: Int = 2) -> SkipReason? {
         if word.count < minLength { return .tooShort }
         // `.` and `/` are NOT blanket-forbidden: on Ukrainian-PC `.` is `ю`, so a
         // word like `.hsq` typed in EN actually maps to `юрій`. Only skip when
@@ -27,6 +27,17 @@ enum AutoFixDecision {
         threshold: Double
     ) -> Bool {
         return scoreCandidate - scoreOriginal >= threshold
+    }
+
+    static func spellingConfidence(
+        original: String,
+        suggestion: String,
+        editDistance: Int
+    ) -> Double {
+        let longestLength = max(original.count, suggestion.count)
+        guard longestLength > 0 else { return 0 }
+        let similarity = 1 - Double(max(0, editDistance)) / Double(longestLength)
+        return min(1, max(0, similarity))
     }
 
     static func shouldSuggestPhraseLayoutMistake(
@@ -287,7 +298,7 @@ enum AutoFixDecision {
         }
     }
 
-    private static func spellingEditDistance(_ lhs: String, _ rhs: String) -> Int {
+    static func spellingEditDistance(_ lhs: String, _ rhs: String) -> Int {
         let a = Array(lhs)
         let b = Array(rhs)
         guard !a.isEmpty else { return b.count }

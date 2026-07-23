@@ -1,6 +1,6 @@
 import Foundation
 
-enum LanguageScorerAlgorithm: String, CaseIterable {
+enum LanguageScorerAlgorithm: String, CaseIterable, Codable {
     case appleNL
     case ngram
     case cld3

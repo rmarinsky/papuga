@@ -190,7 +190,7 @@ struct TypingSpeedTestView: View {
                     Text("Результат: \(Int(metrics.wordsPerMinute.rounded())) WPM, \(Int((metrics.accuracy * 100).rounded()))% точності, \(metrics.errorCharacters) помилок.")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
-                    Text("Тепер зекономлений час рахується з твоєї швидкості друку.")
+                    Text("Тепер економію часу рахуємо з твоєї швидкості друку.")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }

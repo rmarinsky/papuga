@@ -45,8 +45,8 @@ struct GeneralTab: View {
                 .pickerStyle(.menu)
             }
 
-            Section("Історія замін") {
-                Toggle("Зберігати історію замін", isOn: $replacementHistoryEnabled)
+            Section("Журнал рішень") {
+                Toggle("Зберігати журнал рішень", isOn: $replacementHistoryEnabled)
 
                 Picker("Зберігати", selection: $replacementHistoryRetention) {
                     ForEach(ReplacementHistoryRetention.allCases, id: \.rawValue) { preset in
@@ -56,24 +56,25 @@ struct GeneralTab: View {
                 .pickerStyle(.menu)
                 .disabled(!replacementHistoryEnabled)
 
-                Toggle("Відкривати вікно «Історія» при запуску", isOn: $openHistoryOnAppLaunch)
+                Toggle("Відкривати Papuga при запуску", isOn: $openHistoryOnAppLaunch)
 
                 Button(role: .destructive) {
                     showingClearHistoryConfirmation = true
                 } label: {
-                    Label("Очистити історію замін…", systemImage: "trash")
+                    Label("Очистити журнал рішень…", systemImage: "trash")
                 }
                 .confirmationDialog(
-                    "Очистити історію замін?",
+                    "Очистити журнал рішень?",
                     isPresented: $showingClearHistoryConfirmation,
                     titleVisibility: .visible
                 ) {
                     Button("Очистити", role: .destructive) {
+                        AutoFixDecisionHistoryStore.shared.clearAll()
                         ReplacementHistoryStore.shared.clearAll()
                     }
                     Button("Скасувати", role: .cancel) {}
                 } message: {
-                    Text("Усі записи про ручні перемикання та події автозаміни буде видалено.")
+                    Text("Усі локальні розрахунки Papuga та пов’язані записи автозаміни буде видалено.")
                 }
             }
 
@@ -100,6 +101,10 @@ struct GeneralTab: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             checkPermissionsPassive()
+        }
+        .onChange(of: replacementHistoryRetention) {
+            AutoFixDecisionHistoryStore.shared.pruneByRetentionAsync()
+            ReplacementHistoryStore.shared.pruneByRetentionAsync()
         }
     }
 

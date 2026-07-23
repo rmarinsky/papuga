@@ -34,7 +34,7 @@ struct AutoFixTab: View {
                 }
 
                 Toggle("Показувати папугу-сальто біля курсора", isOn: $autoFixToastEnabled)
-                Text("Якщо клікнути по папузі — заміна скасується, а слово запам'ятається у списку «не чіпати» і словнику macOS")
+                Text("Якщо клікнути по папузі — поточна заміна скасується. Протягом 10 секунд її можна застосувати знову.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -62,12 +62,12 @@ struct AutoFixTab: View {
                     .foregroundStyle(.secondary)
 
                 Toggle("Показувати пропозиції біля курсора", isOn: $autoFixProposalEnabled)
-                Text("Сумнівні слова та фрази Papuga покаже як підказку: Enter замінює, Esc ігнорує надалі.")
+                Text("Сумнівні слова та речення Papuga покаже як підказку: Enter замінює, а Esc або × тимчасово закриває її з можливістю повернути протягом 10 секунд.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
                 Toggle("Не чіпати правописні опечатки", isOn: $autoFixSpellingTypoGuardEnabled)
-                Text("Опечатки в поточній мові лишаються як є, замість перетворення в іншу розкладку.")
+                Text("Для ймовірної опечатки Papuga запропонує орфографічне виправлення, але не застосує його автоматично й не перемкне розкладку.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -215,7 +215,7 @@ private enum AutoFixSensitivityPreset: String, CaseIterable, Identifiable {
     var minWordLength: Int {
         switch self {
         case .careful: return 4
-        case .balanced: return 3
+        case .balanced: return 2
         case .moreHints: return 2
         }
     }

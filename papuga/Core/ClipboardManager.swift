@@ -108,10 +108,12 @@ final class ClipboardManager {
         let source = CGEventSource(stateID: .hidSystemState)
 
         let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x08, keyDown: true) // C key
+        PapugaSyntheticEvent.tag(keyDown)
         keyDown?.flags = .maskCommand
         keyDown?.post(tap: .cgAnnotatedSessionEventTap)
 
         let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x08, keyDown: false)
+        PapugaSyntheticEvent.tag(keyUp)
         keyUp?.flags = .maskCommand
         keyUp?.post(tap: .cgAnnotatedSessionEventTap)
         AppLogger.post(logger, "simulateCopy posted Cmd+C")
@@ -122,10 +124,12 @@ final class ClipboardManager {
         let source = CGEventSource(stateID: .hidSystemState)
 
         let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true) // V key
+        PapugaSyntheticEvent.tag(keyDown)
         keyDown?.flags = .maskCommand
         keyDown?.post(tap: .cgAnnotatedSessionEventTap)
 
         let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
+        PapugaSyntheticEvent.tag(keyUp)
         keyUp?.flags = .maskCommand
         keyUp?.post(tap: .cgAnnotatedSessionEventTap)
         AppLogger.post(logger, "simulatePaste posted Cmd+V")
