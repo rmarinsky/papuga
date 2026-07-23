@@ -352,9 +352,8 @@ private struct ProductMark: View {
                 RoundedRectangle(cornerRadius: size * 0.26, style: .continuous)
                     .fill(Color(nsColor: .secondaryLabelColor).opacity(0.72))
                     .frame(width: size * 0.78, height: size * 0.54)
-                Image(systemName: "bird.fill")
-                    .font(.system(size: size * 0.34, weight: .semibold))
-                    .foregroundStyle(.white)
+                Text("🦜")
+                    .font(.system(size: size * 0.42))
             default:
                 RoundedRectangle(cornerRadius: size * 0.22, style: .continuous)
                     .fill(product.tintSoft)
