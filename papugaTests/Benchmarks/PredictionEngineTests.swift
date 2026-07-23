@@ -303,6 +303,40 @@ final class PredictionEngineTests: XCTestCase {
         XCTAssertEqual(clusterMember.isCoreRuleCreationAllowed, false)
     }
 
+    func test_primaryTarget_prefersValidExactLayoutOverInvalidRecordedEdit() {
+        let observation = MistakeObservation(
+            issueType: .manualCorrection,
+            source: "nfrj;",
+            suggestedTarget: "nfr",
+            language: "en",
+            confidence: 0.9
+        )
+        let group = MistakeGroupData(entries: [observation])
+        let candidates = [
+            MistakeSuggestionCandidate(kind: .recorded, text: "nfr", confidence: 0.9),
+            MistakeSuggestionCandidate(
+                kind: .keyboardLayout,
+                text: "також",
+                confidence: 0.82,
+                replacementPlan: ReplacementPlan(
+                    rawSource: "nfrj;",
+                    correctedCore: "також",
+                    preservedLeadingPunctuation: "",
+                    preservedTrailingPunctuation: "",
+                    renderedReplacement: "також",
+                    boundary: "",
+                    interpretationReason: .layoutFullToken
+                )
+            )
+        ]
+        let engine = PredictionEngine(
+            analyzer: MistakeSuggestionAnalyzer(spellChecker: CountingSpellChecker()),
+            cacheURL: tempCacheURL()
+        )
+
+        XCTAssertEqual(engine.primaryTarget(for: group, candidates: candidates), "також")
+    }
+
     // MARK: - Benchmark on real data (gated)
 
     func test_bench_engine_realData() async throws {

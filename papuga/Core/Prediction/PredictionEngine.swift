@@ -379,12 +379,18 @@ final class PredictionEngine {
         })
     }
 
-    private func primaryTarget(for group: MistakeGroupData, candidates: [MistakeSuggestionCandidate]) -> String? {
+    func primaryTarget(for group: MistakeGroupData, candidates: [MistakeSuggestionCandidate]) -> String? {
         guard !group.sourceTruncated else { return nil }
         if let target = group.target,
            !group.targetTruncated,
            let sanitized = HistoryWordActionPolicy.sanitizedTarget(target),
            sanitized.caseInsensitiveCompare(HistoryWordActionPolicy.normalizedSource(group.source)) != .orderedSame {
+            if !WordPlausibility.isWordLike(sanitized),
+               let validLayout = candidates.first(where: {
+                   $0.kind == .keyboardLayout && WordPlausibility.isWordLike($0.text)
+               }) {
+                return validLayout.text
+            }
             return sanitized
         }
         return candidates.first?.text
