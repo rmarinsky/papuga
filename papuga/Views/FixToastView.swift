@@ -53,9 +53,8 @@ struct FixToastView: View {
                             .animation(.easeInOut(duration: 0.15), value: hover)
                     )
 
-                Image(systemName: "bird.fill")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(Color("BrandAccentDeep"))
+                Text("🦜")
+                    .font(.system(size: 24))
                     .rotationEffect(.degrees(spin))
                     .scaleEffect(hover ? 1.18 : 1.0)
                     .animation(.spring(response: 0.25, dampingFraction: 0.5), value: hover)
