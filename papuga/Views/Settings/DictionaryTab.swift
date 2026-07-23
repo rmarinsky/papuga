@@ -7,6 +7,7 @@ import SwiftUI
 struct DictionaryTab: View {
     @Default(.autoFixAllowlist) private var allowlist
     @Default(.customAutoReplaceRules) private var customRules
+    @Default(.quarantinedAutoReplaceRules) private var quarantinedRules
 
     @State private var editorSeed: RuleEditorSeed?
 
@@ -15,6 +16,9 @@ struct DictionaryTab: View {
             VStack(alignment: .leading, spacing: 18) {
                 dontReplaceCard
                 alwaysReplaceCard
+                if !quarantinedRules.isEmpty {
+                    quarantinedRulesCard
+                }
             }
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -22,6 +26,30 @@ struct DictionaryTab: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .sheet(item: $editorSeed) { seed in
             RuleEditorSheet(seed: seed) { editorSeed = nil }
+        }
+    }
+
+    private var quarantinedRulesCard: some View {
+        SectionCard(
+            eyebrow: "ПОТРЕБУЮТЬ ПЕРЕВІРКИ",
+            title: "Призупинені правила з пунктуацією",
+            subtitle: "Papuga не застосовує ці старі правила: крайній знак міг бути або пунктуацією, або частиною іншої розкладки."
+        ) {
+            VStack(spacing: 8) {
+                ForEach(quarantinedRules) { rule in
+                    HStack(spacing: 10) {
+                        Text("\(rule.source) → \(rule.target)")
+                            .font(.system(size: 12, design: .monospaced))
+                            .textSelection(.enabled)
+                        Spacer()
+                        Button("Видалити") {
+                            quarantinedRules.removeAll { $0.id == rule.id }
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.red)
+                    }
+                }
+            }
         }
     }
 

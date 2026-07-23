@@ -91,7 +91,8 @@ enum AutoFixDecision {
         candidate: String,
         sourceLanguage: String,
         targetLanguage: String,
-        allowlist: [String]
+        allowlist: [String],
+        isKnownCorrect: ((String, String) -> Bool)? = nil
     ) -> Bool {
         let source = sourceLanguage.lowercased()
         let target = targetLanguage.lowercased()
@@ -104,12 +105,15 @@ enum AutoFixDecision {
 
         let originalWords = words(in: original)
         guard originalWords.count >= 3 else { return false }
+        let spellcheck = isKnownCorrect ?? { word, language in
+            AutoFixDecision.isCorrectlySpelled(word, language: language)
+        }
 
         return originalWords.allSatisfy { word in
             isInAllowlist(word, allowlist: allowlist)
                 || ProtectedLexiconStore.shared.isProtectedSource(word)
                 || AutoFixTokenClassifier.isIntentionalMixedLanguageToken(word)
-                || isCorrectlySpelled(word, language: source)
+                || spellcheck(word, source)
         }
     }
 

@@ -6,6 +6,31 @@ struct AIPromptItem: Equatable {
     let source: String
     let language: String
     let observationIDs: [UUID]
+    /// Kept locally only; the AI sees `source` (core), while apply-time safety
+    /// can still detect punctuation-looking keys consumed by a layout mapping.
+    let rawSources: [String]
+
+    init(
+        source: String,
+        language: String,
+        observationIDs: [UUID],
+        rawSources: [String]? = nil
+    ) {
+        self.source = source
+        self.language = language
+        self.observationIDs = observationIDs
+        self.rawSources = rawSources ?? [source]
+    }
+
+    func canCreateCoreRule(target: String, tag: AISuggestionTag) -> Bool {
+        rawSources.allSatisfy {
+            CoreRuleSafety.canCreateWithoutLayoutInterpretation(
+                rawSource: $0,
+                targetCore: target,
+                isLayoutCandidate: tag == .layout
+            )
+        }
+    }
 }
 
 /// Everything one round-trip needs: the prompt to hand to the user's AI, the validation
@@ -47,13 +72,16 @@ enum AIPromptBuilder {
         var order: [String] = []
         var merged: [String: Merged] = [:]
         for group in groups {
-            let key = MistakeObservation.normalizedToken(group.source) + "\u{1}" + group.language
+            let sourceCore = BufferedToken.normalizedCore(from: group.source)
+            let targetCore = group.target.map(BufferedToken.normalizedCore(from:))
+            let key = MistakeObservation.normalizedToken(sourceCore) + "\u{1}" + group.language
             if var existing = merged[key] {
                 existing.count += group.count
                 existing.observationIDs.append(contentsOf: group.observationIDs)
-                if existing.target == nil { existing.target = group.target }
+                existing.rawSources.formUnion(group.entries.map(\.source))
+                if existing.target == nil { existing.target = targetCore }
                 if existing.truncated, !group.sourceTruncated {
-                    existing.source = group.source
+                    existing.source = sourceCore
                     existing.truncated = false
                 }
                 if existing.issueType != .layoutCandidate, group.issueType == .layoutCandidate {
@@ -66,13 +94,14 @@ enum AIPromptBuilder {
                 var appCounts: [String: Int] = [:]
                 if let bundleID = group.bundleID { appCounts[bundleID] = group.count }
                 merged[key] = Merged(
-                    source: group.source,
+                    source: sourceCore,
                     language: group.language,
                     truncated: group.sourceTruncated,
                     count: group.count,
-                    target: group.target,
+                    target: targetCore,
                     issueType: group.issueType,
                     observationIDs: group.observationIDs,
+                    rawSources: Set(group.entries.map(\.source)),
                     appCounts: appCounts)
             }
         }
@@ -99,7 +128,12 @@ enum AIPromptBuilder {
             emitted += 1
             let alias = "m\(emitted)"
 
-            items[alias] = AIPromptItem(source: item.source, language: item.language, observationIDs: item.observationIDs)
+            items[alias] = AIPromptItem(
+                source: item.source,
+                language: item.language,
+                observationIDs: item.observationIDs,
+                rawSources: item.rawSources.sorted()
+            )
             knownAliases.insert(alias)
             sourceForAlias[alias] = item.source
             languageForAlias[alias] = item.language
@@ -169,6 +203,7 @@ enum AIPromptBuilder {
         var target: String?
         var issueType: MistakeObservation.IssueType
         var observationIDs: [UUID]
+        var rawSources: Set<String>
         var appCounts: [String: Int]
     }
 

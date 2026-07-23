@@ -2,6 +2,7 @@ import SwiftUI
 
 struct OnboardingContainerView: View {
     let onComplete: () -> Void
+    let onDefer: () -> Void
 
     @State private var currentStep: OnboardingStep = OnboardingManager.shared.currentStep
 
@@ -26,7 +27,7 @@ struct OnboardingContainerView: View {
                 )
 
             case .complete:
-                CompleteStepView(onFinish: onComplete)
+                CompleteStepView(onFinish: onComplete, onDefer: onDefer)
             }
         }
         .frame(minWidth: 520, minHeight: 560)

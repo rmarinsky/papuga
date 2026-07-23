@@ -58,11 +58,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppLogger.pre(logger, "applicationDidFinishLaunching")
         _ = updaterManager
         PapugaEventLog.shared.pruneOldEntries()
-        PapugaStatsAggregator.rebuildDailyStatsFromHistoryIfNeeded()
         PapugaStatsAggregator.migrateLegacyCountersIfNeeded()
+        PapugaStatsAggregator.rebuildDailyStatsFromHistoryIfNeeded()
         AutoFixSettingsMigration.migrateTwoCharacterMinimumIfNeeded()
         Defaults[.mistakeObservationEnabled] = true
         Defaults[.grammarObservationBetaEnabled] = true
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
+            CorrectionKnowledgePunctuationMigration.runIfNeeded()
+        }
         ReplacementHistoryStore.shared.bootstrap()
         AutoFixDecisionHistoryStore.shared.bootstrap()
         MistakeObservationStore.shared.bootstrap()

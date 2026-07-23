@@ -23,6 +23,10 @@ final class OnboardingWindowController {
                 OnboardingManager.shared.forceShowOnboarding = false
                 self.closeOnboarding()
                 completion()
+            },
+            onDefer: {
+                OnboardingManager.shared.forceShowOnboarding = false
+                self.closeOnboarding()
             }
         )
 

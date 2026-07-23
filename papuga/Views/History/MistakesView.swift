@@ -465,6 +465,7 @@ struct MistakesView: View {
                     if index > 0 { Divider().opacity(0.4) }
                     MistakeBrowserRow(
                         group: group,
+                        ruleDisabledReason: browserRuleDisabledReason(for: group),
                         onCreateRule: { openRuleEditor(for: group) },
                         onDictionary: { addWordsToDictionary([group.source]) }
                     )
@@ -548,6 +549,7 @@ struct MistakesView: View {
                     if index > 0 { Divider().opacity(0.4) }
                     MistakeBrowserRow(
                         group: group,
+                        ruleDisabledReason: browserRuleDisabledReason(for: group),
                         onCreateRule: { openRuleEditor(for: group) },
                         onDictionary: { addWordsToDictionary([group.source]) }
                     )
@@ -611,6 +613,7 @@ struct MistakesView: View {
     }
 
     private func openRuleEditor(for member: ErrorClusterMember) {
+        guard member.isCoreRuleCreationAllowed else { return }
         pendingObservationIDs = member.observationIDs
         editorSeed = RuleEditorSeed(
             source: HistoryWordActionPolicy.normalizedSource(member.source),
@@ -655,21 +658,56 @@ struct MistakesView: View {
     // MARK: - Actions
 
     private func openRuleEditor(for group: PredictionGroup, target: String?) {
+        let resolvedTarget = target ?? group.primaryTarget
+        let targetCandidate = resolvedTarget.flatMap { target in
+            group.candidates.first {
+                MistakeObservation.normalizedToken($0.text)
+                    == MistakeObservation.normalizedToken(target)
+            }
+        }
+        guard targetCandidate?.canCreateCoreRule != false else { return }
         pendingObservationIDs = group.observationIDs
         editorSeed = RuleEditorSeed(
             source: HistoryWordActionPolicy.normalizedSource(group.source),
-            target: HistoryWordActionPolicy.sanitizedTarget(target ?? group.primaryTarget) ?? "",
+            target: HistoryWordActionPolicy.sanitizedTarget(resolvedTarget) ?? "",
             mode: .replace
         )
     }
 
     private func openRuleEditor(for group: MistakeGroupData) {
+        guard browserRuleDisabledReason(for: group) == nil else { return }
         pendingObservationIDs = group.observationIDs
         editorSeed = RuleEditorSeed(
             source: HistoryWordActionPolicy.normalizedSource(group.source),
             target: HistoryWordActionPolicy.sanitizedTarget(group.target) ?? "",
             mode: .replace
         )
+    }
+
+    private func ruleCandidate(for group: MistakeGroupData) -> MistakeSuggestionCandidate? {
+        let normalizedSource = MistakeObservation.normalizedToken(group.source)
+        guard let target = group.target else { return nil }
+        for prediction in engine.ranked where
+            MistakeObservation.normalizedToken(prediction.source) == normalizedSource
+                && prediction.language == group.language {
+            if let candidate = prediction.candidates.first(where: {
+                MistakeObservation.normalizedToken($0.text)
+                    == MistakeObservation.normalizedToken(target)
+                    && $0.replacementPlan?.rawSource == group.source
+            }) {
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    private func browserRuleDisabledReason(for group: MistakeGroupData) -> String? {
+        let token = BufferedToken(rawText: group.source, keyCodes: [])
+        guard !token.leadingEdge.isEmpty || !token.trailingEdge.isEmpty else { return nil }
+        guard let candidate = ruleCandidate(for: group) else {
+            return HistoryWordActionPolicy.unverifiedEdgeRuleReason
+        }
+        return HistoryWordActionPolicy.ruleDisabledReason(for: candidate)
     }
 
     /// Save one or many words to the dictionary at once (single row or a whole app's «Усі в словник»).
@@ -785,7 +823,7 @@ private struct FoundPairChip: View {
             Image(systemName: "arrow.right")
                 .font(.system(size: 8, weight: .bold))
                 .foregroundStyle(Color("BrandAccentDeep"))
-            Text(pair.target)
+            Text(pair.renderedTarget)
                 .foregroundStyle(Color("BrandAccentDeep"))
         }
         .font(.system(size: 11, weight: .medium))
@@ -808,6 +846,15 @@ private struct PredictionCard: View {
 
     private var disabledReason: String? {
         HistoryWordActionPolicy.disabledReason(source: group.source, truncated: false)
+    }
+
+    private var primaryCandidate: MistakeSuggestionCandidate? {
+        group.primaryTarget.flatMap { target in
+            group.candidates.first {
+                MistakeObservation.normalizedToken($0.text)
+                    == MistakeObservation.normalizedToken(target)
+            }
+        }
     }
 
     var body: some View {
@@ -834,11 +881,12 @@ private struct PredictionCard: View {
 
                 ReplacementReceipt(
                     source: group.source,
-                    target: group.primaryTarget ?? "ввести заміну",
+                    target: group.renderedPrimaryTarget ?? "ввести заміну",
                     strikethroughSource: group.primaryTarget != nil
                 )
 
                 HistoryCandidateStrip(candidates: group.candidates) { candidate in
+                    guard candidate.canCreateCoreRule else { return }
                     onCreateRule(candidate.text)
                 }
             }
@@ -848,6 +896,7 @@ private struct PredictionCard: View {
             HistoryRowActions(
                 canAct: disabledReason == nil,
                 disabledReason: disabledReason,
+                ruleDisabledReason: HistoryWordActionPolicy.ruleDisabledReason(for: primaryCandidate),
                 onCreateRule: { onCreateRule(group.primaryTarget) },
                 onIgnore: onIgnore
             )
@@ -953,7 +1002,10 @@ private struct ErrorChip: View {
             )
         }
         .buttonStyle(.plain)
-        .help("Створити правило заміни для «\(member.source)»")
+        .disabled(!member.isCoreRuleCreationAllowed)
+        .help(!member.isCoreRuleCreationAllowed
+            ? HistoryWordActionPolicy.fullTokenLayoutRuleReason
+            : "Створити правило заміни для «\(member.source)»")
     }
 }
 
@@ -961,6 +1013,7 @@ private struct ErrorChip: View {
 
 private struct MistakeBrowserRow: View {
     let group: MistakeGroupData
+    let ruleDisabledReason: String?
     let onCreateRule: () -> Void
     let onDictionary: () -> Void
 
@@ -975,7 +1028,7 @@ private struct MistakeBrowserRow: View {
                 .fill(hasTarget ? Color("BrandAccentDeep") : .orange)
                 .frame(width: 7, height: 7)
 
-            if hasTarget, let target = group.target {
+            if hasTarget, let target = group.renderedTarget {
                 Text(group.source)
                     .font(.system(size: 12, design: .monospaced))
                     .strikethrough(color: .secondary)
@@ -1020,7 +1073,8 @@ private struct MistakeBrowserRow: View {
                     .buttonStyle(.borderless)
                     .controlSize(.small)
                     .foregroundStyle(Color("BrandAccentDeep"))
-                    .help("Створити правило заміни")
+                    .disabled(ruleDisabledReason != nil)
+                    .help(ruleDisabledReason ?? "Створити правило заміни")
             }
         }
         .padding(.horizontal, 12)

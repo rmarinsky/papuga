@@ -71,7 +71,7 @@ struct MenuBarView: View {
         (
             Text("+")
             + Text("\(estimatedSecondsSaved)").bold()
-            + Text(" сек до життя")
+            + Text(" с зекономлено")
         )
         .monospacedDigit()
     }

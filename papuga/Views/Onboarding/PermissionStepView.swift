@@ -5,9 +5,17 @@ struct PermissionStepView: View {
     let onContinue: () -> Void
     let onSkip: () -> Void
 
-    @State private var isGranted = false
-    @State private var isRequesting = false
+    @State private var coordinator: PermissionCoordinator
     @State private var permissionPollTask: Task<Void, Never>?
+    @State private var advanceTask: Task<Void, Never>?
+    @State private var didAdvance = false
+
+    init(permission: OnboardingPermission, onContinue: @escaping () -> Void, onSkip: @escaping () -> Void) {
+        self.permission = permission
+        self.onContinue = onContinue
+        self.onSkip = onSkip
+        _coordinator = State(initialValue: PermissionCoordinator(permission: permission.permissionType))
+    }
 
     var body: some View {
         VStack(spacing: 24) {
@@ -19,10 +27,10 @@ struct PermissionStepView: View {
             VStack(spacing: 20) {
                 ZStack {
                     Circle()
-                        .fill(isGranted ? Color.green.opacity(0.1) : Color("BrandTintSoft"))
+                        .fill(coordinator.isGranted ? Color.green.opacity(0.1) : Color("BrandTintSoft"))
                         .frame(width: 80, height: 80)
 
-                    if isGranted {
+                    if coordinator.isGranted {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 40))
                             .foregroundColor(.green)
@@ -45,31 +53,37 @@ struct PermissionStepView: View {
                         .padding(.horizontal, 40)
                 }
 
-                if !isGranted {
+                if !coordinator.isGranted {
                     WhyNeededView(permission: permission)
+                }
+
+                if coordinator.showsManualPath {
+                    Text(coordinator.manualPath)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
                 }
             }
 
             Spacer()
 
             VStack(spacing: 12) {
-                if isGranted {
+                if coordinator.isGranted {
                     Button("Далі") {
-                        onContinue()
+                        advance(after: nil)
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
                 } else {
-                    Button(isRequesting ? "Запит..." : "Надати дозвіл") {
+                    Button(coordinator.primaryButtonTitle) {
                         requestPermission()
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
-                    .disabled(isRequesting)
 
                     Button("Зроблю пізніше") {
-                        permissionPollTask?.cancel()
-                        permissionPollTask = nil
+                        didAdvance = true
+                        cancelTasks()
                         onSkip()
                     }
                     .buttonStyle(.borderless)
@@ -80,54 +94,65 @@ struct PermissionStepView: View {
         }
         .padding(.horizontal, 20)
         .onAppear {
-            checkPermission()
+            coordinator.refresh()
+            startPermissionPolling()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            coordinator.refresh()
+            advanceIfGranted()
         }
         .onDisappear {
-            permissionPollTask?.cancel()
-            permissionPollTask = nil
-        }
-    }
-
-    private func checkPermission() {
-        switch permission {
-        case .accessibility:
-            isGranted = PermissionManager.shared.checkAccessibilityPermission()
-        case .inputMonitoring:
-            isGranted = PermissionManager.shared.checkInputMonitoringPermission()
+            cancelTasks()
         }
     }
 
     private func requestPermission() {
-        isRequesting = true
-        permissionPollTask?.cancel()
-        permissionPollTask = nil
-
-        switch permission {
-        case .accessibility:
-            PermissionManager.shared.requestAccessibilityPermission()
-        case .inputMonitoring:
-            PermissionManager.shared.requestInputMonitoringPermission()
-        }
-
-        isRequesting = false
+        coordinator.performPrimaryAction()
         startPermissionPolling()
     }
 
     private func startPermissionPolling() {
+        guard permissionPollTask == nil else { return }
         permissionPollTask = Task { @MainActor in
             while !Task.isCancelled {
-                checkPermission()
-                if isGranted {
-                    bringWindowToFront()
-                    try? await Task.sleep(for: .milliseconds(300))
-                    if !Task.isCancelled {
-                        onContinue()
-                    }
+                coordinator.refresh()
+                if coordinator.isGranted {
+                    advanceIfGranted()
                     return
                 }
                 try? await Task.sleep(for: .milliseconds(500))
             }
         }
+    }
+
+    private func advanceIfGranted() {
+        guard coordinator.isGranted else { return }
+        advance(after: .milliseconds(300))
+    }
+
+    private func advance(after delay: Duration?) {
+        guard !didAdvance else { return }
+        didAdvance = true
+        permissionPollTask?.cancel()
+        permissionPollTask = nil
+        guard let delay else {
+            onContinue()
+            return
+        }
+        bringWindowToFront()
+        advanceTask = Task { @MainActor in
+            try? await Task.sleep(for: delay)
+            if !Task.isCancelled {
+                onContinue()
+            }
+        }
+    }
+
+    private func cancelTasks() {
+        permissionPollTask?.cancel()
+        permissionPollTask = nil
+        advanceTask?.cancel()
+        advanceTask = nil
     }
 
     private func bringWindowToFront() {

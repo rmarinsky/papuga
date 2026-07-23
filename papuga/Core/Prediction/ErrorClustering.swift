@@ -13,7 +13,31 @@ enum ErrorClustering {
         let language: String
         let count: Int
         let target: String?
+        let renderedTarget: String?
+        let replacementPlan: ReplacementPlan?
+        let canCreateCoreRule: Bool?
         let observationIDs: [UUID]
+
+        init(
+            source: String,
+            language: String,
+            count: Int,
+            target: String?,
+            renderedTarget: String? = nil,
+            replacementPlan: ReplacementPlan? = nil,
+            canCreateCoreRule: Bool? = nil,
+            observationIDs: [UUID]
+        ) {
+            self.source = source
+            self.language = language
+            self.count = count
+            self.target = target
+            self.renderedTarget = renderedTarget
+            self.replacementPlan = replacementPlan
+            self.canCreateCoreRule = canCreateCoreRule
+            self.observationIDs = observationIDs
+        }
+
         var normalizedSource: String { MistakeObservation.normalizedToken(source) }
         var normalizedTarget: String? { target.map(MistakeObservation.normalizedToken) }
     }
@@ -72,7 +96,10 @@ enum ErrorClustering {
                 ErrorClusterMember(
                     id: "\(language)|\(item.normalizedSource)",
                     source: item.source, language: language, count: item.count,
-                    target: item.target, observationIDs: item.observationIDs
+                    target: item.renderedTarget ?? item.target,
+                    replacementPlan: item.replacementPlan,
+                    canCreateCoreRule: item.canCreateCoreRule,
+                    observationIDs: item.observationIDs
                 )
             }
             .sorted { $0.count > $1.count }

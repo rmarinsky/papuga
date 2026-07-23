@@ -27,6 +27,8 @@ env:
 jobs:
   release:
     runs-on: macos-15
+    env:
+      SWIFTPM_PACKAGES_PATH: ${{ github.workspace }}/.ci/SourcePackages
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,6 +41,16 @@ jobs:
         run: |
           sudo xcode-select -switch /Applications/Xcode.app/Contents/Developer
           xcodebuild -version
+
+      - name: Fingerprint Xcode
+        id: xcode
+        run: echo "version=$(xcodebuild -version | shasum -a 256 | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache resolved Swift packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.SWIFTPM_PACKAGES_PATH }}
+          key: swiftpm-${{ runner.os }}-${{ steps.xcode.outputs.version }}-${{ hashFiles('papuga.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
 
       - name: Prepare release metadata
         id: metadata
@@ -132,7 +144,11 @@ jobs:
           xcodegen generate --quiet
 
       - name: Resolve packages
-        run: xcodebuild -resolvePackageDependencies -project "$PROJECT_FILE" -scheme "$SCHEME"
+        run: >-
+          xcodebuild -resolvePackageDependencies
+          -project "$PROJECT_FILE"
+          -scheme "$SCHEME"
+          -clonedSourcePackagesDirPath "$SWIFTPM_PACKAGES_PATH"
 
       - name: Archive universal app
         env:
@@ -144,6 +160,7 @@ jobs:
             -configuration Release \
             -archivePath "$ARCHIVE_PATH" \
             -destination "generic/platform=macOS" \
+            -clonedSourcePackagesDirPath "$SWIFTPM_PACKAGES_PATH" \
             ARCHS="arm64 x86_64" \
             ONLY_ACTIVE_ARCH=NO \
             CODE_SIGN_STYLE=Manual \

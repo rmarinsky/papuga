@@ -42,7 +42,14 @@ struct MistakeGroupData: Identifiable {
     var issueType: MistakeObservation.IssueType { entries[0].issueType }
     var status: MistakeObservation.Status { entries[0].status }
     var source: String { entries[0].source }
+    var rawSources: [String] {
+        var seen = Set<String>()
+        return entries.map(\.source).filter { seen.insert($0).inserted }
+    }
     var target: String? { recordedTargets.first }
+    var renderedTarget: String? {
+        entries.first(where: { $0.suggestedTarget != nil })?.renderedSuggestedTarget
+    }
     var language: String { entries[0].language }
     var bundleID: String? { entries[0].bundleID }
     var sourceTruncated: Bool { entries.contains(where: \.sourceTruncated) }
@@ -167,7 +174,7 @@ enum MistakesScreenDerivation {
         limit: Int = 4
     ) -> [MistakeSuggestionCandidate] {
         analyzer.candidates(
-            for: group.source,
+            forRawSources: group.rawSources,
             language: group.language,
             recordedTargets: group.recordedTargets,
             layoutManager: layoutManager,

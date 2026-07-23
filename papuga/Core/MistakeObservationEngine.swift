@@ -62,6 +62,8 @@ struct MistakeSuggestionCandidate: Identifiable, Equatable, Codable {
     let confidence: Double
     let sourceLayoutID: String?
     let targetLayoutID: String?
+    let replacementPlan: ReplacementPlan?
+    let coreRuleCreationAllowed: Bool?
 
     var id: String {
         [
@@ -72,18 +74,40 @@ struct MistakeSuggestionCandidate: Identifiable, Equatable, Codable {
         ].joined(separator: "|")
     }
 
+    /// Full-token layout mappings that consume punctuation-looking edge keys
+    /// cannot be represented by Papuga's core-only custom rules.
+    var canCreateCoreRule: Bool {
+        coreRuleCreationAllowed ?? replacementPlan?.canCreateCoreRule ?? true
+    }
+
+    func withCoreRuleCreationAllowed(_ allowed: Bool) -> MistakeSuggestionCandidate {
+        MistakeSuggestionCandidate(
+            kind: kind,
+            text: text,
+            confidence: confidence,
+            sourceLayoutID: sourceLayoutID,
+            targetLayoutID: targetLayoutID,
+            replacementPlan: replacementPlan,
+            coreRuleCreationAllowed: allowed
+        )
+    }
+
     init(
         kind: MistakeSuggestionKind,
         text: String,
         confidence: Double,
         sourceLayoutID: String? = nil,
-        targetLayoutID: String? = nil
+        targetLayoutID: String? = nil,
+        replacementPlan: ReplacementPlan? = nil,
+        coreRuleCreationAllowed: Bool? = nil
     ) {
         self.kind = kind
         self.text = text
         self.confidence = min(max(confidence, 0), 1)
         self.sourceLayoutID = sourceLayoutID
         self.targetLayoutID = targetLayoutID
+        self.replacementPlan = replacementPlan
+        self.coreRuleCreationAllowed = coreRuleCreationAllowed
     }
 }
 
@@ -117,17 +141,24 @@ final class MistakeSuggestionAnalyzer {
         layoutManager: LayoutManager? = nil,
         limit: Int = 4
     ) -> [MistakeSuggestionCandidate] {
-        let normalizedSource = MistakeObservation.normalizedToken(source)
+        let token = BufferedToken(rawText: source, keyCodes: [])
+        let sourceCore = token.core
+        let normalizedSource = MistakeObservation.normalizedToken(sourceCore)
         guard !normalizedSource.isEmpty else { return [] }
+        let targetCores = recordedTargets
+            .map(BufferedToken.normalizedCore(from:))
+            .filter { !$0.isEmpty }
 
         let layoutSignature = layoutManager?.orderedLayouts().joined(separator: ",") ?? ""
-        let cacheKey = "\(normalizedSource)\u{1}\(language)\u{1}\(limit)\u{1}\(recordedTargets.joined(separator: "\u{2}"))\u{1}\(layoutSignature)"
+        // Replacement plans preserve the exact raw edges, so punctuated forms
+        // must not reuse a bare token's cached plan (or vice versa).
+        let cacheKey = "\(token.rawText)\u{1}\(language)\u{1}\(limit)\u{1}\(targetCores.joined(separator: "\u{2}"))\u{1}\(layoutSignature)"
         if let cached = candidateCache[cacheKey] { return cached }
         let result = computeCandidates(
-            for: source,
+            token: token,
             normalizedSource: normalizedSource,
             language: language,
-            recordedTargets: recordedTargets,
+            recordedTargets: targetCores,
             layoutManager: layoutManager,
             limit: limit
         )
@@ -135,8 +166,43 @@ final class MistakeSuggestionAnalyzer {
         return result
     }
 
+    /// Aggregate a core group without losing punctuation/layout safety from
+    /// any raw form. A rule is eligible only when the same target is safe for
+    /// every observed spelling of the source token.
+    func candidates(
+        forRawSources rawSources: [String],
+        language: String,
+        recordedTargets: [String] = [],
+        layoutManager: LayoutManager? = nil,
+        limit: Int = 4
+    ) -> [MistakeSuggestionCandidate] {
+        var seenSources = Set<String>()
+        let uniqueSources = rawSources.filter { seenSources.insert($0).inserted }
+        guard !uniqueSources.isEmpty else { return [] }
+        let batches = uniqueSources.map { source in
+            candidates(
+                for: source,
+                language: language,
+                recordedTargets: recordedTargets,
+                layoutManager: layoutManager,
+                limit: limit
+            )
+        }
+        guard let representativeCandidates = batches.first else { return [] }
+
+        return representativeCandidates.map { candidate in
+            let targetKey = MistakeObservation.normalizedToken(candidate.text)
+            let safeForEveryRawSource = batches.allSatisfy { batch in
+                batch.first {
+                    MistakeObservation.normalizedToken($0.text) == targetKey
+                }?.canCreateCoreRule == true
+            }
+            return candidate.withCoreRuleCreationAllowed(safeForEveryRawSource)
+        }
+    }
+
     private func computeCandidates(
-        for source: String,
+        token: BufferedToken,
         normalizedSource: String,
         language: String,
         recordedTargets: [String],
@@ -145,25 +211,72 @@ final class MistakeSuggestionAnalyzer {
     ) -> [MistakeSuggestionCandidate] {
 
         var result: [MistakeSuggestionCandidate] = []
+        let layoutCandidates: [MistakeSuggestionCandidate]
+        if let layoutManager {
+            layoutCandidates = keyboardLayoutCandidates(
+                for: token,
+                language: language,
+                layoutManager: layoutManager,
+                limit: limit
+            )
+        } else {
+            layoutCandidates = []
+        }
         for target in recordedTargets {
+            let matchingLayout = layoutCandidates.first {
+                MistakeObservation.normalizedToken($0.text)
+                    == MistakeObservation.normalizedToken(target)
+            }
+            let fallbackRuleSafety = matchingLayout == nil
+                ? CoreRuleSafety.canCreateWithoutLayoutInterpretation(
+                    rawSource: token.rawText,
+                    targetCore: target,
+                    isLayoutCandidate: false
+                )
+                : nil
+            let plan: ReplacementPlan
+            if let matchedPlan = matchingLayout?.replacementPlan {
+                plan = matchedPlan
+            } else if fallbackRuleSafety == false {
+                // The recorded output proves the edge was consumed, even when
+                // the corresponding keyboard layout is unavailable today.
+                plan = ReplacementPlan(
+                    rawSource: token.rawText,
+                    correctedCore: target,
+                    preservedLeadingPunctuation: "",
+                    preservedTrailingPunctuation: "",
+                    renderedReplacement: target,
+                    boundary: "",
+                    interpretationReason: .layoutFullToken
+                )
+            } else {
+                plan = token.replacementPlan(
+                    correctedCore: target,
+                    boundary: "",
+                    reason: .sameLanguageSpelling
+                )
+            }
             append(
-                MistakeSuggestionCandidate(kind: .recorded, text: target, confidence: 0.9),
+                MistakeSuggestionCandidate(
+                    kind: .recorded,
+                    text: target,
+                    confidence: 0.9,
+                    sourceLayoutID: matchingLayout?.sourceLayoutID,
+                    targetLayoutID: matchingLayout?.targetLayoutID,
+                    replacementPlan: plan,
+                    coreRuleCreationAllowed: fallbackRuleSafety
+                ),
                 to: &result,
                 sourceKey: normalizedSource
             )
         }
 
         if let layoutManager {
-            for candidate in keyboardLayoutCandidates(
-                for: source,
-                language: language,
-                layoutManager: layoutManager,
-                limit: limit
-            ) {
+            for candidate in layoutCandidates {
                 append(candidate, to: &result, sourceKey: normalizedSource)
             }
             for candidate in keyboardAdjacencyCandidates(
-                for: source,
+                for: token,
                 language: language,
                 layoutManager: layoutManager,
                 limit: limit
@@ -172,7 +285,7 @@ final class MistakeSuggestionAnalyzer {
             }
         }
 
-        for guess in spellChecker.guesses(for: source, language: language).prefix(8) {
+        for guess in spellChecker.guesses(for: token.core, language: language).prefix(8) {
             let candidate = guess.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !candidate.isEmpty,
                   !candidate.contains(where: \.isWhitespace),
@@ -183,7 +296,12 @@ final class MistakeSuggestionAnalyzer {
                 MistakeSuggestionCandidate(
                     kind: .spelling,
                     text: candidate,
-                    confidence: spellingConfidence(source: source, candidate: candidate)
+                    confidence: spellingConfidence(source: token.core, candidate: candidate),
+                    replacementPlan: token.replacementPlan(
+                        correctedCore: candidate,
+                        boundary: "",
+                        reason: .sameLanguageSpelling
+                    )
                 ),
                 to: &result,
                 sourceKey: normalizedSource
@@ -204,7 +322,7 @@ final class MistakeSuggestionAnalyzer {
     }
 
     private func keyboardLayoutCandidates(
-        for source: String,
+        for token: BufferedToken,
         language: String,
         layoutManager: LayoutManager,
         limit: Int
@@ -228,28 +346,50 @@ final class MistakeSuggestionAnalyzer {
             guard ensureMapped(layoutID: fromID, layoutManager: layoutManager) else { continue }
             for toID in targetIDs.prefix(6) {
                 guard ensureMapped(layoutID: toID, layoutManager: layoutManager) else { continue }
-                let converted = mapper.convert(text: source, fromSourceID: fromID, toSourceID: toID)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                guard converted != source,
-                      !converted.isEmpty,
-                      !converted.contains(where: \.isWhitespace),
-                      converted.count <= MistakeObservation.maxStoredCharCount else {
+                let fullMapped = mapper.convert(
+                    text: token.rawText,
+                    fromSourceID: fromID,
+                    toSourceID: toID
+                ).trimmingCharacters(in: .whitespacesAndNewlines)
+                let coreMapped = mapper.convert(
+                    text: token.core,
+                    fromSourceID: fromID,
+                    toSourceID: toID
+                ).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard fullMapped != token.rawText || coreMapped != token.core else {
                     continue
                 }
 
                 let targetLanguage = AutoFixDecision.languageHintForLayoutID(toID)
-                let targetLooksCorrect = !spellChecker.isMisspelled(converted, language: targetLanguage)
-                let confidence = targetLooksCorrect ? 0.82 : 0.64
-                result.append(
-                    MistakeSuggestionCandidate(
-                        kind: .keyboardLayout,
-                        text: converted,
-                        confidence: confidence,
-                        sourceLayoutID: fromID,
-                        targetLayoutID: toID
-                    )
+                let fullCore = BufferedToken.normalizedCore(from: fullMapped)
+                let fullIsValid = !fullCore.isEmpty
+                    && !spellChecker.isMisspelled(fullCore, language: targetLanguage)
+                let coreIsValid = !coreMapped.isEmpty
+                    && !spellChecker.isMisspelled(coreMapped, language: targetLanguage)
+                let decision = LayoutInterpretationPolicy.select(
+                    token: token,
+                    fullMapped: fullMapped,
+                    coreMapped: coreMapped,
+                    fullIsValid: fullIsValid,
+                    coreIsValid: coreIsValid,
+                    boundary: ""
                 )
-                if result.count >= limit { return result }
+                for plan in decision.suggestions {
+                    guard !plan.correctedCore.isEmpty,
+                          !plan.correctedCore.contains(where: \.isWhitespace),
+                          plan.correctedCore.count <= MistakeObservation.maxStoredCharCount else {
+                        continue
+                    }
+                    result.append(MistakeSuggestionCandidate(
+                        kind: .keyboardLayout,
+                        text: plan.correctedCore,
+                        confidence: 0.82,
+                        sourceLayoutID: fromID,
+                        targetLayoutID: toID,
+                        replacementPlan: plan
+                    ))
+                    if result.count >= limit { return result }
+                }
             }
         }
         return result
@@ -261,7 +401,7 @@ final class MistakeSuggestionAnalyzer {
     /// QWERTY / ЙЦУКЕН / AZERTY — the differentiator: "it doesn't matter which
     /// language, only which keys were pressed".
     private func keyboardAdjacencyCandidates(
-        for source: String,
+        for token: BufferedToken,
         language: String,
         layoutManager: LayoutManager,
         limit: Int
@@ -275,6 +415,7 @@ final class MistakeSuggestionAnalyzer {
         } ?? ordered.first!
         guard ensureMapped(layoutID: layoutID, layoutManager: layoutManager) else { return [] }
 
+        let source = token.core
         let chars = Array(source)
         guard chars.count >= 2, chars.count <= MistakeObservation.maxStoredCharCount else { return [] }
 
@@ -297,7 +438,12 @@ final class MistakeSuggestionAnalyzer {
                 result.append(MistakeSuggestionCandidate(
                     kind: .keyboardAdjacency,
                     text: candidate,
-                    confidence: 0.78
+                    confidence: 0.78,
+                    replacementPlan: token.replacementPlan(
+                        correctedCore: candidate,
+                        boundary: "",
+                        reason: .sameLanguageSpelling
+                    )
                 ))
                 if result.count >= limit { return result }
             }
@@ -498,10 +644,11 @@ final class MistakeObservationEngine {
 
     @discardableResult
     func observeCompletedWord(_ input: CompletedWordObservation) -> MistakeObservation? {
-        guard shouldInspect(input) else { return nil }
-        guard spellChecker.isMisspelled(input.word, language: input.language) else { return nil }
+        let token = BufferedToken(rawText: input.word, keyCodes: [])
+        guard shouldInspect(input, token: token) else { return nil }
+        guard spellChecker.isMisspelled(token.core, language: input.language) else { return nil }
 
-        let suggestion = bestSuggestion(for: input.word, language: input.language)
+        let suggestion = bestSuggestion(for: token.core, language: input.language)
         let observation = MistakeObservation(
             timestamp: input.timestamp,
             issueType: .spelling,
@@ -517,22 +664,24 @@ final class MistakeObservationEngine {
 
     @discardableResult
     func recordManualCorrection(_ candidate: ManualCorrectionCandidate) -> MistakeObservation? {
+        let sourceToken = BufferedToken(rawText: candidate.source, keyCodes: [])
+        let targetToken = BufferedToken(rawText: candidate.target, keyCodes: [])
         if let bundleID = candidate.bundleID, Defaults[.autoFixBlocklist].contains(bundleID) {
             return nil
         }
-        guard AutoFixDecision.shouldSkipWord(candidate.source, minLength: Defaults[.autoFixMinWordLength]) == nil else {
+        guard AutoFixDecision.shouldSkipWord(sourceToken.core, minLength: Defaults[.autoFixMinWordLength]) == nil else {
             return nil
         }
-        guard AutoFixDecision.shouldSkipWord(candidate.target, minLength: Defaults[.autoFixMinWordLength]) == nil else {
+        guard AutoFixDecision.shouldSkipWord(targetToken.core, minLength: Defaults[.autoFixMinWordLength]) == nil else {
             return nil
         }
-        guard !AutoFixDecision.isInAllowlist(candidate.source, allowlist: Defaults[.autoFixAllowlist]) else {
+        guard !AutoFixDecision.isInAllowlist(sourceToken.core, allowlist: Defaults[.autoFixAllowlist]) else {
             return nil
         }
         let observation = MistakeObservation(
             issueType: .manualCorrection,
             source: candidate.source,
-            suggestedTarget: candidate.target,
+            suggestedTarget: targetToken.core,
             language: candidate.language,
             bundleID: candidate.bundleID,
             confidence: candidate.confidence
@@ -541,12 +690,13 @@ final class MistakeObservationEngine {
         return observation
     }
 
-    private func shouldInspect(_ input: CompletedWordObservation) -> Bool {
+    private func shouldInspect(_ input: CompletedWordObservation, token: BufferedToken) -> Bool {
         let word = input.word.trimmingCharacters(in: .whitespacesAndNewlines)
         guard word == input.word, !word.isEmpty else { return false }
+        guard !token.core.isEmpty else { return false }
         guard input.bundleID.map({ !input.blocklist.contains($0) }) ?? true else { return false }
-        guard !AutoFixDecision.isInAllowlist(word, allowlist: input.allowlist) else { return false }
-        guard AutoFixDecision.shouldSkipWord(word, minLength: input.minWordLength) == nil else { return false }
+        guard !AutoFixDecision.isInAllowlist(token.core, allowlist: input.allowlist) else { return false }
+        guard AutoFixDecision.shouldSkipWord(token.core, minLength: input.minWordLength) == nil else { return false }
         guard !word.contains(where: \.isWhitespace) else { return false }
         return true
     }

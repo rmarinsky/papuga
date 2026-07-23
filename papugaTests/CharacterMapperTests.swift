@@ -66,6 +66,26 @@ final class CharacterMapperTests: XCTestCase {
         XCTAssertEqual(result.lowercased(), "важливо", "EN 'df;kbdj' should map to 'важливо' (got '\(result)')")
     }
 
+    func test_terminal_semicolon_can_be_layout_letter() throws {
+        let (from, to) = try buildMaps(from: "com.apple.keylayout.US", to: "com.apple.keylayout.Ukrainian-PC")
+        let result = mapper.convert(text: "nfrj;", fromSourceID: from, toSourceID: to)
+        XCTAssertEqual(result.lowercased(), "також")
+    }
+
+    func test_fullAndCoreMappingsSupportPunctuationInterpretation() throws {
+        let (from, to) = try buildMaps(from: "com.apple.keylayout.US", to: "com.apple.keylayout.Ukrainian-PC")
+        let token = BufferedToken(rawText: "ghbdsn,", keyCodes: [])
+
+        XCTAssertEqual(
+            mapper.convert(text: token.rawText, fromSourceID: from, toSourceID: to).lowercased(),
+            "привітб"
+        )
+        XCTAssertEqual(
+            mapper.convert(text: token.core, fromSourceID: from, toSourceID: to).lowercased(),
+            "привіт"
+        )
+    }
+
     func test_round_trip_preserves_text() throws {
         let (from, to) = try buildMaps(from: "com.apple.keylayout.US", to: "com.apple.keylayout.Ukrainian-PC")
         let original = "hello"

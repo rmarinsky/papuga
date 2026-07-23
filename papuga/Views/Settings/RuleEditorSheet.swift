@@ -263,8 +263,8 @@ struct RuleEditorSheet: View {
 
     // MARK: - Validation + save
 
-    private var trimmedSource: String { source.trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var trimmedTarget: String { target.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var trimmedSource: String { HistoryWordActionPolicy.normalizedSource(source) }
+    private var trimmedTarget: String { HistoryWordActionPolicy.sanitizedTarget(target) ?? "" }
 
     private var sourceValid: Bool {
         trimmedSource.count >= 1 && !trimmedSource.contains(where: \.isWhitespace)
@@ -284,12 +284,15 @@ struct RuleEditorSheet: View {
 
     private var conflictText: String? {
         guard sourceValid else { return nil }
-        let sourceWasAllowlisted = seed.allowlistOriginal?.caseInsensitiveCompare(trimmedSource) == .orderedSame
+        let sourceWasAllowlisted = seed.allowlistOriginal.map(HistoryWordActionPolicy.normalizedSource)?
+            .caseInsensitiveCompare(trimmedSource) == .orderedSame
         let sourceHasAllowlist = allowlist.contains {
-            $0.caseInsensitiveCompare(trimmedSource) == .orderedSame
+            HistoryWordActionPolicy.normalizedSource($0).caseInsensitiveCompare(trimmedSource) == .orderedSame
         }
         let sourceHasOtherRule = customRules.contains {
-            $0.id != seed.ruleID && $0.source.caseInsensitiveCompare(trimmedSource) == .orderedSame
+            $0.id != seed.ruleID
+                && HistoryWordActionPolicy.normalizedSource($0.source)
+                    .caseInsensitiveCompare(trimmedSource) == .orderedSame
         }
 
         switch mode {
@@ -313,9 +316,14 @@ struct RuleEditorSheet: View {
         switch mode {
         case .replace:
             // A word can't be both replaced and left alone.
-            allowlist.removeAll { $0.caseInsensitiveCompare(src) == .orderedSame }
+            allowlist.removeAll {
+                HistoryWordActionPolicy.normalizedSource($0).caseInsensitiveCompare(src) == .orderedSame
+            }
             if let original = seed.allowlistOriginal {
-                allowlist.removeAll { $0.caseInsensitiveCompare(original) == .orderedSame }
+                let originalCore = HistoryWordActionPolicy.normalizedSource(original)
+                allowlist.removeAll {
+                    HistoryWordActionPolicy.normalizedSource($0).caseInsensitiveCompare(originalCore) == .orderedSame
+                }
             }
             if let ruleID = seed.ruleID, let idx = customRules.firstIndex(where: { $0.id == ruleID }) {
                 customRules[idx].source = src
@@ -323,17 +331,24 @@ struct RuleEditorSheet: View {
             } else {
                 // Only the first matching rule fires at runtime, so a duplicate
                 // source would be dead weight — replace any existing one.
-                customRules.removeAll { $0.source.caseInsensitiveCompare(src) == .orderedSame }
+                customRules.removeAll {
+                    HistoryWordActionPolicy.normalizedSource($0.source).caseInsensitiveCompare(src) == .orderedSame
+                }
                 customRules.append(CustomAutoReplaceRule(source: src, target: trimmedTarget))
             }
 
         case .leaveAlone:
-            customRules.removeAll { $0.source.caseInsensitiveCompare(src) == .orderedSame }
+            customRules.removeAll {
+                HistoryWordActionPolicy.normalizedSource($0.source).caseInsensitiveCompare(src) == .orderedSame
+            }
             if let ruleID = seed.ruleID {
                 customRules.removeAll { $0.id == ruleID }
             }
             if let original = seed.allowlistOriginal {
-                allowlist.removeAll { $0.caseInsensitiveCompare(original) == .orderedSame }
+                let originalCore = HistoryWordActionPolicy.normalizedSource(original)
+                allowlist.removeAll {
+                    HistoryWordActionPolicy.normalizedSource($0).caseInsensitiveCompare(originalCore) == .orderedSame
+                }
             }
             IgnoreWordService.add(src)
         }

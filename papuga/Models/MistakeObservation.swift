@@ -42,6 +42,9 @@ struct MistakeObservation: Codable, Identifiable, Equatable {
     let issueType: IssueType
     let status: Status
     let source: String
+    let sourceCore: String?
+    let leadingPunctuation: String?
+    let trailingPunctuation: String?
     let suggestedTarget: String?
     let sourceTruncated: Bool
     let targetTruncated: Bool
@@ -63,10 +66,12 @@ struct MistakeObservation: Codable, Identifiable, Equatable {
         contextHash: String? = nil
     ) {
         let (storedSource, sourceTruncated) = Self.truncated(source)
+        let storedToken = BufferedToken(rawText: storedSource, keyCodes: [])
         let storedTarget: String?
         let targetTruncated: Bool
         if let suggestedTarget {
-            let truncatedTarget = Self.truncated(suggestedTarget)
+            let targetCore = BufferedToken(rawText: suggestedTarget, keyCodes: []).core
+            let truncatedTarget = Self.truncated(targetCore)
             storedTarget = truncatedTarget.0
             targetTruncated = truncatedTarget.1
         } else {
@@ -78,6 +83,9 @@ struct MistakeObservation: Codable, Identifiable, Equatable {
         self.issueType = issueType
         self.status = status
         self.source = storedSource
+        self.sourceCore = storedToken.core
+        self.leadingPunctuation = storedToken.leadingEdge
+        self.trailingPunctuation = storedToken.trailingEdge
         self.suggestedTarget = storedTarget
         self.sourceTruncated = sourceTruncated
         self.targetTruncated = targetTruncated
@@ -88,17 +96,23 @@ struct MistakeObservation: Codable, Identifiable, Equatable {
     }
 
     var normalizedSource: String {
-        Self.normalizedToken(source)
+        Self.normalizedToken(sourceCore ?? BufferedToken(rawText: source, keyCodes: []).core)
     }
 
     var normalizedTarget: String? {
         suggestedTarget.map(Self.normalizedToken)
     }
 
+    var renderedSuggestedTarget: String? {
+        guard let suggestedTarget else { return nil }
+        let sourceToken = BufferedToken(rawText: source, keyCodes: [])
+        let leading = leadingPunctuation ?? sourceToken.leadingEdge
+        let trailing = trailingPunctuation ?? sourceToken.trailingEdge
+        return leading + BufferedToken.normalizedCore(from: suggestedTarget) + trailing
+    }
+
     static func normalizedToken(_ text: String) -> String {
-        text.trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: .punctuationCharacters)
-            .lowercased()
+        BufferedToken.normalizedCore(from: text).lowercased()
     }
 
     static func truncated(_ text: String) -> (String, Bool) {
@@ -106,6 +120,46 @@ struct MistakeObservation: Codable, Identifiable, Equatable {
         let visibleCount = max(0, maxStoredCharCount - 1)
         let prefix = String(text.prefix(visibleCount))
         return (prefix + "...", true)
+    }
+
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case timestamp
+        case issueType
+        case status
+        case source
+        case sourceCore
+        case leadingPunctuation
+        case trailingPunctuation
+        case suggestedTarget
+        case sourceTruncated
+        case targetTruncated
+        case language
+        case bundleID
+        case confidence
+        case contextHash
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        timestamp = try container.decode(Date.self, forKey: .timestamp)
+        issueType = try container.decode(IssueType.self, forKey: .issueType)
+        status = try container.decode(Status.self, forKey: .status)
+        source = try container.decode(String.self, forKey: .source)
+        suggestedTarget = try container.decodeIfPresent(String.self, forKey: .suggestedTarget)
+        sourceTruncated = try container.decode(Bool.self, forKey: .sourceTruncated)
+        targetTruncated = try container.decode(Bool.self, forKey: .targetTruncated)
+        language = try container.decode(String.self, forKey: .language)
+        bundleID = try container.decodeIfPresent(String.self, forKey: .bundleID)
+        confidence = try container.decode(Double.self, forKey: .confidence)
+        contextHash = try container.decodeIfPresent(String.self, forKey: .contextHash)
+
+        let token = BufferedToken(rawText: source, keyCodes: [])
+        sourceCore = try container.decodeIfPresent(String.self, forKey: .sourceCore) ?? token.core
+        leadingPunctuation = try container.decodeIfPresent(String.self, forKey: .leadingPunctuation) ?? token.leadingEdge
+        trailingPunctuation = try container.decodeIfPresent(String.self, forKey: .trailingPunctuation) ?? token.trailingEdge
     }
 }
 

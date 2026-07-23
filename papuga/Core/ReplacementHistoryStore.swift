@@ -41,7 +41,7 @@ final class ReplacementHistoryStore {
     func bootstrap() {
         ioQueue.async { [weak self] in
             guard let self else { return }
-            let loaded = self.loadEntriesFromDisk()
+            let loaded = self.loadEntriesFromDisk(limit: self.memoryCap)
             DispatchQueue.main.async {
                 self.entries = loaded
                 self.logger.notice("ReplacementHistoryStore bootstrapped with \(loaded.count, privacy: .public) entries")
@@ -98,7 +98,9 @@ final class ReplacementHistoryStore {
     /// the in-memory cache. Used by the analytics recovery backfill at launch,
     /// which may run before `bootstrap()` has populated `entries`.
     func loadEntriesSync() -> [ReplacementHistoryEntry] {
-        loadEntriesFromDisk()
+        ioQueue.sync {
+            loadEntriesFromDisk(limit: nil)
+        }
     }
 
     func entries(filter kind: ReplacementHistoryEntry.Kind? = nil, since: Date? = nil) -> [ReplacementHistoryEntry] {
@@ -154,7 +156,7 @@ final class ReplacementHistoryStore {
         }
     }
 
-    private func loadEntriesFromDisk() -> [ReplacementHistoryEntry] {
+    private func loadEntriesFromDisk(limit: Int? = nil) -> [ReplacementHistoryEntry] {
         let fm = FileManager.default
         guard fm.fileExists(atPath: fileURL.path),
               let data = try? Data(contentsOf: fileURL),
@@ -171,8 +173,9 @@ final class ReplacementHistoryStore {
             result.append(entry)
         }
         result.sort { $0.timestamp > $1.timestamp }
-        if result.count > memoryCap {
-            result = Array(result.prefix(memoryCap))
+        if let limit, result.count > limit {
+            let cap = max(0, limit)
+            result = Array(result.prefix(cap))
         }
         return result
     }

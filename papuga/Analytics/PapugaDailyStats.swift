@@ -214,7 +214,7 @@ enum PapugaStatsAggregator {
             case .day: return "зекономлено сьогодні"
             case .week: return "зекономлено за тиждень"
             case .month: return "зекономлено за місяць"
-            case .all: return "зекономлено всього"
+            case .all: return "зекономлено загалом"
             }
         }
     }

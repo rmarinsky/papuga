@@ -62,7 +62,7 @@ struct AnalyticsTab: View {
         let seconds = PapugaStatsAggregator.secondsSaved(scope: scope, history: history)
         return HStack(alignment: .top, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("ЧАС НЕ ДРУКОВАНИЙ")
+                Text("ЗЕКОНОМЛЕНО ЧАСУ")
                     .font(.system(size: 11, weight: .semibold))
                     .kerning(0.5)
                     .foregroundStyle(Color("BrandAccentDeep"))
@@ -73,7 +73,7 @@ struct AnalyticsTab: View {
                     .contentTransition(.numericText())
                     .animation(.snappy, value: seconds)
 
-                Text("≈ \(textReplacementCount) врятованих моментів")
+                Text("≈ \(textReplacementCount) замін через Papuga")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
