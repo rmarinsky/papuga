@@ -4,7 +4,9 @@ import SwiftUI
 
 struct AutoFixProposalActions {
     var replace: () -> Void
-    var ignore: () -> Void
+    var dismiss: () -> Void
+    var timedOut: () -> Void
+    var neverReplace: () -> Void
 }
 
 /// Thread-safe mirror of "is a proposal currently on screen and listening for Return/Escape".
@@ -27,7 +29,8 @@ final class AutoFixProposalCoordinator {
     private var panel: AutoFixProposalPanel?
     private var dismissTask: Task<Void, Never>?
     private var primaryShortcutAction: (() -> Void)?
-    private var ignoreShortcutAction: (() -> Void)?
+    private var dismissShortcutAction: (() -> Void)?
+    private var currentActions: AutoFixProposalActions?
     private let logger = AppLogger.autoFix
 
     private init() {}
@@ -43,17 +46,13 @@ final class AutoFixProposalCoordinator {
         let panel = panel ?? makePanel()
         self.panel = panel
 
-        let performReplace: () -> Void = { [weak self] in
-            self?.dismiss()
-            actions.replace()
-        }
-        let performIgnore: () -> Void = { [weak self] in
-            self?.dismiss()
-            actions.ignore()
-        }
+        currentActions = actions
+        let performReplace: () -> Void = { [weak self] in self?.complete(.accepted) }
+        let performDismiss: () -> Void = { [weak self] in self?.complete(.dismissed) }
+        let performNeverReplace: () -> Void = { [weak self] in self?.complete(.neverReplace) }
 
         primaryShortcutAction = performReplace
-        ignoreShortcutAction = performIgnore
+        dismissShortcutAction = performDismiss
 
         let screenFrame = visibleScreenFrame(containing: point)
         let layout = AutoFixProposalMetrics.layout(
@@ -65,9 +64,16 @@ final class AutoFixProposalCoordinator {
             proposal: proposal,
             layout: layout,
             onReplace: performReplace,
-            onIgnore: performIgnore
+            onDismiss: performDismiss,
+            onNeverReplace: performNeverReplace
         )
         panel.contentView = NSHostingView(rootView: view)
+        panel.title = proposal.displayTitle
+        panel.identifier = NSUserInterfaceItemIdentifier("autofix-proposal-panel")
+        panel.setAccessibilityElement(true)
+        panel.setAccessibilityRole(.window)
+        panel.setAccessibilityLabel(proposal.displayTitle)
+        panel.setAccessibilityIdentifier("autofix-proposal-panel")
 
         let origin = clampedOrigin(for: point, size: layout.size, screenFrame: screenFrame)
         panel.setFrame(NSRect(origin: origin, size: layout.size), display: true)
@@ -77,18 +83,46 @@ final class AutoFixProposalCoordinator {
         AppLogger.action(logger, "AutoFix proposal shown at \(origin)")
 
         dismissTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(duration))
+            do {
+                try await Task.sleep(for: .seconds(duration))
+            } catch {
+                return
+            }
             await MainActor.run {
-                self?.dismiss()
+                self?.complete(.timedOut)
             }
         }
     }
 
-    func dismiss() {
+    func dismiss(outcome: AutoFixProposalOutcome? = nil) {
+        if let outcome {
+            complete(outcome)
+        } else {
+            hide()
+        }
+    }
+
+    private func complete(_ outcome: AutoFixProposalOutcome) {
+        guard panel?.isVisible == true, let actions = currentActions else { return }
+        hide()
+        switch outcome {
+        case .accepted:
+            actions.replace()
+        case .dismissed:
+            actions.dismiss()
+        case .timedOut:
+            actions.timedOut()
+        case .neverReplace:
+            actions.neverReplace()
+        }
+    }
+
+    private func hide() {
         dismissTask?.cancel()
         dismissTask = nil
         primaryShortcutAction = nil
-        ignoreShortcutAction = nil
+        dismissShortcutAction = nil
+        currentActions = nil
         AutoFixProposalShortcutGate.shared.disarm()
         panel?.orderOut(nil)
     }
@@ -106,7 +140,7 @@ final class AutoFixProposalCoordinator {
             primaryShortcutAction?()
             return true
         case 0x35: // Escape
-            ignoreShortcutAction?()
+            dismissShortcutAction?()
             return true
         default:
             return false
@@ -164,7 +198,7 @@ private final class AutoFixProposalPanel: NSPanel {
 private enum AutoFixProposalMetrics {
     static let size = minimumSize
 
-    private static let minimumSize = NSSize(width: 200, height: 113)
+    private static let minimumSize = NSSize(width: 260, height: 139)
     private static let maximumPanelWidth: CGFloat = 560
     static let panelHorizontalPadding: CGFloat = 14
     static let receiptHorizontalPadding: CGFloat = 6
@@ -245,13 +279,14 @@ private struct AutoFixProposalView: View {
     let proposal: AutoFixProposal
     let layout: AutoFixProposalLayout
     let onReplace: () -> Void
-    let onIgnore: () -> Void
+    let onDismiss: () -> Void
+    let onNeverReplace: () -> Void
     @State private var primaryPulse = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack(spacing: 10) {
-                Text("Можлива заміна")
+                Text(proposal.displayTitle)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(ProposalColors.title)
                     .lineLimit(1)
@@ -259,7 +294,7 @@ private struct AutoFixProposalView: View {
 
                 Spacer(minLength: 0)
 
-                ignoreProposalButton(action: onIgnore)
+                dismissProposalButton(action: onDismiss)
             }
             .frame(height: 23)
 
@@ -272,6 +307,7 @@ private struct AutoFixProposalView: View {
             )
 
             HStack {
+                neverReplaceButton(action: onNeverReplace)
                 Spacer(minLength: 0)
                 replaceProposalButton(action: onReplace)
             }
@@ -325,10 +361,10 @@ private struct AutoFixProposalView: View {
         .buttonStyle(.plain)
         .animation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: primaryPulse)
         .accessibilityIdentifier("autofix-proposal-primary-action")
-        .instantTooltip("Замінити й створити правило. Enter")
+        .instantTooltip(proposal.primaryActionTooltip)
     }
 
-    private func ignoreProposalButton(action: @escaping () -> Void) -> some View {
+    private func dismissProposalButton(action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 2) {
                 Text("×")
@@ -347,8 +383,18 @@ private struct AutoFixProposalView: View {
             )
         }
         .buttonStyle(.plain)
-        .instantTooltip("Ігнорувати й створити правило. Esc")
+        .instantTooltip("Закрити підказку. Її можна повернути протягом 10 секунд. Esc")
         .accessibilityIdentifier("autofix-proposal-dismiss-action")
+    }
+
+    private func neverReplaceButton(action: @escaping () -> Void) -> some View {
+        Button(proposal.neverActionTitle, action: action)
+            .buttonStyle(.plain)
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(ProposalColors.keyForeground)
+            .lineLimit(1)
+            .accessibilityIdentifier("autofix-proposal-never-replace-action")
+            .instantTooltip("Додати до словника Papuga й більше не пропонувати цю заміну")
     }
 }
 

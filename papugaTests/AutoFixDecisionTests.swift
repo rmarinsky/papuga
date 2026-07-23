@@ -1,10 +1,30 @@
+import Defaults
 import XCTest
 @testable import papuga
 
 final class AutoFixDecisionTests: XCTestCase {
+    func test_twoCharacterMinimumMigrationUpdatesOldBalancedDefaultOnce() {
+        let previousMinimum = Defaults[.autoFixMinWordLength]
+        let previousMigrationState = Defaults[.autoFixTwoCharacterMinimumMigrated]
+        defer {
+            Defaults[.autoFixMinWordLength] = previousMinimum
+            Defaults[.autoFixTwoCharacterMinimumMigrated] = previousMigrationState
+        }
+
+        Defaults[.autoFixMinWordLength] = 3
+        Defaults[.autoFixTwoCharacterMinimumMigrated] = false
+
+        AutoFixSettingsMigration.migrateTwoCharacterMinimumIfNeeded()
+        XCTAssertEqual(Defaults[.autoFixMinWordLength], 2)
+
+        Defaults[.autoFixMinWordLength] = 4
+        AutoFixSettingsMigration.migrateTwoCharacterMinimumIfNeeded()
+        XCTAssertEqual(Defaults[.autoFixMinWordLength], 4)
+    }
+
     func test_shouldSkip_short_word() {
         XCTAssertEqual(AutoFixDecision.shouldSkipWord("a"), .tooShort)
-        XCTAssertEqual(AutoFixDecision.shouldSkipWord("ab"), .tooShort)
+        XCTAssertNil(AutoFixDecision.shouldSkipWord("ab"))
         XCTAssertNil(AutoFixDecision.shouldSkipWord("abc"))
     }
 
@@ -148,6 +168,14 @@ final class AutoFixDecisionTests: XCTestCase {
         XCTAssertEqual(assessment.editDistance, 1)
     }
 
+    func test_spellingConfidence_normalizesEditDistanceByLongerWord() {
+        XCTAssertEqual(
+            AutoFixDecision.spellingConfidence(original: "everithing", suggestion: "everything", editDistance: 1),
+            0.90,
+            accuracy: 0.0001
+        )
+    }
+
     func test_spellingTypoGuard_suppresses_adjacent_letter_swap() {
         let assessment = AutoFixDecision.spellingTypoGuardAssessment(
             original: "wrold",
@@ -232,6 +260,36 @@ final class AutoFixDecisionTests: XCTestCase {
         )
 
         XCTAssertFalse(assessment.shouldSuppressAutoReplace)
+    }
+
+    func test_phraseGuard_suppresses_valid_english_phrase_to_cyrillic_gibberish() {
+        XCTAssertTrue(AutoFixDecision.shouldSuppressPhraseAutoReplace(
+            original: "supplier directory alli tests",
+            candidate: "ігзздшук вшкусещкн фддш еуіеі",
+            sourceLanguage: "en",
+            targetLanguage: "uk",
+            allowlist: []
+        ))
+    }
+
+    func test_phraseGuard_doesNotSuppress_true_wrongLayout_ukrainian_phrase() {
+        XCTAssertFalse(AutoFixDecision.shouldSuppressPhraseAutoReplace(
+            original: ",ed nb nen",
+            candidate: "був ти тут",
+            sourceLanguage: "en",
+            targetLanguage: "uk",
+            allowlist: []
+        ))
+    }
+
+    func test_phraseGuard_doesNotSuppress_cyrillic_to_english_phrase() {
+        XCTAssertFalse(AutoFixDecision.shouldSuppressPhraseAutoReplace(
+            original: "црут ш вщ еру ьшіефслуеі",
+            candidate: "when i do the mistackets",
+            sourceLanguage: "uk",
+            targetLanguage: "en",
+            allowlist: []
+        ))
     }
 
     func test_languageHint_recognises_known_layouts() {

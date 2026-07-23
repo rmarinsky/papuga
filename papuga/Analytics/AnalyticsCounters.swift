@@ -8,7 +8,7 @@ enum AnalyticsCounters {
     /// replacements regardless of which path produced them.
     static func recordReplacement(text: String) {
         let wordsInText = max(1, text.split(separator: " ").count)
-        let savedSeconds = Int((Double(wordsInText) * Constants.estimatedManualReplacementSecondsPerWord).rounded())
+        let savedSeconds = Constants.secondsSaved(words: wordsInText)
 
         let currentDay = Constants.currentDayStamp()
         if Defaults[.analyticsDayStamp] != currentDay {
@@ -26,7 +26,7 @@ enum AnalyticsCounters {
     /// within the grace window.
     static func reverseReplacement(text: String) {
         let wordsInText = max(1, text.split(separator: " ").count)
-        let savedSeconds = Int((Double(wordsInText) * Constants.estimatedManualReplacementSecondsPerWord).rounded())
+        let savedSeconds = Constants.secondsSaved(words: wordsInText)
         Defaults[.textReplacementCount] = max(0, Defaults[.textReplacementCount] - 1)
         Defaults[.totalReplacedWords] = max(0, Defaults[.totalReplacedWords] - wordsInText)
         Defaults[.savedSecondsToday] = max(0, Defaults[.savedSecondsToday] - savedSeconds)

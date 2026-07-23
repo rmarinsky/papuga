@@ -118,6 +118,10 @@ extension Defaults.Keys {
     static let savedSecondsToday = Key<Int>("savedSecondsToday", default: 0)
     static let dailyStatsHistory = Key<[PapugaDailyStats]>("dailyStatsHistory", default: [])
     static let dailyStatsHistoryMigrated = Key<Bool>("dailyStatsHistoryMigrated", default: false)
+    /// User's measured typing speed (net WPM) from the typing-speed test. `0`
+    /// means "not measured yet" — the time-saved estimate falls back to
+    /// `Constants.defaultTypingWordsPerMinute`.
+    static let measuredTypingWPM = Key<Double>("measuredTypingWPM", default: 0)
     static let clipboardHistoryRetention = Key<String>(
         "clipboardHistoryRetention",
         default: ClipboardHistoryRetentionPreset.oneDay.rawValue
@@ -138,7 +142,11 @@ extension Defaults.Keys {
     /// two layouts (e.g. Ukrainian vs Russian) score within this margin the direction is ambiguous,
     /// so we surface a proposal instead of silently auto-applying a guess. 0 = always pick the top.
     static let autoFixCandidateSeparation = Key<Double>("autoFixCandidateSeparation", default: 0.15)
-    static let autoFixMinWordLength = Key<Int>("autoFixMinWordLength", default: 3)
+    static let autoFixMinWordLength = Key<Int>("autoFixMinWordLength", default: 2)
+    static let autoFixTwoCharacterMinimumMigrated = Key<Bool>(
+        "autoFixTwoCharacterMinimumMigrated",
+        default: false
+    )
     static let autoFixUndoWindow = Key<Double>("autoFixUndoWindow", default: 1.5)
     static let autoFixBlocklist = Key<[String]>("autoFixBlocklist", default: [])
     static let autoFixAllowlist = Key<[String]>("autoFixAllowlist", default: [])
@@ -155,6 +163,8 @@ extension Defaults.Keys {
         default: AutoFixLayoutSwitchPolicy.alwaysSwitchToReplacementLayout.rawValue
     )
 
+    // Keep the persisted keys for migration compatibility. This setting now controls the
+    // user-facing decision journal as well as the replacement-derived internal analytics.
     static let replacementHistoryEnabled = Key<Bool>("replacementHistoryEnabled", default: true)
     static let replacementHistoryRetention = Key<String>(
         "replacementHistoryRetention",
@@ -175,6 +185,16 @@ extension Defaults.Keys {
         "mistakesGroupingMode",
         default: MistakesGroupingMode.byApp.rawValue
     )
+}
+
+enum AutoFixSettingsMigration {
+    static func migrateTwoCharacterMinimumIfNeeded() {
+        guard !Defaults[.autoFixTwoCharacterMinimumMigrated] else { return }
+        if Defaults[.autoFixMinWordLength] == 3 {
+            Defaults[.autoFixMinWordLength] = 2
+        }
+        Defaults[.autoFixTwoCharacterMinimumMigrated] = true
+    }
 }
 
 extension KeyboardShortcuts.Name {

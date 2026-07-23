@@ -104,20 +104,9 @@ struct HistoryWindowView: View {
 
     private var brandTile: some View {
         HStack(alignment: .top, spacing: 10) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [Color("BrandAccent"), Color("BrandAccentDeep")],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 30, height: 30)
-                Image(systemName: "bird.fill")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
-            }
+            Text("🦜")
+                .font(.system(size: 25))
+                .frame(width: 30, height: 30)
             VStack(alignment: .leading, spacing: 3) {
                 Text("Papuga")
                     .font(.system(size: 13, weight: .semibold))
@@ -225,6 +214,7 @@ struct HistoryWindowView: View {
             )
         }
         .buttonStyle(.plain)
+        .focusEffectDisabled()
         .padding(.horizontal, 16)
         .padding(.bottom, 4)
         .onHover { isHovering in

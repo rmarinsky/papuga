@@ -17,10 +17,9 @@ Papuga is a macOS menu bar utility that converts already-typed text between keyb
 # Open in Xcode (no XcodeGen needed — uses .xcodeproj directly)
 open papuga.xcodeproj          # Run "papuga" scheme
 
-# Dev install (reset TCC, build, install to /Applications)
+# Dev install (preserve TCC grants, build, install to /Applications)
 ./scripts/dev-install.sh
 ./scripts/dev-install.sh --build-only        # Build only
-./scripts/dev-install.sh --no-reset-tcc      # Skip TCC reset
 ./scripts/dev-install.sh --install-name name # Custom app name
 
 # Release
@@ -33,13 +32,13 @@ xcodebuild -project papuga.xcodeproj -scheme papuga -configuration Debug build
 
 ## Done criteria
 
-If a prompt changes source code (`*.swift`, project config, resources, scripts used by the app), finish by running the dev build:
+If a prompt changes source code (`*.swift`, project config, resources, scripts used by the app), finish by installing the DEV app:
 
 ```bash
-./scripts/dev-install.sh --build-only
+./scripts/dev-install.sh
 ```
 
-Docs-only changes do not need a build.
+Docs-only changes do not need a dev install.
 
 ## Release process
 
@@ -80,7 +79,7 @@ Tasks live in `backlog/` (Backlog.md CLI format). Use `backlog task list --plain
 - Prefer deleting stale docs or instructions over adding new explanatory pages.
 - Documentation should describe shipped behavior, build/release commands, permissions, and real ownership boundaries only. Do not document "planned" providers or engines unless the user explicitly asks for a roadmap.
 - When code changes user-facing behavior, update the nearest doc in the same PR; otherwise leave docs alone.
-- After source-code changes, run the dev build before the final response.
+- After source-code changes, run the dev install before the final response.
 
 ## Architecture
 

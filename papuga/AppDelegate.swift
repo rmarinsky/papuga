@@ -58,10 +58,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppLogger.pre(logger, "applicationDidFinishLaunching")
         _ = updaterManager
         PapugaEventLog.shared.pruneOldEntries()
+        PapugaStatsAggregator.rebuildDailyStatsFromHistoryIfNeeded()
         PapugaStatsAggregator.migrateLegacyCountersIfNeeded()
+        AutoFixSettingsMigration.migrateTwoCharacterMinimumIfNeeded()
         Defaults[.mistakeObservationEnabled] = true
         Defaults[.grammarObservationBetaEnabled] = true
         ReplacementHistoryStore.shared.bootstrap()
+        AutoFixDecisionHistoryStore.shared.bootstrap()
         MistakeObservationStore.shared.bootstrap()
         setupHotkeyListener()
         setupKeyboardShortcuts()

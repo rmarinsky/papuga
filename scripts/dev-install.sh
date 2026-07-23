@@ -3,7 +3,7 @@
 # Build and install Papuga DEV to /Applications for fast permission/feature testing.
 # Default behavior:
 # - kills running app
-# - resets TCC grants for DEV bundle id
+# - preserves existing TCC grants for the DEV bundle id
 # - builds Debug with DEV bundle id
 # - installs app as /Applications/papuga-dev.app
 #
@@ -37,7 +37,6 @@ INSTALL_PATH="/Applications/${INSTALL_APP_NAME}.app"
 DESTINATION="platform=macOS,arch=$(uname -m)"
 LOG_PATH="$BUILD_DIR/xcodebuild.log"
 
-RESET_TCC=true
 BUILD_ONLY=false
 
 usage() {
@@ -47,7 +46,6 @@ Usage: $0 [options]
 Options:
   --build-only   Build only, skip install to /Applications.
   --install-name Override installed app folder name (default: papuga-dev).
-  --no-reset-tcc Skip TCC reset (default is reset).
   --help         Show this help.
 EOF
 }
@@ -71,10 +69,6 @@ while [[ $# -gt 0 ]]; do
             INSTALL_PATH="/Applications/${INSTALL_APP_NAME}.app"
             shift 2
             ;;
-        --no-reset-tcc)
-            RESET_TCC=false
-            shift
-            ;;
         --help|-h)
             usage
             exit 0
@@ -96,14 +90,6 @@ echo "Display name: $APP_DISPLAY_NAME"
 echo "Install name: $INSTALL_APP_NAME.app"
 echo "Bundle id:    $BUNDLE_ID"
 echo ""
-
-if [ "$RESET_TCC" = true ]; then
-    echo "Resetting TCC grants for $BUNDLE_ID ..."
-    tccutil reset Accessibility "$BUNDLE_ID" || true
-    tccutil reset ListenEvent "$BUNDLE_ID" || true
-    echo "TCC reset done."
-    echo ""
-fi
 
 echo "Killing running Papuga processes if any..."
 pkill -x "papuga-dev" 2>/dev/null || true
@@ -186,10 +172,6 @@ echo "Installed: $INSTALL_PATH"
 echo ""
 echo "Launch command:"
 echo "  open \"$INSTALL_PATH\""
-echo ""
-echo "If permissions got stuck, run:"
-echo "  tccutil reset Accessibility \"$BUNDLE_ID\""
-echo "  tccutil reset ListenEvent \"$BUNDLE_ID\""
 
 echo ""
 echo "Launching $INSTALL_APP_NAME ..."

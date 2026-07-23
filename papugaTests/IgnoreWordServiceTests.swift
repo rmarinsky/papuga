@@ -47,4 +47,14 @@ final class IgnoreWordServiceTests: XCTestCase {
         XCTAssertEqual(Defaults[.autoFixAllowlist], ["ghbdtn"])
         XCTAssertEqual(Defaults[.customAutoReplaceRules].map(\.source), ["zfrbq"])
     }
+
+    @MainActor
+    func test_addPersistsAllowlistEntryExactlyOnce() {
+        let first = IgnoreWordService.add("ghbdtn", teachAppleSpelling: false)
+        let second = IgnoreWordService.add("GHBDTN", teachAppleSpelling: false)
+
+        XCTAssertEqual(first?.addedToAllowlist, true)
+        XCTAssertEqual(second?.addedToAllowlist, false)
+        XCTAssertEqual(Defaults[.autoFixAllowlist], ["ghbdtn"])
+    }
 }
