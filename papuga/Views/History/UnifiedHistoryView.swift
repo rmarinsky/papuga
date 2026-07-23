@@ -2,20 +2,20 @@ import SwiftUI
 
 struct UnifiedHistoryView: View {
     private enum HistoryMode: String, CaseIterable, Identifiable {
-        case replacements
+        case decisions
         case clipboard
 
         var id: String { rawValue }
 
         var title: String {
             switch self {
-            case .replacements: return "Заміни"
+            case .decisions: return "Рішення"
             case .clipboard: return "Копіопасти"
             }
         }
     }
 
-    @State private var mode: HistoryMode = .replacements
+    @State private var mode: HistoryMode = .decisions
 
     var body: some View {
         VStack(spacing: 0) {
@@ -31,7 +31,7 @@ struct UnifiedHistoryView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Історія")
                     .font(.system(size: 20, weight: .bold))
-                Text("Замінені слова і буфер обміну в одному місці.")
+                Text("Розрахунки Papuga і буфер обміну в одному місці.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
@@ -55,7 +55,7 @@ struct UnifiedHistoryView: View {
     @ViewBuilder
     private var detail: some View {
         switch mode {
-        case .replacements:
+        case .decisions:
             ReplacementsHistorySectionView(compactChrome: true)
         case .clipboard:
             ClipboardHistorySectionView(compactChrome: true)

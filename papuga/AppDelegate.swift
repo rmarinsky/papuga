@@ -60,12 +60,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PapugaEventLog.shared.pruneOldEntries()
         PapugaStatsAggregator.migrateLegacyCountersIfNeeded()
         PapugaStatsAggregator.rebuildDailyStatsFromHistoryIfNeeded()
+        AutoFixSettingsMigration.migrateTwoCharacterMinimumIfNeeded()
         Defaults[.mistakeObservationEnabled] = true
         Defaults[.grammarObservationBetaEnabled] = true
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
             CorrectionKnowledgePunctuationMigration.runIfNeeded()
         }
         ReplacementHistoryStore.shared.bootstrap()
+        AutoFixDecisionHistoryStore.shared.bootstrap()
         MistakeObservationStore.shared.bootstrap()
         setupHotkeyListener()
         setupKeyboardShortcuts()

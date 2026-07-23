@@ -8,7 +8,189 @@ final class PredictionEngineTests: XCTestCase {
 
     private func tempCacheURL() -> URL {
         FileManager.default.temporaryDirectory
-            .appendingPathComponent("papuga-pred-\(UUID().uuidString).json")
+            .appendingPathComponent("papuga-pred-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("prediction-cache.json")
+    }
+
+    private func removeTempCache(at url: URL) {
+        try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+    }
+
+    func test_potentialReplacementLog_keeps_each_actionable_occurrence_and_excludes_handled_entries() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let recorded = MistakeObservation(
+            timestamp: now.addingTimeInterval(-60),
+            issueType: .manualCorrection,
+            source: "teh",
+            suggestedTarget: "the",
+            language: "en",
+            confidence: 0.9
+        )
+        let predicted = MistakeObservation(
+            timestamp: now,
+            issueType: .spelling,
+            source: "helo",
+            language: "en",
+            confidence: 0.8
+        )
+        let repeated = MistakeObservation(
+            timestamp: now.addingTimeInterval(-120),
+            issueType: .manualCorrection,
+            source: "teh",
+            suggestedTarget: "the",
+            language: "en",
+            confidence: 0.9
+        )
+        let missingTarget = MistakeObservation(
+            issueType: .spelling,
+            source: "mystery",
+            language: "en",
+            confidence: 0.5
+        )
+        let sameTarget = MistakeObservation(
+            issueType: .spelling,
+            source: "same",
+            suggestedTarget: " SAME ",
+            language: "en",
+            confidence: 0.9
+        )
+        let handled = MistakeObservation(
+            issueType: .spelling,
+            source: "Papuga",
+            suggestedTarget: "papuga-app",
+            language: "en",
+            confidence: 0.9
+        )
+        let resolved = MistakeObservation(
+            issueType: .manualCorrection,
+            status: .convertedToRule,
+            source: "wierd",
+            suggestedTarget: "weird",
+            language: "en",
+            confidence: 0.9
+        )
+        let dismissed = MistakeObservation(
+            issueType: .manualCorrection,
+            status: .dismissed,
+            source: "colour",
+            suggestedTarget: "color",
+            language: "en",
+            confidence: 0.9
+        )
+        let dictionaryEntry = MistakeObservation(
+            issueType: .spelling,
+            status: .addedToDictionary,
+            source: "Codex",
+            suggestedTarget: "codec",
+            language: "en",
+            confidence: 0.9
+        )
+        let truncatedSource = MistakeObservation(
+            issueType: .manualCorrection,
+            source: String(repeating: "x", count: MistakeObservation.maxStoredCharCount + 1),
+            suggestedTarget: "safe-looking-target",
+            language: "en",
+            confidence: 0.9
+        )
+
+        let entries = PotentialReplacementLogEntry.derive(
+            observations: [
+                recorded, predicted, repeated, missingTarget, sameTarget, handled,
+                resolved, dismissed, dictionaryEntry, truncatedSource,
+            ],
+            predictedTargetsByObservationID: [predicted.id: "hello"],
+            handledSources: [MistakeObservation.normalizedToken(handled.source)]
+        )
+
+        XCTAssertEqual(entries.map(\.id), [predicted.id, recorded.id, repeated.id])
+        XCTAssertEqual(entries.map(\.target), ["hello", "the", "the"])
+        XCTAssertEqual(entries.map(\.origin), [.prediction, .recorded, .recorded])
+
+        let afterHandledVocabularyRemoval = PotentialReplacementLogEntry.derive(
+            observations: [recorded, predicted, repeated, handled],
+            predictedTargetsByObservationID: [predicted.id: "hello"],
+            handledSources: []
+        )
+        XCTAssertEqual(afterHandledVocabularyRemoval.count, 4)
+        XCTAssertTrue(afterHandledVocabularyRemoval.contains { $0.id == handled.id })
+    }
+
+    func test_engine_publishes_concrete_target_for_each_actionable_observation() async {
+        let recorded = MistakeObservation(
+            issueType: .manualCorrection,
+            source: "teh",
+            suggestedTarget: "the",
+            language: "en",
+            confidence: 0.9
+        )
+        let predicted = MistakeObservation(
+            issueType: .spelling,
+            source: "helo",
+            language: "en",
+            confidence: 0.8
+        )
+        let unresolved = MistakeObservation(
+            issueType: .spelling,
+            source: "x",
+            language: "en",
+            confidence: 0.4
+        )
+        let truncatedSource = MistakeObservation(
+            issueType: .manualCorrection,
+            source: String(repeating: "x", count: MistakeObservation.maxStoredCharCount + 1),
+            suggestedTarget: "target",
+            language: "en",
+            confidence: 0.9
+        )
+        let cache = tempCacheURL()
+        defer { removeTempCache(at: cache) }
+        let engine = PredictionEngine(
+            analyzer: MistakeSuggestionAnalyzer(spellChecker: PotentialChangeSpellChecker()),
+            cacheURL: cache
+        )
+        engine.domainLearningEnabled = false
+
+        await engine.analyzeToCompletionForTesting(
+            observations: [recorded, predicted, unresolved, truncatedSource],
+            force: true
+        )
+
+        XCTAssertEqual(engine.phase, .ready)
+        XCTAssertEqual(
+            engine.actionableTargetsByObservationID,
+            [recorded.id: "the", predicted.id: "hello"]
+        )
+    }
+
+    func test_engine_refreshes_when_handledVocabularyChanges() async {
+        let observation = MistakeObservation(
+            issueType: .manualCorrection,
+            source: "teh",
+            suggestedTarget: "the",
+            language: "en",
+            confidence: 0.9
+        )
+        let cache = tempCacheURL()
+        defer { removeTempCache(at: cache) }
+        let store = MistakeObservationStore(
+            testFileURL: cache.deletingLastPathComponent().appendingPathComponent("observations.jsonl")
+        )
+        store.replaceEntriesForTesting([observation])
+        var handledSources = Set<String>()
+        let engine = PredictionEngine(store: store, cacheURL: cache)
+        engine.domainLearningEnabled = false
+        engine.handledSourcesProvider = { handledSources }
+
+        await engine.bootstrapToCompletionForTesting()
+        XCTAssertEqual(engine.actionableTargetsByObservationID, [observation.id: "the"])
+
+        handledSources = [observation.normalizedSource]
+        await engine.bootstrapToCompletionForTesting()
+        XCTAssertTrue(engine.actionableTargetsByObservationID.isEmpty)
+
+        handledSources = []
+        await engine.bootstrapToCompletionForTesting()
+        XCTAssertEqual(engine.actionableTargetsByObservationID, [observation.id: "the"])
     }
 
     // MARK: - Correctness (fast, deterministic, always runs)
@@ -16,7 +198,7 @@ final class PredictionEngineTests: XCTestCase {
     func test_engine_analyzes_and_ranks() async throws {
         let entries = MistakeBenchmarkData.synthetic(groupCount: 200)
         let cache = tempCacheURL()
-        defer { try? FileManager.default.removeItem(at: cache) }
+        defer { removeTempCache(at: cache) }
 
         let engine = PredictionEngine(
             analyzer: MistakeSuggestionAnalyzer(spellChecker: CountingSpellChecker()),
@@ -41,10 +223,15 @@ final class PredictionEngineTests: XCTestCase {
     func test_engine_diskCache_roundTrip() async throws {
         let entries = MistakeBenchmarkData.synthetic(groupCount: 120)
         let cache = tempCacheURL()
-        defer { try? FileManager.default.removeItem(at: cache) }
+        defer { removeTempCache(at: cache) }
+        let store = MistakeObservationStore(
+            testFileURL: cache.deletingLastPathComponent().appendingPathComponent("observations.jsonl")
+        )
+        store.replaceEntriesForTesting(entries)
 
         let first = PredictionEngine(
             analyzer: MistakeSuggestionAnalyzer(spellChecker: CountingSpellChecker()),
+            store: store,
             cacheURL: cache
         )
         await first.analyzeToCompletionForTesting(observations: entries, force: false)
@@ -54,14 +241,27 @@ final class PredictionEngineTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: cache.path), "cache file written")
 
         // A fresh engine pointed at the same cache should need zero work.
+        let warmSpellChecker = CountingSpellChecker()
         let second = PredictionEngine(
-            analyzer: MistakeSuggestionAnalyzer(spellChecker: CountingSpellChecker()),
+            analyzer: MistakeSuggestionAnalyzer(spellChecker: warmSpellChecker),
+            store: store,
             cacheURL: cache
         )
-        await second.analyzeToCompletionForTesting(observations: entries, force: false)
+        second.domainLearningEnabled = false
+        await second.bootstrapToCompletionForTesting()
         XCTAssertEqual(second.totalCount, total)
         XCTAssertEqual(second.analyzedCount, total) // all served from disk cache
         XCTAssertEqual(second.phase, .ready)
+        XCTAssertEqual(
+            second.actionableTargetsByObservationID,
+            first.actionableTargetsByObservationID
+        )
+        XCTAssertEqual(warmSpellChecker.guessCalls, 0)
+        XCTAssertEqual(warmSpellChecker.misspelledCalls, 0)
+
+        await second.bootstrapToCompletionForTesting()
+        XCTAssertEqual(warmSpellChecker.guessCalls, 0, "repeated bootstrap stays idempotent")
+        XCTAssertEqual(warmSpellChecker.misspelledCalls, 0, "repeated bootstrap stays idempotent")
     }
 
     func test_engineAndMergesRuleSafetyAcrossApps() async throws {
@@ -111,7 +311,7 @@ final class PredictionEngineTests: XCTestCase {
         guard let url = MistakeBenchmarkData.realDataURL() else { throw XCTSkip("no real data") }
         let entries = MistakeBenchmarkData.loadObservations(from: url)
         let cache = tempCacheURL()
-        defer { try? FileManager.default.removeItem(at: cache) }
+        defer { removeTempCache(at: cache) }
 
         let engine = PredictionEngine(
             analyzer: MistakeSuggestionAnalyzer(spellChecker: SystemSpellCheckingClient()),
@@ -143,5 +343,15 @@ final class PredictionEngineTests: XCTestCase {
         bench("  sample: \(engine.domainVocabulary.sorted().prefix(18).joined(separator: ", "))")
         XCTAssertEqual(engine.phase, .ready)
         XCTAssertEqual(engine.analyzedCount, engine.totalCount)
+    }
+}
+
+private struct PotentialChangeSpellChecker: SpellCheckingClient {
+    func isMisspelled(_ word: String, language: String) -> Bool {
+        word != "hello"
+    }
+
+    func guesses(for word: String, language: String) -> [String] {
+        word == "helo" ? ["hello"] : []
     }
 }

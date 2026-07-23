@@ -41,8 +41,8 @@ struct WelcomeStepView: View {
 
                     if showContent {
                         VStack(alignment: .leading, spacing: 12) {
-                            FeatureRow(icon: "arrow.left.arrow.right", text: "Конвертуйте вже набраний текст між розкладками")
-                            FeatureRow(icon: "command", text: "Виділіть текст і натисніть Opt+Shift, Cmd+Shift або Ctrl+Shift двічі")
+                            FeatureRow(icon: "arrow.left.arrow.right", text: "Перемикай уже набраний текст між розкладками")
+                            FeatureRow(icon: "command", text: "Виділи текст і натисни Opt+Shift, Cmd+Shift або Ctrl+Shift двічі")
                             FeatureRow(icon: "globe", text: "Підтримка будь-яких системних розкладок")
                         }
                         .transition(.move(edge: .bottom).combined(with: .opacity))

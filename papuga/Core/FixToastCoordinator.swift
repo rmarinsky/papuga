@@ -24,16 +24,63 @@ final class FixToastCoordinator {
             onClick()
         }
         panel.contentView = NSHostingView(rootView: view)
+        panel.title = "Скасувати заміну"
+        panel.identifier = NSUserInterfaceItemIdentifier("autofix-undo-panel")
+        panel.setAccessibilityElement(true)
+        panel.setAccessibilityRole(.window)
+        panel.setAccessibilityLabel("Скасувати заміну")
+        panel.setAccessibilityIdentifier("autofix-undo-panel")
 
-        let size = NSSize(width: 50, height: 50)
+        show(panel: panel, size: NSSize(width: 50, height: 50), near: point)
+        scheduleDismiss(after: duration)
+
+        AppLogger.action(logger, "FixToast shown")
+    }
+
+    func showRecovery(
+        title: String,
+        near point: NSPoint,
+        duration: TimeInterval = 10,
+        onClick: @escaping () -> Void
+    ) {
+        dismissTask?.cancel()
+
+        let panel = panel ?? makePanel()
+        self.panel = panel
+        let view = FixRecoveryView(title: title) { [weak self] in
+            self?.dismiss()
+            onClick()
+        }
+        panel.contentView = NSHostingView(rootView: view)
+        panel.title = title
+        panel.identifier = NSUserInterfaceItemIdentifier("autofix-recovery-panel")
+        panel.setAccessibilityElement(true)
+        panel.setAccessibilityRole(.window)
+        panel.setAccessibilityLabel(title)
+        panel.setAccessibilityIdentifier("autofix-recovery-panel")
+
+        let width = max(150, (title as NSString).size(withAttributes: [
+            .font: NSFont.systemFont(ofSize: 12, weight: .semibold)
+        ]).width + 58)
+        show(panel: panel, size: NSSize(width: ceil(width), height: 34), near: point)
+        scheduleDismiss(after: duration)
+
+        AppLogger.action(logger, "Fix recovery shown: \(title)")
+    }
+
+    private func show(panel: ToastPanel, size: NSSize, near point: NSPoint) {
         let origin = NSPoint(x: point.x + 14, y: point.y - size.height - 6)
         panel.setFrame(NSRect(origin: origin, size: size), display: true)
         panel.orderFrontRegardless()
+    }
 
-        AppLogger.action(logger, "FixToast shown at \(origin)")
-
+    private func scheduleDismiss(after duration: TimeInterval) {
         dismissTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(duration))
+            do {
+                try await Task.sleep(for: .seconds(duration))
+            } catch {
+                return
+            }
             await MainActor.run {
                 self?.dismiss()
             }

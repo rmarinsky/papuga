@@ -2,7 +2,7 @@ import AppKit
 import Defaults
 import SwiftUI
 
-/// "Покращити з AI" — the bring-your-own-AI flow (AI-ASSIST.md §9), paste mode.
+/// "Покращити з ШІ" — the bring-your-own-AI flow (AI-ASSIST.md §9), paste mode.
 ///
 /// Steps: intro + consent → copy the generated prompt → paste the answer → validate
 /// ("де не співпадає") → review + apply. The pasted answer is untrusted; it is only ever
@@ -64,7 +64,7 @@ struct AIAssistSheet: View {
             .frame(width: 34, height: 34)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text("Покращити з AI")
+                Text("Покращити з ШІ")
                     .font(.system(size: 15, weight: .semibold))
                 Text(stepTitle)
                     .font(.system(size: 11))
@@ -421,7 +421,7 @@ struct AIAssistSheet: View {
     private var emptyBatchNote: some View {
         HStack(spacing: 10) {
             Image(systemName: "checkmark.circle").foregroundStyle(.tertiary)
-            Text("Немає рідкісних помилок для AI — усе вже опрацьовано або прибрано як секрети.")
+            Text("Немає рідкісних помилок для ШІ — усе вже опрацьовано або прибрано як секрети.")
                 .font(.system(size: 12)).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }

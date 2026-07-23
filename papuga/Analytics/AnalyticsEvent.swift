@@ -100,6 +100,7 @@ enum AutoFixSkipReason: String {
     case editingContext = "editing_context"
     case targetChanged = "target_changed"
     case targetUnverifiable = "target_unverifiable"
+    case replacementNotCommitted = "replacement_not_committed"
     case unsafeEditor = "unsafe_editor"
     case multipleCursorRisk = "multiple_cursor_risk"
     case mixedLanguageIntentional = "mixed_language_intentional"

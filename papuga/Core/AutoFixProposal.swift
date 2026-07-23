@@ -1,6 +1,12 @@
 import Foundation
 
 struct AutoFixProposal: Identifiable, Equatable {
+    enum Kind: Equatable {
+        case detected
+        case customRule
+        case spelling
+    }
+
     let id = UUID()
     let original: String
     let candidate: String
@@ -15,12 +21,67 @@ struct AutoFixProposal: Identifiable, Equatable {
     let targetLang: String
     let bundleID: String
     let createdAt: TimeInterval
-    let canApplyDirectly: Bool
-    let targetSession: AutoFixTargetSession?
-    let replacementPlan: ReplacementPlan
+    let replacementAnchor: TextReplacementAnchor
+    let kind: Kind
 
     var margin: Double {
         scoreCandidate - scoreOriginal
+    }
+
+    var createsRuleOnAcceptance: Bool {
+        kind == .detected
+    }
+
+    var changesInputLayout: Bool {
+        kind == .detected
+    }
+
+    var candidateOrigin: AutoFixDecisionCandidateOrigin {
+        switch kind {
+        case .detected: return .keyboardLayout
+        case .customRule: return .customRule
+        case .spelling: return .spelling
+        }
+    }
+
+    var displayTitle: String {
+        kind == .spelling ? "Можливе виправлення" : "Можлива заміна"
+    }
+
+    var primaryActionTooltip: String {
+        createsRuleOnAcceptance
+            ? "Замінити й створити правило. Enter"
+            : "Виправити поточний випадок. Enter"
+    }
+
+    var neverActionTitle: String {
+        kind == .spelling
+            ? "Ніколи не виправляти “\(original)”"
+            : "Ніколи не замінювати “\(original)”"
+    }
+}
+
+enum AutoFixProposalOutcome: Equatable {
+    case accepted
+    case dismissed
+    case timedOut
+    case neverReplace
+
+    var shouldAddToAllowlist: Bool {
+        self == .neverReplace
+    }
+
+    var shouldOfferRecovery: Bool {
+        self == .dismissed || self == .timedOut
+    }
+}
+
+struct PendingProposalRecovery: Equatable {
+    let proposal: AutoFixProposal
+    let expiresAt: TimeInterval
+
+    func isValid(at timestamp: TimeInterval) -> Bool {
+        timestamp < expiresAt
     }
 }
 
