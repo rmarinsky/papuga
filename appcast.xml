@@ -5,6 +5,14 @@
     <description>Most recent changes with links to updates.</description>
     <language>en</language>
     <item>
+      <title>Version 1.7.2</title>
+      <pubDate>Thu, 23 Jul 2026 12:45:03 GMT</pubDate>
+      <sparkle:version>53</sparkle:version>
+      <sparkle:shortVersionString>1.7.2</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0.0</sparkle:minimumSystemVersion>
+      <enclosure url="https://github.com/rmarinsky/papuga/releases/download/v1.7.2/Papuga-1.7.2.dmg" sparkle:edSignature="a0HIhPM9JvrVvS56/2IxbLUpmdQUU0JdKejpWS/GDKa3RBuUnDrXHGeLhStCTaTwTC5wDHcDuP5lplaGMMuOBQ==" length="5752071" type="application/octet-stream" />
+    </item>
+    <item>
       <title>Version 1.7.1</title>
       <pubDate>Thu, 23 Jul 2026 12:43:19 GMT</pubDate>
       <sparkle:version>52</sparkle:version>
