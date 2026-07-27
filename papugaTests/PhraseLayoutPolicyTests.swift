@@ -2,6 +2,26 @@ import XCTest
 @testable import papuga
 
 final class PhraseLayoutPolicyTests: XCTestCase {
+    func test_punctuationOnlyPhysicalKeysCanBePhraseLayoutEvidence() {
+        let assessment = PhraseLayoutPolicy.assess(
+            originalCore: "][",
+            correctedCore: "їх",
+            sourceLanguage: "en",
+            targetLanguage: "uk",
+            targetLayoutID: "com.apple.keylayout.Ukrainian-PC",
+            isAmbiguous: false,
+            isKnownCorrect: { word, language in
+                word == "][" && language == "en"
+                    || word == "їх" && language == "uk"
+            }
+        )
+
+        XCTAssertEqual(
+            assessment,
+            .layoutCandidate(targetLayoutID: "com.apple.keylayout.Ukrainian-PC")
+        )
+    }
+
     func test_acceptsOnlyUnanimousLayoutDirection() {
         let assessments: [PhraseTokenAssessment] = [
             .layoutCandidate(targetLayoutID: "uk"),

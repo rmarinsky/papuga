@@ -69,6 +69,10 @@ struct LayoutIncidentTracker: Equatable {
         return Double(strongTokenCount) / Double(tokens.count)
     }
 
+    var isReadyForImmediateFinalization: Bool {
+        strongTokenCount >= 3 && supportRatio >= 0.75
+    }
+
     var endsSentence: Bool {
         Self.hasSentenceTerminator(originalBody) || Self.hasSentenceTerminator(candidateBody)
     }

@@ -173,6 +173,52 @@ final class EndToEndAutoFixTests: XCTestCase {
         }
     }
 
+    func test_punctuationLedPhraseBecomesImmediateLayoutIncidentProposal() throws {
+        let fromID = "com.apple.keylayout.US"
+        let toID = "com.apple.keylayout.Ukrainian-PC"
+        let fromSource = try source(forID: fromID)
+        let toSource = try source(forID: toID)
+        mapper.buildMap(for: fromSource, sourceID: fromID)
+        mapper.buildMap(for: toSource, sourceID: toID)
+
+        let originals = ["][", "vf'", ",enb"]
+        let expected = ["їх", "має", "бути"]
+        var tracker = LayoutIncidentTracker()
+
+        for (original, corrected) in zip(originals, expected) {
+            let candidate = mapper.convert(text: original, fromSourceID: fromID, toSourceID: toID)
+            XCTAssertEqual(candidate, corrected)
+
+            let assessment = PhraseLayoutPolicy.assess(
+                originalCore: original,
+                correctedCore: candidate,
+                sourceLanguage: "en",
+                targetLanguage: "uk",
+                targetLayoutID: toID,
+                isAmbiguous: false,
+                isKnownCorrect: { word, language in
+                    language == "en" ? word == "][" : expected.contains(word)
+                }
+            )
+            XCTAssertEqual(assessment, .layoutCandidate(targetLayoutID: toID))
+            tracker.append(LayoutIncidentToken(
+                original: original,
+                candidate: candidate,
+                boundary: " ",
+                targetLayoutID: toID,
+                evidence: .strong
+            ))
+        }
+
+        XCTAssertEqual(tracker.originalBody, "][ vf' ,enb")
+        XCTAssertEqual(tracker.candidateBody, "їх має бути")
+        XCTAssertTrue(tracker.isReadyForImmediateFinalization)
+        XCTAssertEqual(
+            tracker.decision(scoreOriginal: 1, scoreCandidate: 0, threshold: 0.35),
+            .propose
+        )
+    }
+
     /// Documents a known limitation of the AppleNL backend: short single English words like
     /// 'world' get remapped to 'цщкдв' which AppleNL classifies as Ukrainian with very high
     /// confidence. Without a dictionary check the auto-fix WILL trigger here. This test

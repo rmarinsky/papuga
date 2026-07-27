@@ -607,7 +607,9 @@ final class AutoFixController {
         // Hard guard against false positives like `faster` -> `афіеук`. If the
         // original is a real word in the current layout's language, the user
         // intended to type it; never replace.
-        if !spellChecker.isMisspelled(word, language: currentLang) {
+        let hasLexicalCore = !BufferedToken(rawText: word, keyCodes: []).core.isEmpty
+        if hasLexicalCore,
+           !spellChecker.isMisspelled(word, language: currentLang) {
             logSkip(.originalIsRealWord, word: word, bundleID: bundleID, layoutID: currentID, extra: [
                 "from_lang": .string(currentLang)
             ])
@@ -793,6 +795,7 @@ final class AutoFixController {
                     candidate: candidate,
                     sourceLanguage: currentLang,
                     targetLanguage: targetLang,
+                    targetLayoutID: targetID,
                     candidateScore: effectiveScoreCandidate
                 ),
                 singleAction: shouldOfferSingleProposal ? .proposal(force: false) : .none
@@ -820,7 +823,9 @@ final class AutoFixController {
         }
 
         let deferredAction: DeferredSingleAction
-        if !canMutateDirectly {
+        if !hasLexicalCore {
+            deferredAction = .none
+        } else if !canMutateDirectly {
             deferredAction = appPolicy.allowsProposal ? .proposal(force: true) : .none
         } else if isAmbiguousTarget {
             deferredAction = appPolicy.allowsProposal ? .proposal(force: true) : .none
@@ -848,6 +853,7 @@ final class AutoFixController {
                 candidate: candidate,
                 sourceLanguage: currentLang,
                 targetLanguage: targetLang,
+                targetLayoutID: targetID,
                 candidateScore: effectiveScoreCandidate
             ),
             singleAction: deferredAction
@@ -934,22 +940,24 @@ final class AutoFixController {
         candidate: String,
         sourceLanguage: String,
         targetLanguage: String,
+        targetLayoutID: String,
         candidateScore: Double
     ) -> LayoutIncidentToken.Evidence {
-        guard AutoFixDecision.isCrossScriptConversion(original: original, candidate: candidate) else {
-            return .neutral
-        }
-
-        let sourceToken = original.trimmingCharacters(in: .punctuationCharacters)
-        let targetToken = candidate.trimmingCharacters(in: .punctuationCharacters)
-        guard !sourceToken.isEmpty, !targetToken.isEmpty else { return .neutral }
-
-        let sourceIsInvalid = spellChecker.isMisspelled(sourceToken, language: sourceLanguage)
-        let targetIsInvalid = spellChecker.isMisspelled(targetToken, language: targetLanguage)
-        if sourceIsInvalid && !targetIsInvalid {
+        let assessment = PhraseLayoutPolicy.assess(
+            originalCore: original,
+            correctedCore: candidate,
+            sourceLanguage: sourceLanguage,
+            targetLanguage: targetLanguage,
+            targetLayoutID: targetLayoutID,
+            isAmbiguous: false,
+            isKnownCorrect: { [spellChecker] word, language in
+                !spellChecker.isMisspelled(word, language: language)
+            }
+        )
+        if case .layoutCandidate = assessment {
             return .strong
         }
-        if !sourceIsInvalid && targetIsInvalid {
+        if assessment == .keep {
             return .contradiction
         }
         if AutoFixDecision.shouldSuggestSingleTokenLayoutMistake(
@@ -1040,6 +1048,7 @@ final class AutoFixController {
                     finalizeLayoutIncident()
                     return true
                 } else if result == .reachedCap
+                            || layoutIncident.isReadyForImmediateFinalization
                             || layoutIncident.endsSentence
                             || LayoutIncidentTracker.isHardBoundary(boundary) {
                     markDecisionAggregateOnly(matching: original)
