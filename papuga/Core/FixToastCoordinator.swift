@@ -13,22 +13,25 @@ final class FixToastCoordinator {
 
     private init() {}
 
-    func show(near point: NSPoint, duration: TimeInterval = 2.5, onClick: @escaping () -> Void) {
+    func show(near point: NSPoint, duration: TimeInterval = 2.5, onClick: (() -> Void)? = nil) {
         dismissTask?.cancel()
 
         let panel = panel ?? makePanel()
         self.panel = panel
 
-        let view = FixToastView { [weak self] in
-            self?.dismiss()
-            onClick()
-        }
+        let view = FixToastView(onClick: onClick.map { action in
+            { [weak self] in
+                self?.dismiss()
+                action()
+            }
+        })
         panel.contentView = NSHostingView(rootView: view)
-        panel.title = "Скасувати заміну"
+        panel.ignoresMouseEvents = onClick == nil
+        panel.title = onClick == nil ? "Papuga" : "Скасувати заміну"
         panel.identifier = NSUserInterfaceItemIdentifier("autofix-undo-panel")
         panel.setAccessibilityElement(true)
         panel.setAccessibilityRole(.window)
-        panel.setAccessibilityLabel("Скасувати заміну")
+        panel.setAccessibilityLabel(panel.title)
         panel.setAccessibilityIdentifier("autofix-undo-panel")
 
         show(panel: panel, size: NSSize(width: 50, height: 50), near: point)
@@ -47,6 +50,7 @@ final class FixToastCoordinator {
 
         let panel = panel ?? makePanel()
         self.panel = panel
+        panel.ignoresMouseEvents = false
         let view = FixRecoveryView(title: title) { [weak self] in
             self?.dismiss()
             onClick()
@@ -99,7 +103,7 @@ final class FixToastCoordinator {
     /// click would otherwise null out `lastFix` before SwiftUI's Button action
     /// runs, defeating the undo path.
     func isMouseOverToast() -> Bool {
-        guard let panel, panel.isVisible else { return false }
+        guard let panel, panel.isVisible, !panel.ignoresMouseEvents else { return false }
         return NSPointInRect(NSEvent.mouseLocation, panel.frame)
     }
 

@@ -1384,11 +1384,7 @@ final class AutoFixController {
         AnalyticsCounters.recordReplacement(text: candidate)
         NotificationCenter.default.post(name: .textReplacementDidComplete, object: nil)
 
-        if Defaults[.autoFixToastEnabled], canUndo {
-            FixToastCoordinator.shared.show(near: NSEvent.mouseLocation) { [weak self] in
-                self?.undoFromToast()
-            }
-        }
+        showReplacementFeedback(canUndo: canUndo)
 
         PapugaEventLog.shared.track(AnalyticsEvent(
             kind: AnalyticsKind.autoFixApplied,
@@ -1463,12 +1459,7 @@ final class AutoFixController {
         AnalyticsCounters.recordReplacement(text: candidate)
         NotificationCenter.default.post(name: .textReplacementDidComplete, object: nil)
 
-        if Defaults[.autoFixToastEnabled], canUndo {
-            let cursor = NSEvent.mouseLocation
-            FixToastCoordinator.shared.show(near: cursor) { [weak self] in
-                self?.undoFromToast()
-            }
-        }
+        showReplacementFeedback(canUndo: canUndo)
 
         PapugaEventLog.shared.track(AnalyticsEvent(
             kind: AnalyticsKind.autoFixApplied,
@@ -1754,11 +1745,7 @@ final class AutoFixController {
         AnalyticsCounters.recordReplacement(text: proposal.candidate)
         NotificationCenter.default.post(name: .textReplacementDidComplete, object: nil)
 
-        if Defaults[.autoFixToastEnabled], canUndo {
-            FixToastCoordinator.shared.show(near: NSEvent.mouseLocation) { [weak self] in
-                self?.undoFromToast()
-            }
-        }
+        showReplacementFeedback(canUndo: canUndo)
 
         PapugaEventLog.shared.track(AnalyticsEvent(
             kind: AnalyticsKind.autoFixApplied,
@@ -1895,17 +1882,21 @@ final class AutoFixController {
         )
         AnalyticsCounters.recordReplacement(text: pending.replacement)
         NotificationCenter.default.post(name: .textReplacementDidComplete, object: nil)
-        if Defaults[.autoFixToastEnabled], canUndo {
-            FixToastCoordinator.shared.show(near: NSEvent.mouseLocation) { [weak self] in
-                self?.undoFromToast()
-            }
-        }
+        showReplacementFeedback(canUndo: canUndo)
     }
 
     private func clearRecovery() {
         pendingProposalRecovery = nil
         pendingReapply = nil
         FixToastCoordinator.shared.dismiss()
+    }
+
+    private func showReplacementFeedback(canUndo: Bool) {
+        guard Defaults[.autoFixToastEnabled] else { return }
+        FixToastCoordinator.shared.show(
+            near: NSEvent.mouseLocation,
+            onClick: canUndo ? { [weak self] in self?.undoFromToast() } : nil
+        )
     }
 
     @discardableResult
@@ -1967,12 +1958,7 @@ final class AutoFixController {
         AnalyticsCounters.recordReplacement(text: rule.target)
         NotificationCenter.default.post(name: .textReplacementDidComplete, object: nil)
 
-        if Defaults[.autoFixToastEnabled], canUndo {
-            let cursor = NSEvent.mouseLocation
-            FixToastCoordinator.shared.show(near: cursor) { [weak self] in
-                self?.undoFromToast()
-            }
-        }
+        showReplacementFeedback(canUndo: canUndo)
 
         PapugaEventLog.shared.track(AnalyticsEvent(
             kind: AnalyticsKind.autoFixApplied,
