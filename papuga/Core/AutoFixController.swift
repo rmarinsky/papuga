@@ -17,6 +17,19 @@ enum PapugaSyntheticEvent {
     }
 }
 
+enum AutoFixKeyEventText {
+    static func sanitized(_ text: String) -> String {
+        text.unicodeScalars.reduce(into: "") { result, scalar in
+            if !CharacterSet.controlCharacters.contains(scalar)
+                || scalar.value == 9
+                || scalar.value == 10
+                || scalar.value == 13 {
+                result.unicodeScalars.append(scalar)
+            }
+        }
+    }
+}
+
 @MainActor
 final class AutoFixController {
     private let layoutManager: LayoutManager
@@ -223,7 +236,7 @@ final class AutoFixController {
         var chars = [UniChar](repeating: 0, count: 8)
         event.keyboardGetUnicodeString(maxStringLength: chars.count, actualStringLength: &length, unicodeString: &chars)
         guard length > 0 else { return "" }
-        return String(utf16CodeUnits: chars, count: length)
+        return AutoFixKeyEventText.sanitized(String(utf16CodeUnits: chars, count: length))
     }
 
     private func processEvent(
