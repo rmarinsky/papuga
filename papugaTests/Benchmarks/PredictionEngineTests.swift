@@ -193,7 +193,7 @@ final class PredictionEngineTests: XCTestCase {
         XCTAssertEqual(engine.actionableTargetsByObservationID, [observation.id: "the"])
     }
 
-    func test_bootstrap_defersAnalysisUntilAfterCallerCanRender() async {
+    func test_bootstrap_defersAnalysisUntilAfterCallerCanRender() async throws {
         let observation = MistakeObservation(
             issueType: .manualCorrection,
             source: "teh",
@@ -209,6 +209,13 @@ final class PredictionEngineTests: XCTestCase {
         store.replaceEntriesForTesting([observation])
         let engine = PredictionEngine(store: store, cacheURL: cache)
         engine.domainLearningEnabled = false
+        try FileManager.default.createDirectory(
+            at: cache.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try JSONEncoder().encode(["cached-term"]).write(
+            to: cache.deletingLastPathComponent().appendingPathComponent("domain-vocabulary.json")
+        )
         var analysisStarted = false
         engine.handledSourcesProvider = {
             analysisStarted = true
@@ -216,10 +223,12 @@ final class PredictionEngineTests: XCTestCase {
         }
 
         engine.bootstrap()
+        engine.bootstrap()
 
         XCTAssertFalse(analysisStarted)
         await engine.bootstrapToCompletionForTesting()
         XCTAssertTrue(analysisStarted)
+        XCTAssertTrue(engine.domainVocabulary.contains("cached-term"))
         XCTAssertEqual(engine.phase, .ready)
     }
 

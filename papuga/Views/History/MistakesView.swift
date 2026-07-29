@@ -669,7 +669,11 @@ struct MistakesView: View {
         let fullTokenPlan = targetCandidate?.replacementPlan.flatMap {
             $0.interpretationReason == .layoutFullToken ? $0 : nil
         }
-        pendingObservationIDs = group.observationIDs
+        pendingObservationIDs = HistoryWordActionPolicy.observationIDs(
+            group.observationIDs,
+            matchingRawSource: fullTokenPlan?.rawSource,
+            in: store.entries
+        )
         editorSeed = RuleEditorSeed(
             source: fullTokenPlan?.rawSource ?? HistoryWordActionPolicy.normalizedSource(group.source),
             target: HistoryWordActionPolicy.sanitizedTarget(resolvedTarget) ?? "",
@@ -890,7 +894,7 @@ private struct PredictionCard: View {
                 )
 
                 HistoryCandidateStrip(candidates: group.candidates) { candidate in
-                    guard candidate.canCreateCoreRule else { return }
+                    guard candidate.canCreateRule else { return }
                     onCreateRule(candidate.text)
                 }
             }

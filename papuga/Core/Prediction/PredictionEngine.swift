@@ -107,17 +107,18 @@ final class PredictionEngine {
     /// Call once at launch: load the disk cache, then background-analyze anything
     /// not yet cached.
     func bootstrap() {
+        if bootstrapTask != nil { return }
         let firstBootstrap = !hasBootstrapped
-        hasBootstrapped = true
         phase = .analyzing
-        bootstrapTask?.cancel()
         bootstrapTask = Task { @MainActor in
+            defer { bootstrapTask = nil }
             await Task.yield()
             guard !Task.isCancelled else { return }
             if firstBootstrap {
                 loadCacheFromDisk()
                 loadDomainVocabularyFromDisk()
                 harvestProducedCorpus()
+                hasBootstrapped = true
             }
             analyze(observations: store.entries, force: false)
         }
@@ -451,7 +452,8 @@ final class PredictionEngine {
 
     func bootstrapToCompletionForTesting() async {
         bootstrap()
-        await bootstrapTask?.value
+        let pendingBootstrap = bootstrapTask
+        await pendingBootstrap?.value
         await analysisTask?.value
     }
 

@@ -152,6 +152,40 @@ final class BufferedTokenTests: XCTestCase {
         XCTAssertFalse(rule.matches("nfrj;,"))
     }
 
+    func test_coreAndFullTokenRulesHaveDistinctMatchScopes() {
+        let core = CustomAutoReplaceRule(source: "nfrj", target: "core")
+        let exact = CustomAutoReplaceRule(
+            source: "nfrj;",
+            target: "також",
+            matchesFullToken: true
+        )
+
+        XCTAssertFalse(core.hasSameMatchScope(as: exact))
+        XCTAssertTrue(exact.hasSameMatchScope(as: exact))
+    }
+
+    func test_fullTokenRuleMarksOnlyObservationsWithItsExactRawSource() {
+        let core = MistakeObservation(issueType: .spelling, source: "nfrj", language: "en", confidence: 0.7)
+        let full = MistakeObservation(issueType: .spelling, source: "nfrj;", language: "en", confidence: 0.7)
+
+        XCTAssertEqual(
+            HistoryWordActionPolicy.observationIDs(
+                [core.id, full.id],
+                matchingRawSource: "nfrj;",
+                in: [core, full]
+            ),
+            [full.id]
+        )
+        XCTAssertEqual(
+            HistoryWordActionPolicy.observationIDs(
+                [core.id, full.id],
+                matchingRawSource: nil,
+                in: [core, full]
+            ),
+            [core.id, full.id]
+        )
+    }
+
     func test_legacyRuleWithoutMatchScopeStillDecodesAsCoreRule() throws {
         let encoded = try JSONEncoder().encode(CustomAutoReplaceRule(source: "можі", target: "може"))
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])

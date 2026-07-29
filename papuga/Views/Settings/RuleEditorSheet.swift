@@ -299,8 +299,10 @@ struct RuleEditorSheet: View {
         }
         let sourceHasOtherRule = customRules.contains {
             $0.id != seed.ruleID
-                && HistoryWordActionPolicy.normalizedSource($0.source)
-                    .caseInsensitiveCompare(sourceCore) == .orderedSame
+                && $0.hasSameMatchScope(
+                    source: trimmedSource,
+                    matchesFullToken: seed.matchesFullToken
+                )
         }
 
         switch mode {
@@ -342,13 +344,18 @@ struct RuleEditorSheet: View {
                 // Only the first matching rule fires at runtime, so a duplicate
                 // source would be dead weight — replace any existing one.
                 customRules.removeAll {
-                    HistoryWordActionPolicy.normalizedSource($0.source).caseInsensitiveCompare(sourceKey) == .orderedSame
+                    $0.hasSameMatchScope(source: src, matchesFullToken: seed.matchesFullToken)
                 }
-                customRules.append(CustomAutoReplaceRule(
+                let rule = CustomAutoReplaceRule(
                     source: src,
                     target: trimmedTarget,
                     matchesFullToken: seed.matchesFullToken
-                ))
+                )
+                if seed.matchesFullToken {
+                    customRules.insert(rule, at: 0)
+                } else {
+                    customRules.append(rule)
+                }
             }
 
         case .leaveAlone:

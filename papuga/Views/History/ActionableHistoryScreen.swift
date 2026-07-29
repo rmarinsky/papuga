@@ -205,7 +205,7 @@ private struct ActionableSuggestionCard: View {
                 )
 
                 HistoryCandidateStrip(candidates: item.candidates) { candidate in
-                    guard candidate.canCreateCoreRule else { return }
+                    guard candidate.canCreateRule else { return }
                     item.onCreateRule(candidate.text)
                 }
             }
@@ -350,5 +350,16 @@ enum HistoryWordActionPolicy {
         let target = BufferedToken.normalizedCore(from: text)
         guard !target.isEmpty, !target.contains(where: \.isWhitespace) else { return nil }
         return target
+    }
+
+    static func observationIDs(
+        _ groupIDs: [UUID],
+        matchingRawSource rawSource: String?,
+        in observations: [MistakeObservation]
+    ) -> [UUID] {
+        guard let rawSource else { return groupIDs }
+        return groupIDs.filter { id in
+            observations.first { $0.id == id }?.source == rawSource
+        }
     }
 }

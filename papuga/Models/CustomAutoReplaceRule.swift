@@ -35,6 +35,17 @@ struct CustomAutoReplaceRule: Codable, Identifiable, Hashable, Defaults.Serializ
     }
 
     func matches(_ token: BufferedToken) -> Bool {
-        matches(matchesFullToken == true ? token.rawText : token.core)
+        source.caseInsensitiveCompare(matchesFullToken == true ? token.rawText : token.core) == .orderedSame
+    }
+
+    func hasSameMatchScope(as other: CustomAutoReplaceRule) -> Bool {
+        hasSameMatchScope(source: other.source, matchesFullToken: other.matchesFullToken == true)
+    }
+
+    func hasSameMatchScope(source otherSource: String, matchesFullToken otherMatchesFullToken: Bool) -> Bool {
+        guard (matchesFullToken == true) == otherMatchesFullToken else { return false }
+        let lhs = matchesFullToken == true ? source : BufferedToken.normalizedCore(from: source)
+        let rhs = otherMatchesFullToken ? otherSource : BufferedToken.normalizedCore(from: otherSource)
+        return lhs.caseInsensitiveCompare(rhs) == .orderedSame
     }
 }
