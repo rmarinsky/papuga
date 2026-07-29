@@ -82,7 +82,7 @@ final class AutoFixController {
         layoutManager: LayoutManager,
         characterMapper: CharacterMapper,
         mistakeEngine: MistakeObservationEngine = .shared,
-        spellChecker: SpellCheckingClient = SystemSpellCheckingClient(),
+        spellChecker: SpellCheckingClient = HybridSpellChecker.production,
         decisionHistory: AutoFixDecisionRecording = AutoFixDecisionHistoryStore.shared
     ) {
         self.layoutManager = layoutManager
