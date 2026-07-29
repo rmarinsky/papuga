@@ -32,9 +32,10 @@ enum AIProvider: String, CaseIterable, Identifiable, Codable, Defaults.Serializa
 
     var generationArguments: [String] {
         switch self {
-        case .codex: return ["exec", "--skip-git-repo-check", "-"]
-        case .claudeCode: return ["-p", "--output-format", "json"]
-        case .cursorAgent: return ["-p", "--output-format", "json"]
+        case .codex: return ["exec", "--skip-git-repo-check", "--ephemeral", "-s", "read-only", "-"]
+        case .claudeCode:
+            return ["-p", "--output-format", "text", "--no-session-persistence", "--permission-mode", "plan", "--tools", ""]
+        case .cursorAgent: return ["-p", "--output-format", "text", "--mode", "ask"]
         case .openCode: return ["run"]
         case .ollama: return []
         }
