@@ -2,6 +2,13 @@ import XCTest
 @testable import papuga
 
 final class AIAnalysisRunnerTests: XCTestCase {
+    func test_cursorRunsNonInteractivelyInPapugasTrustedTemporaryWorkspace() {
+        XCTAssertEqual(
+            AIProvider.cursorAgent.generationArguments,
+            ["-p", "--output-format", "text", "--mode", "ask", "--trust"]
+        )
+    }
+
     func test_selectionNeverExceedsThreeTargets() {
         let targets = AIProvider.allCases.map { AIAnalysisTarget(provider: $0, model: nil) }
         XCTAssertEqual(AIAnalysisSelection.normalized(targets).count, 3)
