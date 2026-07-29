@@ -6,6 +6,13 @@ final class AIAnalysisRunnerTests: XCTestCase {
         let targets = AIProvider.allCases.map { AIAnalysisTarget(provider: $0, model: nil) }
         XCTAssertEqual(AIAnalysisSelection.normalized(targets).count, 3)
         XCTAssertEqual(AIAnalysisSelection.normalized(targets).map(\.provider), Array(AIProvider.allCases.prefix(3)))
+        XCTAssertEqual(
+            AIAnalysisSelection.normalized([
+                AIAnalysisTarget(provider: .ollama, model: "qwen"),
+                AIAnalysisTarget(provider: .ollama, model: "gemma")
+            ]).count,
+            1
+        )
     }
 
     func test_discoveryFindsManualExecutableAndReportsVersion() async throws {

@@ -66,8 +66,8 @@ enum AIAnalysisSelection {
     static let maximum = 3
 
     static func normalized(_ targets: [AIAnalysisTarget]) -> [AIAnalysisTarget] {
-        var seen = Set<String>()
-        return targets.filter { seen.insert($0.id).inserted }.prefix(maximum).map { $0 }
+        var seen = Set<AIProvider>()
+        return targets.filter { seen.insert($0.provider).inserted }.prefix(maximum).map { $0 }
     }
 }
 

@@ -381,9 +381,14 @@ struct AIAssistSheet: View {
     }
 
     private func comparisonBatch() -> AIPromptBatch {
-        let candidates = Dictionary(uniqueKeysWithValues: engineGroups.map {
-            (MistakeObservation.normalizedToken($0.source), $0.candidates)
-        })
+        var candidates: [String: [MistakeSuggestionCandidate]] = [:]
+        for group in engineGroups {
+            let key = MistakeObservation.normalizedToken(group.source)
+            var seen = Set(candidates[key, default: []].map { MistakeObservation.normalizedToken($0.text) })
+            for candidate in group.candidates where seen.insert(MistakeObservation.normalizedToken(candidate.text)).inserted {
+                candidates[key, default: []].append(candidate)
+            }
+        }
         return AIPromptBuilder.buildComparison(
             from: groups,
             candidatesBySource: candidates,
