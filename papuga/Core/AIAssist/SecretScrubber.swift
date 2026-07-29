@@ -24,6 +24,30 @@ enum SecretScrubber {
         return Result(kept: kept, redactedCount: redacted)
     }
 
+    static func sanitizeDiagnostic(_ value: String) -> String {
+        let replacements = [
+            (#"(?i)(?:sk[-_]|pk[-_]|rk_|gh[pso]_|github_pat_|xox[a-z0-9_-]*|akia|asia|aiza|ya29\.)[a-z0-9._~+/=-]+"#, "[REDACTED]"),
+            (#"(?i)(\bBearer\s+)[a-z0-9._~+/=-]+"#, "$1[REDACTED]"),
+            (#"(?i)((?:^|[^a-z0-9])(?:[a-z0-9_]*_)?(?:api[_-]?key|access[_-]?token|authorization|auth|secret|token|password)[\"']?\s*[:=]\s*(?:Bearer\s+)?[\"']?)[^\s,\"'&}]+"#, "$1[REDACTED]"),
+        ]
+        let sanitized = replacements.reduce(value) { result, replacement in
+            result.replacingOccurrences(
+                of: replacement.0,
+                with: replacement.1,
+                options: .regularExpression
+            )
+        }
+        return sanitized
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .map {
+                guard !$0.contains("[REDACTED]") else { return $0 }
+                let token = $0.trimmingCharacters(in: .punctuationCharacters)
+                return isLikelySecret(token) ? "[REDACTED]" : $0
+            }
+            .joined(separator: " ")
+    }
+
     static func isLikelySecret(_ word: String) -> Bool {
         let token = word.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty else { return false }

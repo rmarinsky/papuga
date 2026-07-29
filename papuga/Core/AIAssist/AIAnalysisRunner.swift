@@ -43,14 +43,7 @@ final class AIAnalysisRunner {
         }
 
         private static func safeDiagnostic(_ value: String) -> String {
-            value.suffix(600)
-                .components(separatedBy: .whitespacesAndNewlines)
-                .filter { !$0.isEmpty }
-                .map {
-                    let token = $0.trimmingCharacters(in: .punctuationCharacters)
-                    return SecretScrubber.isLikelySecret(token) ? "[REDACTED]" : $0
-                }
-                .joined(separator: " ")
+            String(SecretScrubber.sanitizeDiagnostic(value).suffix(600))
         }
     }
 

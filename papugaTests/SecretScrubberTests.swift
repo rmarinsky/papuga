@@ -27,4 +27,27 @@ final class SecretScrubberTests: XCTestCase {
         XCTAssertEqual(result.kept, ["привіт", "ghbdtn"])
         XCTAssertEqual(result.redactedCount, 1)
     }
+
+    func testSanitizeDiagnosticRedactsWrappedCredentialsBeforeTruncation() {
+        XCTAssertEqual(
+            SecretScrubber.sanitizeDiagnostic("OPENAI_API_KEY=sk-shortsecret"),
+            "OPENAI_API_KEY=[REDACTED]"
+        )
+        XCTAssertEqual(
+            SecretScrubber.sanitizeDiagnostic(#"{"token":"ghp_shortsecret"}"#),
+            #"{"token":"[REDACTED]"}"#
+        )
+        XCTAssertEqual(
+            SecretScrubber.sanitizeDiagnostic("request?access_token=ya29.shortsecret&retry=1"),
+            "request?access_token=[REDACTED]&retry=1"
+        )
+        XCTAssertEqual(
+            SecretScrubber.sanitizeDiagnostic("Authorization: Bearer opaque-value"),
+            "Authorization: Bearer [REDACTED]"
+        )
+
+        let crossingBoundary = "token=sk-" + String(repeating: "A", count: 700)
+        let error = AIAnalysisRunner.Error.nonZeroExit(7, crossingBoundary)
+        XCTAssertEqual(error.localizedDescription, "token=[REDACTED] (код 7)")
+    }
 }
