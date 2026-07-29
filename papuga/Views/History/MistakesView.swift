@@ -76,6 +76,10 @@ struct MistakesView: View {
         .onAppear {
             engine.configure(layoutManager: layoutManager)
             engine.bootstrap()
+            if groupingMode == .families { engine.prepareErrorClusters() }
+        }
+        .onChange(of: groupingRaw) {
+            if groupingMode == .families { engine.prepareErrorClusters() }
         }
         .onChange(of: store.entries) {
             engine.noteInputsChanged()

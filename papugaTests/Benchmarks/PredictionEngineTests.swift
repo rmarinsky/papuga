@@ -337,9 +337,29 @@ final class PredictionEngineTests: XCTestCase {
         XCTAssertEqual(merged.count, 2)
         XCTAssertEqual(merged.candidates.first?.text, "також")
         XCTAssertEqual(merged.candidates.first?.canCreateCoreRule, false)
+        engine.prepareErrorClusters()
         let clusterMember = try XCTUnwrap(engine.errorClusters.first?.members.first)
         XCTAssertEqual(clusterMember.target, "також")
         XCTAssertEqual(clusterMember.isCoreRuleCreationAllowed, false)
+    }
+
+    func test_engine_defers_error_clustering_off_the_default_screen_path() async {
+        let cache = tempCacheURL()
+        defer { removeTempCache(at: cache) }
+        let engine = PredictionEngine(
+            analyzer: MistakeSuggestionAnalyzer(spellChecker: CountingSpellChecker()),
+            cacheURL: cache
+        )
+        engine.handledSourcesProvider = { [] }
+        engine.domainLearningEnabled = false
+
+        await engine.analyzeToCompletionForTesting(observations: [
+            MistakeObservation(issueType: .spelling, source: "helo", language: "en", confidence: 0.8)
+        ], force: true)
+
+        XCTAssertTrue(engine.errorClusters.isEmpty)
+        engine.prepareErrorClusters()
+        XCTAssertFalse(engine.errorClusters.isEmpty)
     }
 
     // MARK: - Benchmark on real data (gated)

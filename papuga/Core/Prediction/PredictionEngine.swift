@@ -70,6 +70,8 @@ final class PredictionEngine {
     private var bootstrapTask: Task<Void, Never>?
     private var noteDebounce: Task<Void, Never>?
     private var hasBootstrapped = false
+    private var currentGroups: [MistakeGroupData] = []
+    private var clustersRequested = false
     private let logger = Logger(subsystem: Constants.bundleIdentifier, category: "Prediction")
 
     init(
@@ -162,6 +164,8 @@ final class PredictionEngine {
             query: ""
         )
         .filter { !known.contains(MistakeObservation.normalizedToken($0.source)) }
+        currentGroups = groups
+        errorClusters.removeAll(keepingCapacity: true)
         totalCount = groups.count
         flaggedCount = groups.reduce(0) { $0 + $1.count }
         let pending = groups.filter { cache[$0.id] == nil }
@@ -169,9 +173,8 @@ final class PredictionEngine {
         phase = pending.isEmpty ? .ready : .analyzing
         publishRanked(groups: groups) // show whatever is already cached immediately
 
-        computeClusters(groups: groups)
-
         guard !pending.isEmpty else {
+            if clustersRequested { computeClusters(groups: groups) }
             saveCacheToDisk()
             return
         }
@@ -211,11 +214,18 @@ final class PredictionEngine {
             }
             if Task.isCancelled { return }
             learnDomainVocabulary() // now that every group has candidates
-            computeClusters(groups: groups) // full similarity map for the "Усі" tab
+            if clustersRequested { computeClusters(groups: groups) }
             phase = .ready
             saveCacheToDisk()
             logger.notice("Prediction pass complete: \(self.totalCount, privacy: .public) groups")
         }
+    }
+
+    /// Similarity families are expensive and unused by the default grouping.
+    /// Build them only after the user selects that view.
+    func prepareErrorClusters() {
+        clustersRequested = true
+        computeClusters(groups: currentGroups)
     }
 
     /// After a full pass: a recurring **word-like** mistake with no close typo
