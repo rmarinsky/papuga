@@ -359,7 +359,7 @@ enum HistoryWordActionPolicy {
     ) -> [UUID] {
         guard let rawSource else { return groupIDs }
         return groupIDs.filter { id in
-            observations.first { $0.id == id }?.source == rawSource
+            observations.first { $0.id == id }?.source.caseInsensitiveCompare(rawSource) == .orderedSame
         }
     }
 }

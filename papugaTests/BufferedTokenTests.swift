@@ -167,22 +167,23 @@ final class BufferedTokenTests: XCTestCase {
     func test_fullTokenRuleMarksOnlyObservationsWithItsExactRawSource() {
         let core = MistakeObservation(issueType: .spelling, source: "nfrj", language: "en", confidence: 0.7)
         let full = MistakeObservation(issueType: .spelling, source: "nfrj;", language: "en", confidence: 0.7)
+        let uppercase = MistakeObservation(issueType: .spelling, source: "NFRJ;", language: "en", confidence: 0.7)
 
         XCTAssertEqual(
             HistoryWordActionPolicy.observationIDs(
-                [core.id, full.id],
+                [core.id, full.id, uppercase.id],
                 matchingRawSource: "nfrj;",
-                in: [core, full]
+                in: [core, full, uppercase]
             ),
-            [full.id]
+            [full.id, uppercase.id]
         )
         XCTAssertEqual(
             HistoryWordActionPolicy.observationIDs(
-                [core.id, full.id],
+                [core.id, full.id, uppercase.id],
                 matchingRawSource: nil,
-                in: [core, full]
+                in: [core, full, uppercase]
             ),
-            [core.id, full.id]
+            [core.id, full.id, uppercase.id]
         )
     }
 
