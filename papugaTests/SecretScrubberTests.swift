@@ -35,7 +35,7 @@ final class SecretScrubberTests: XCTestCase {
         )
         XCTAssertEqual(
             SecretScrubber.sanitizeDiagnostic(#"{"token":"ghp_shortsecret"}"#),
-            #"{"token":"[REDACTED]"}"#
+            #"{"token":[REDACTED]}"#
         )
         XCTAssertEqual(
             SecretScrubber.sanitizeDiagnostic("request?access_token=ya29.shortsecret&retry=1"),
@@ -44,6 +44,14 @@ final class SecretScrubberTests: XCTestCase {
         XCTAssertEqual(
             SecretScrubber.sanitizeDiagnostic("Authorization: Bearer opaque-value"),
             "Authorization: Bearer [REDACTED]"
+        )
+        XCTAssertEqual(
+            SecretScrubber.sanitizeDiagnostic(#"password="hunter two words""#),
+            "password=[REDACTED]"
+        )
+        XCTAssertEqual(
+            SecretScrubber.sanitizeDiagnostic("token='opaque value'"),
+            "token=[REDACTED]"
         )
 
         let crossingBoundary = "token=sk-" + String(repeating: "A", count: 700)

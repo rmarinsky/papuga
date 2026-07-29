@@ -28,7 +28,7 @@ enum SecretScrubber {
         let replacements = [
             (#"(?i)(?:sk[-_]|pk[-_]|rk_|gh[pso]_|github_pat_|xox[a-z0-9_-]*|akia|asia|aiza|ya29\.)[a-z0-9._~+/=-]+"#, "[REDACTED]"),
             (#"(?i)(\bBearer\s+)[a-z0-9._~+/=-]+"#, "$1[REDACTED]"),
-            (#"(?i)((?:^|[^a-z0-9])(?:[a-z0-9_]*_)?(?:api[_-]?key|access[_-]?token|authorization|auth|secret|token|password)[\"']?\s*[:=]\s*(?:Bearer\s+)?[\"']?)[^\s,\"'&}]+"#, "$1[REDACTED]"),
+            (#"(?i)((?:^|[^a-z0-9])(?:[a-z0-9_]*_)?(?:api[_-]?key|access[_-]?token|authorization|auth|secret|token|password)[\"']?\s*[:=]\s*(?:Bearer\s+)?)(?:\"[^\"]*\"|'[^']*'|[^\s,\"'&}]+)"#, "$1[REDACTED]"),
         ]
         let sanitized = replacements.reduce(value) { result, replacement in
             result.replacingOccurrences(
