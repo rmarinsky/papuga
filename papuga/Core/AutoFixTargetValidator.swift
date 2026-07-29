@@ -48,7 +48,6 @@ struct FocusedElementSignature: Equatable {
     let elementIdentifier: String?
     let frameHash: Int?
     let selectedRangeLocation: Int?
-    let elementIdentity: AXUIElement?
 
     init(
         pid: pid_t,
@@ -57,8 +56,7 @@ struct FocusedElementSignature: Equatable {
         windowTitleHash: Int?,
         elementIdentifier: String?,
         frameHash: Int?,
-        selectedRangeLocation: Int?,
-        elementIdentity: AXUIElement? = nil
+        selectedRangeLocation: Int?
     ) {
         self.pid = pid
         self.role = role
@@ -67,7 +65,6 @@ struct FocusedElementSignature: Equatable {
         self.elementIdentifier = elementIdentifier
         self.frameHash = frameHash
         self.selectedRangeLocation = selectedRangeLocation
-        self.elementIdentity = elementIdentity
     }
 
     var stableIdentity: StableIdentity {
@@ -77,8 +74,7 @@ struct FocusedElementSignature: Equatable {
             subrole: subrole,
             windowTitleHash: windowTitleHash,
             elementIdentifier: elementIdentifier,
-            frameHash: frameHash,
-            elementIdentity: elementIdentity
+            frameHash: frameHash
         )
     }
 
@@ -99,12 +95,6 @@ struct FocusedElementSignature: Equatable {
             return false
         }
 
-        if let elementIdentity,
-           let otherIdentity = other.elementIdentity,
-           elementIdentity != otherIdentity {
-            return false
-        }
-
         if let selectedRangeLocation,
            let otherLocation = other.selectedRangeLocation {
             return otherLocation == selectedRangeLocation + expectedCaretAdvance
@@ -120,7 +110,6 @@ struct FocusedElementSignature: Equatable {
         let windowTitleHash: Int?
         let elementIdentifier: String?
         let frameHash: Int?
-        let elementIdentity: AXUIElement?
     }
 }
 
@@ -510,8 +499,7 @@ final class AutoFixTargetValidator {
             windowTitleHash: windowTitleHash(for: focused),
             elementIdentifier: stringAttribute("AXIdentifier" as CFString, from: focused),
             frameHash: frameHash(for: focused),
-            selectedRangeLocation: selectedRangeLocation(for: focused),
-            elementIdentity: focused
+            selectedRangeLocation: selectedRangeLocation(for: focused)
         )
     }
 
@@ -538,15 +526,33 @@ final class AutoFixTargetValidator {
         var cfRange = range.cfRange
         guard let rangeValue = AXValueCreate(.cfRange, &cfRange) else { return nil }
         var result: CFTypeRef?
-        guard AXUIElementCopyParameterizedAttributeValue(
+        if AXUIElementCopyParameterizedAttributeValue(
             element,
             kAXStringForRangeParameterizedAttribute as CFString,
             rangeValue,
             &result
-        ) == .success else {
+        ) == .success,
+           let string = result as? String {
+            return string
+        }
+
+        guard let value = stringAttribute(kAXValueAttribute as CFString, from: element) else {
             return nil
         }
-        return result as? String
+        return substring(for: range, in: value)
+    }
+
+    nonisolated static func substring(for range: AXTextRange, in text: String) -> String? {
+        let utf16 = text.utf16
+        guard range.location >= 0,
+              range.length >= 0,
+              range.location <= utf16.count,
+              range.length <= utf16.count - range.location else {
+            return nil
+        }
+        let start = utf16.index(utf16.startIndex, offsetBy: range.location)
+        let end = utf16.index(start, offsetBy: range.length)
+        return String(decoding: utf16[start..<end], as: UTF16.self)
     }
 
     private static func isAttributeSettable(_ attribute: CFString, on element: AXUIElement) -> Bool {

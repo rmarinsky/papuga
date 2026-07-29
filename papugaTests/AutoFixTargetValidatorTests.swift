@@ -315,29 +315,22 @@ final class AutoFixTargetValidatorTests: XCTestCase {
         XCTAssertFalse(first.matchesTypingTarget(second, expectedCaretAdvance: 19))
     }
 
-    func test_typingTargetIdentity_rejectsDifferentAXElementsWithMatchingCaret() {
-        let first = FocusedElementSignature(
-            pid: 100,
-            role: "AXTextField",
-            subrole: nil,
-            windowTitleHash: 42,
-            elementIdentifier: "search",
-            frameHash: 7,
-            selectedRangeLocation: 1,
-            elementIdentity: AXUIElementCreateApplication(100)
+    func test_utf16Substring_readsExactRangeFromFullAXValue() {
+        XCTAssertEqual(
+            AutoFixTargetValidator.substring(
+                for: AXTextRange(location: 8, length: 9),
+                in: "prefix: іудусещкі "
+            ),
+            "іудусещкі"
         )
+    }
 
-        let second = FocusedElementSignature(
-            pid: 100,
-            role: "AXTextField",
-            subrole: nil,
-            windowTitleHash: 99,
-            elementIdentifier: "search",
-            frameHash: 8,
-            selectedRangeLocation: 20,
-            elementIdentity: AXUIElementCreateApplication(101)
+    func test_utf16Substring_rejectsOutOfBoundsRange() {
+        XCTAssertNil(
+            AutoFixTargetValidator.substring(
+                for: AXTextRange(location: 20, length: 1),
+                in: "short"
+            )
         )
-
-        XCTAssertFalse(first.matchesTypingTarget(second, expectedCaretAdvance: 19))
     }
 }

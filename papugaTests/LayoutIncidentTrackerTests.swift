@@ -29,6 +29,7 @@ final class LayoutIncidentTrackerTests: XCTestCase {
             tracker.decision(scoreOriginal: 1, scoreCandidate: 0, threshold: 0.35),
             .propose
         )
+        XCTAssertTrue(tracker.isReadyForImmediateFinalization)
     }
 
     func test_validSourceContradictionPreventsIncidentAction() {

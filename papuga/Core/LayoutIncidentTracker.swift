@@ -70,7 +70,7 @@ struct LayoutIncidentTracker: Equatable {
     }
 
     var isReadyForImmediateFinalization: Bool {
-        strongTokenCount >= 3 && supportRatio >= 0.75
+        strongTokenCount >= 2 && supportRatio >= 0.75
     }
 
     var endsSentence: Bool {

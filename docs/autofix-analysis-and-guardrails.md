@@ -26,8 +26,8 @@ New helper:
 
 Behavior:
 
-- If Backspace/Delete happens while Papuga's buffer is empty, the next token is treated as an edit fragment and AutoFix skips it.
-- If cursor navigation happens through arrow/home/end/page keys, the next token is skipped.
+- If Backspace/Delete happens while Papuga's buffer is empty, the next token is treated as an edit fragment and AutoFix skips it; later tokens resume normally.
+- If cursor navigation happens through arrow/home/end/page keys, only the next token is skipped.
 - Escape and ordinary backspace inside the current typed buffer do not suppress AutoFix.
 - The guard is controlled by `autoFixConservativeEditingGuard`, default `true`.
 
@@ -40,6 +40,10 @@ Analytics skip reason:
 - `editing_context`
 
 This lets us distinguish a real missed AutoFix from a deliberate guardrail skip.
+
+Web editors may recreate their accessibility proxy while typing. Target validation therefore uses
+the logical field identity plus expected caret movement, and falls back from `AXStringForRange` to
+an exact UTF-16 slice of the full `AXValue` when the editor does not expose the parameterized API.
 
 ### Mistake observations instead of forced replacement
 

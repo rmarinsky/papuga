@@ -3,15 +3,14 @@ import XCTest
 @testable import papuga
 
 final class AutoFixEditingGuardTests: XCTestCase {
-    func test_backspaceWithEmptyBufferStartsStickyEditingSession() {
+    func test_backspaceWithEmptyBufferSuppressesOnlyTheNextToken() {
         var guardrail = AutoFixEditingGuard()
 
         guardrail.noteBackspace(bufferWasEmpty: true, enabled: true)
 
         XCTAssertTrue(guardrail.shouldSuppress(enabled: true))
-        // A non-clean boundary (word still being typed) keeps the latch set.
         guardrail.noteBoundary(bufferWasEmpty: false, isNewline: false)
-        XCTAssertTrue(guardrail.shouldSuppress(enabled: true))
+        XCTAssertFalse(guardrail.shouldSuppress(enabled: true))
     }
 
     func test_backspaceInsideCurrentBufferDoesNotSuppress() {
@@ -112,14 +111,13 @@ final class AutoFixEditingGuardTests: XCTestCase {
         XCTAssertFalse(guardrail.shouldSuppress(enabled: true))
     }
 
-    func test_editingStartedKeepsStickySessionAfterNonCleanBoundary() {
+    func test_editingStartedClearsAfterFirstBoundary() {
         var guardrail = AutoFixEditingGuard()
 
         guardrail.noteEditingStarted()
         XCTAssertTrue(guardrail.shouldSuppress(enabled: true))
 
-        // Non-clean boundary does NOT clear the sticky session.
         guardrail.noteBoundary(bufferWasEmpty: false, isNewline: false)
-        XCTAssertTrue(guardrail.shouldSuppress(enabled: true))
+        XCTAssertFalse(guardrail.shouldSuppress(enabled: true))
     }
 }
