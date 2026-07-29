@@ -193,6 +193,36 @@ final class PredictionEngineTests: XCTestCase {
         XCTAssertEqual(engine.actionableTargetsByObservationID, [observation.id: "the"])
     }
 
+    func test_bootstrap_defersAnalysisUntilAfterCallerCanRender() async {
+        let observation = MistakeObservation(
+            issueType: .manualCorrection,
+            source: "teh",
+            suggestedTarget: "the",
+            language: "en",
+            confidence: 0.9
+        )
+        let cache = tempCacheURL()
+        defer { removeTempCache(at: cache) }
+        let store = MistakeObservationStore(
+            testFileURL: cache.deletingLastPathComponent().appendingPathComponent("observations.jsonl")
+        )
+        store.replaceEntriesForTesting([observation])
+        let engine = PredictionEngine(store: store, cacheURL: cache)
+        engine.domainLearningEnabled = false
+        var analysisStarted = false
+        engine.handledSourcesProvider = {
+            analysisStarted = true
+            return []
+        }
+
+        engine.bootstrap()
+
+        XCTAssertFalse(analysisStarted)
+        await engine.bootstrapToCompletionForTesting()
+        XCTAssertTrue(analysisStarted)
+        XCTAssertEqual(engine.phase, .ready)
+    }
+
     // MARK: - Correctness (fast, deterministic, always runs)
 
     func test_engine_analyzes_and_ranks() async throws {

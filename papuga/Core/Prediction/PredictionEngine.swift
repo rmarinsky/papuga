@@ -67,6 +67,7 @@ final class PredictionEngine {
     private let cacheURL: URL
     private let domainVocabURL: URL
     private var analysisTask: Task<Void, Never>?
+    private var bootstrapTask: Task<Void, Never>?
     private var noteDebounce: Task<Void, Never>?
     private var hasBootstrapped = false
     private let logger = Logger(subsystem: Constants.bundleIdentifier, category: "Prediction")
@@ -106,15 +107,20 @@ final class PredictionEngine {
     /// Call once at launch: load the disk cache, then background-analyze anything
     /// not yet cached.
     func bootstrap() {
-        if hasBootstrapped {
-            analyze(observations: store.entries, force: false)
-            return
-        }
+        let firstBootstrap = !hasBootstrapped
         hasBootstrapped = true
-        loadCacheFromDisk()
-        loadDomainVocabularyFromDisk()
-        harvestProducedCorpus()
-        analyze(observations: store.entries, force: false)
+        phase = .analyzing
+        bootstrapTask?.cancel()
+        bootstrapTask = Task { @MainActor in
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            if firstBootstrap {
+                loadCacheFromDisk()
+                loadDomainVocabularyFromDisk()
+                harvestProducedCorpus()
+            }
+            analyze(observations: store.entries, force: false)
+        }
     }
 
     /// "Переаналізувати все" — wipe the cache and replay the full animated pass.
@@ -134,6 +140,7 @@ final class PredictionEngine {
     }
 
     func cancel() {
+        bootstrapTask?.cancel()
         analysisTask?.cancel()
     }
 
@@ -444,6 +451,7 @@ final class PredictionEngine {
 
     func bootstrapToCompletionForTesting() async {
         bootstrap()
+        await bootstrapTask?.value
         await analysisTask?.value
     }
 
