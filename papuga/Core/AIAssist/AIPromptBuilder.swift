@@ -51,6 +51,24 @@ struct AIPromptBatch {
     var itemCount: Int { items.count }
 }
 
+struct AIComparisonBatchPlan {
+    let batches: [AIPromptBatch]
+    let context: AIRoundTripContext
+    let items: [String: AIPromptItem]
+    let redactedSecretCount: Int
+
+    var itemCount: Int { items.count }
+    var aggregateBatch: AIPromptBatch {
+        AIPromptBatch(
+            prompt: "",
+            context: context,
+            items: items,
+            redactedSecretCount: redactedSecretCount,
+            truncatedBatch: false
+        )
+    }
+}
+
 /// Serialises open mistakes into the alias-based prompt from AI-ASSIST.md §3.
 ///
 /// Two things keep the prompt tight and honest:
@@ -72,11 +90,50 @@ enum AIPromptBuilder {
         sendAppNames: Bool,
         scrubSecrets: Bool
     ) -> AIPromptBatch {
-        let base = build(from: groups, sendAppNames: sendAppNames, scrubSecrets: scrubSecrets)
+        let base = build(
+            from: groups,
+            sendAppNames: sendAppNames,
+            scrubSecrets: scrubSecrets,
+            maxItems: defaultMaxItems
+        )
+        let plan = comparisonPlan(
+            base: base,
+            candidatesBySource: candidatesBySource,
+            batchSize: defaultMaxItems
+        )
+        return plan.batches.first ?? plan.aggregateBatch
+    }
+
+    static func buildComparisonBatches(
+        from groups: [MistakeGroupData],
+        candidatesBySource: [String: [MistakeSuggestionCandidate]],
+        sendAppNames: Bool,
+        scrubSecrets: Bool,
+        batchSize: Int = 100
+    ) -> AIComparisonBatchPlan {
+        comparisonPlan(
+            base: build(
+                from: groups,
+                sendAppNames: sendAppNames,
+                scrubSecrets: scrubSecrets,
+                maxItems: .max
+            ),
+            candidatesBySource: candidatesBySource,
+            batchSize: max(1, batchSize)
+        )
+    }
+
+    private static func comparisonPlan(
+        base: AIPromptBatch,
+        candidatesBySource: [String: [MistakeSuggestionCandidate]],
+        batchSize: Int
+    ) -> AIComparisonBatchPlan {
         var items: [String: AIPromptItem] = [:]
         var allowed: [String: Set<String>] = [:]
-        let lines = base.items.keys.sorted { aliasNumber($0) < aliasNumber($1) }.compactMap { alias -> String? in
-            guard let item = base.items[alias] else { return nil }
+        var lines: [String: String] = [:]
+        let aliases = base.items.keys.sorted { aliasNumber($0) < aliasNumber($1) }
+        for alias in aliases {
+            guard let item = base.items[alias] else { continue }
             let key = MistakeObservation.normalizedToken(item.source)
             let candidates = Array((candidatesBySource[key] ?? candidatesBySource[item.source] ?? []).prefix(6))
             let targets = candidates.map(\.text)
@@ -91,8 +148,9 @@ enum AIPromptBuilder {
             let rendered = candidates.map { candidate in
                 "«\(candidate.text)» \(Int(candidate.confidence * 100))% [\(candidate.transformationPath.map(\.title).joined(separator: " → "))]"
             }.joined(separator: "; ")
-            return "\(alias) «\(item.source)» — кандидати: \(rendered)"
+            lines[alias] = "\(alias) «\(item.source)» — кандидати: \(rendered)"
         }
+
         let context = AIRoundTripContext(
             knownAliases: base.context.knownAliases,
             truncatedAliases: base.context.truncatedAliases,
@@ -100,12 +158,29 @@ enum AIPromptBuilder {
             languageForAlias: base.context.languageForAlias,
             allowedTargetsForAlias: allowed
         )
-        return AIPromptBatch(
-            prompt: comparisonPromptHeader + "\n" + lines.joined(separator: "\n"),
+        let batches = stride(from: 0, to: aliases.count, by: batchSize).map { start in
+            let batchAliases = Array(aliases[start..<min(start + batchSize, aliases.count)])
+            let aliasSet = Set(batchAliases)
+            let batchContext = AIRoundTripContext(
+                knownAliases: aliasSet,
+                truncatedAliases: base.context.truncatedAliases.intersection(aliasSet),
+                sourceForAlias: base.context.sourceForAlias.filter { aliasSet.contains($0.key) },
+                languageForAlias: base.context.languageForAlias.filter { aliasSet.contains($0.key) },
+                allowedTargetsForAlias: allowed.filter { aliasSet.contains($0.key) }
+            )
+            return AIPromptBatch(
+                prompt: comparisonPromptHeader + "\n" + batchAliases.compactMap { lines[$0] }.joined(separator: "\n"),
+                context: batchContext,
+                items: items.filter { aliasSet.contains($0.key) },
+                redactedSecretCount: base.redactedSecretCount,
+                truncatedBatch: base.truncatedBatch
+            )
+        }
+        return AIComparisonBatchPlan(
+            batches: batches,
             context: context,
             items: items,
-            redactedSecretCount: base.redactedSecretCount,
-            truncatedBatch: base.truncatedBatch
+            redactedSecretCount: base.redactedSecretCount
         )
     }
 
