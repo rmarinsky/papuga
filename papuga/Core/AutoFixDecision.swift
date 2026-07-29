@@ -8,6 +8,23 @@ struct SpellingTypoGuardAssessment: Equatable {
 }
 
 enum AutoFixDecision {
+    static func compoundLayoutSpellingSuggestion(
+        mapped: String,
+        targetLanguage: String,
+        isMisspelled: (String, String) -> Bool,
+        guesses: (String, String) -> [String]
+    ) -> String? {
+        guard isMisspelled(mapped, targetLanguage) else { return nil }
+        return guesses(mapped, targetLanguage).prefix(3).compactMap { suggestion in
+            let trimmed = suggestion.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  !trimmed.contains(where: \.isWhitespace),
+                  trimmed.caseInsensitiveCompare(mapped) != .orderedSame,
+                  WordPlausibility.isWordLike(trimmed) else { return nil }
+            return trimmed
+        }.first
+    }
+
     static func shouldSkipWord(_ word: String, minLength: Int = 2) -> SkipReason? {
         if word.count < minLength { return .tooShort }
         // `.` and `/` are NOT blanket-forbidden: on Ukrainian-PC `.` is `ю`, so a

@@ -3,6 +3,23 @@ import XCTest
 @testable import papuga
 
 final class AutoFixDecisionTests: XCTestCase {
+    func test_compoundLayoutSpellingSuggestionRequiresMappedTypo() {
+        XCTAssertEqual(
+            AutoFixDecision.compoundLayoutSpellingSuggestion(
+                mapped: "привчт",
+                targetLanguage: "uk",
+                isMisspelled: { _, _ in true },
+                guesses: { _, _ in ["привіт", "привітання"] }
+            ),
+            "привіт"
+        )
+        XCTAssertNil(AutoFixDecision.compoundLayoutSpellingSuggestion(
+            mapped: "привіт",
+            targetLanguage: "uk",
+            isMisspelled: { _, _ in false },
+            guesses: { _, _ in ["привітання"] }
+        ))
+    }
     func test_twoCharacterMinimumMigrationUpdatesOldBalancedDefaultOnce() {
         let previousMinimum = Defaults[.autoFixMinWordLength]
         let previousMigrationState = Defaults[.autoFixTwoCharacterMinimumMigrated]

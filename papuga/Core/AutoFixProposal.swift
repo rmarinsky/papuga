@@ -5,6 +5,7 @@ struct AutoFixProposal: Identifiable, Equatable {
         case detected
         case customRule
         case spelling
+        case compound
     }
 
     let id = UUID()
@@ -33,7 +34,7 @@ struct AutoFixProposal: Identifiable, Equatable {
     }
 
     var changesInputLayout: Bool {
-        kind == .detected
+        kind == .detected || kind == .compound
     }
 
     var candidateOrigin: AutoFixDecisionCandidateOrigin {
@@ -41,11 +42,12 @@ struct AutoFixProposal: Identifiable, Equatable {
         case .detected: return .keyboardLayout
         case .customRule: return .customRule
         case .spelling: return .spelling
+        case .compound: return .keyboardLayout
         }
     }
 
     var displayTitle: String {
-        kind == .spelling ? "Можливе виправлення" : "Можлива заміна"
+        kind == .spelling || kind == .compound ? "Можливе виправлення" : "Можлива заміна"
     }
 
     var primaryActionTooltip: String {
@@ -55,7 +57,7 @@ struct AutoFixProposal: Identifiable, Equatable {
     }
 
     var neverActionTitle: String {
-        kind == .spelling
+        kind == .spelling || kind == .compound
             ? "Ніколи не виправляти “\(original)”"
             : "Ніколи не замінювати “\(original)”"
     }

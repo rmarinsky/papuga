@@ -651,6 +651,35 @@ final class AutoFixController {
             return
         }
 
+        if let compound = AutoFixDecision.compoundLayoutSpellingSuggestion(
+            mapped: candidate,
+            targetLanguage: targetLang,
+            isMisspelled: { [spellChecker] word, language in
+                spellChecker.isMisspelled(word, language: language)
+            },
+            guesses: { [spellChecker] word, language in
+                spellChecker.guesses(for: word, language: language)
+            }
+        ) {
+            observeMistakeCandidate(word: word, language: currentLang, bundleID: bundleID)
+            if appPolicy.allowsProposal, Defaults[.autoFixProposalEnabled] {
+                showCompoundProposal(
+                    original: word,
+                    suggestion: compound,
+                    boundary: boundary,
+                    fromLayoutID: currentID,
+                    targetLayoutID: targetID,
+                    currentLang: currentLang,
+                    targetLang: targetLang,
+                    algorithm: algorithm,
+                    bundleID: bundleID,
+                    targetSession: targetSession
+                )
+            }
+            resetLayoutIncident()
+            return
+        }
+
         if Defaults[.autoFixSpellingTypoGuardEnabled] {
             let typoAssessment = AutoFixDecision.spellingTypoGuardAssessment(
                 original: word,
@@ -1619,6 +1648,45 @@ final class AutoFixController {
         ))
     }
 
+    private func showCompoundProposal(
+        original: String,
+        suggestion: String,
+        boundary: String,
+        fromLayoutID: String,
+        targetLayoutID: String,
+        currentLang: String,
+        targetLang: String,
+        algorithm: LanguageScorerAlgorithm,
+        bundleID: String,
+        targetSession: AutoFixTargetSession?
+    ) {
+        let boundaryToPreserve = boundary.isEmpty ? " " : boundary
+        guard let targetSession,
+              let replacementAnchor = targetValidator.captureReplacementAnchor(
+                for: targetSession,
+                expectedBundleID: bundleID,
+                source: original,
+                boundary: boundaryToPreserve
+              ) else { return }
+        presentProposal(AutoFixProposal(
+            original: original,
+            candidate: suggestion,
+            boundary: boundaryToPreserve,
+            fromLayoutID: fromLayoutID,
+            targetLayoutID: targetLayoutID,
+            scoreOriginal: 0,
+            scoreCandidate: 0.74,
+            threshold: 0,
+            algorithm: algorithm,
+            currentLang: currentLang,
+            targetLang: targetLang,
+            bundleID: bundleID,
+            createdAt: ProcessInfo.processInfo.systemUptime,
+            replacementAnchor: replacementAnchor,
+            kind: .compound
+        ))
+    }
+
     private func showRuleProposal(
         rule: CustomAutoReplaceRule,
         original: String,
@@ -1696,7 +1764,7 @@ final class AutoFixController {
             }
         case .customRule:
             _ = applyProposal(proposal, source: "custom_rule_proposal", historyKind: .autoRuleApplied)
-        case .spelling:
+        case .spelling, .compound:
             _ = applyProposal(proposal, source: "spelling_proposal", historyKind: .autoFixApplied)
         }
     }
