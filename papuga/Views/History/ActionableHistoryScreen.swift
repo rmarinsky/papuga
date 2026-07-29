@@ -248,7 +248,7 @@ struct HistoryCandidateStrip: View {
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 3)
 
-                ForEach(candidates) { candidate in
+                ForEach(candidates.prefix(6)) { candidate in
                     Button {
                         onSelect(candidate)
                     } label: {
@@ -257,7 +257,7 @@ struct HistoryCandidateStrip: View {
                                 .font(.system(size: 10, weight: .semibold))
                             Text(candidate.replacementPlan?.renderedReplacement ?? candidate.text)
                                 .lineLimit(1)
-                            Text(candidate.kind.title)
+                            Text(candidate.transformationPath.map(\.title).joined(separator: " + "))
                                 .foregroundStyle(.secondary)
                         }
                         .font(.system(size: 11, weight: .medium))
@@ -273,6 +273,7 @@ struct HistoryCandidateStrip: View {
                         )
                     }
                     .buttonStyle(.plain)
+                    .help(candidate.localExplanation)
                     .disabled(!candidate.canCreateRule)
                     .help(candidate.canCreateRule
                         ? "Створити правило для «\(candidate.replacementPlan?.renderedReplacement ?? candidate.text)»"

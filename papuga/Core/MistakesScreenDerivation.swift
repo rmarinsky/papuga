@@ -171,7 +171,7 @@ enum MistakesScreenDerivation {
         for group: MistakeGroupData,
         analyzer: MistakeSuggestionAnalyzer,
         layoutManager: LayoutManager?,
-        limit: Int = 4
+        limit: Int = 6
     ) -> [MistakeSuggestionCandidate] {
         analyzer.candidates(
             forRawSources: group.rawSources,
