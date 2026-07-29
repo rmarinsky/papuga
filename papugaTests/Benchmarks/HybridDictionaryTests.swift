@@ -9,6 +9,11 @@ private final class AllWrongSpellChecker: SpellCheckingClient {
 
 final class HybridDictionaryTests: XCTestCase {
 
+    func test_bundledFrequencyDictionariesLoad() {
+        XCTAssertGreaterThan(DictionaryBuilder.loadBundledBase(language: "uk").count, 49_000)
+        XCTAssertGreaterThan(DictionaryBuilder.loadBundledBase(language: "en").count, 49_000)
+    }
+
     func test_builder_parse() {
         let parsed = DictionaryBuilder.parse("hello 100\nworld 50\nlone\n")
         XCTAssertEqual(parsed.count, 3)
@@ -58,5 +63,11 @@ final class HybridDictionaryTests: XCTestCase {
         let guesses = hybrid.guesses(for: "привт", language: "uk")
         XCTAssertEqual(guesses.first, "привіт")          // SymSpell correction first
         XCTAssertTrue(guesses.contains("systemguess"))   // system guess still merged in
+    }
+
+    func test_hybrid_withoutIndexFallsBackToSystem() {
+        let hybrid = HybridSpellChecker(system: AllWrongSpellChecker())
+        XCTAssertTrue(hybrid.isMisspelled("anything", language: "fr"))
+        XCTAssertEqual(hybrid.guesses(for: "anything", language: "fr"), ["systemguess"])
     }
 }

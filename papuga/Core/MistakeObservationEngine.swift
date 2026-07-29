@@ -168,7 +168,7 @@ final class MistakeSuggestionAnalyzer {
     /// when the data or layouts change.
     private var candidateCache: [String: [MistakeSuggestionCandidate]] = [:]
 
-    init(spellChecker: SpellCheckingClient = SystemSpellCheckingClient()) {
+    init(spellChecker: SpellCheckingClient = HybridSpellChecker.production) {
         self.spellChecker = spellChecker
     }
 
