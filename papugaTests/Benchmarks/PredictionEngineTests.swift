@@ -337,7 +337,8 @@ final class PredictionEngineTests: XCTestCase {
         XCTAssertEqual(merged.count, 2)
         XCTAssertEqual(merged.candidates.first?.text, "також")
         XCTAssertEqual(merged.candidates.first?.canCreateCoreRule, false)
-        engine.prepareErrorClusters()
+        engine.setErrorClusteringEnabled(true)
+        await engine.waitForClusteringForTesting()
         let clusterMember = try XCTUnwrap(engine.errorClusters.first?.members.first)
         XCTAssertEqual(clusterMember.target, "також")
         XCTAssertEqual(clusterMember.isCoreRuleCreationAllowed, false)
@@ -358,8 +359,10 @@ final class PredictionEngineTests: XCTestCase {
         ], force: true)
 
         XCTAssertTrue(engine.errorClusters.isEmpty)
-        engine.prepareErrorClusters()
+        engine.setErrorClusteringEnabled(true)
+        await engine.waitForClusteringForTesting()
         XCTAssertFalse(engine.errorClusters.isEmpty)
+        engine.setErrorClusteringEnabled(false)
     }
 
     // MARK: - Benchmark on real data (gated)

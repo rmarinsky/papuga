@@ -2,9 +2,22 @@ import AppKit
 import Defaults
 import Foundation
 
+enum MappedSpellingStatus: Equatable {
+    case unavailable
+    case correct
+    case misspelled
+}
+
 protocol SpellCheckingClient {
     func isMisspelled(_ word: String, language: String) -> Bool
     func guesses(for word: String, language: String) -> [String]
+    func mappedSpellingStatus(_ word: String, language: String) -> MappedSpellingStatus
+}
+
+extension SpellCheckingClient {
+    func mappedSpellingStatus(_ word: String, language: String) -> MappedSpellingStatus {
+        isMisspelled(word, language: language) ? .misspelled : .correct
+    }
 }
 
 struct SystemSpellCheckingClient: SpellCheckingClient {

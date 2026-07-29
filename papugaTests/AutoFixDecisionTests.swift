@@ -3,6 +3,12 @@ import XCTest
 @testable import papuga
 
 final class AutoFixDecisionTests: XCTestCase {
+    func test_mappedSpellingStatusFailsClosedUntilCandidateIsKnownCorrect() {
+        XCTAssertTrue(AutoFixDecision.shouldSuppressLayoutReplacement(mappedSpellingStatus: .unavailable))
+        XCTAssertTrue(AutoFixDecision.shouldSuppressLayoutReplacement(mappedSpellingStatus: .misspelled))
+        XCTAssertFalse(AutoFixDecision.shouldSuppressLayoutReplacement(mappedSpellingStatus: .correct))
+    }
+
     func test_compoundLayoutSpellingSuggestionRequiresMappedTypo() {
         XCTAssertEqual(
             AutoFixDecision.compoundLayoutSpellingSuggestion(

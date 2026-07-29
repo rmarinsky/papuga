@@ -71,7 +71,7 @@ struct BufferedToken: Equatable {
     ]
 }
 
-enum ReplacementInterpretationReason: String, Codable, Equatable {
+enum ReplacementInterpretationReason: String, Codable, Equatable, Sendable {
     case sameLanguageSpelling
     case customRule
     case layoutFullToken
@@ -79,7 +79,7 @@ enum ReplacementInterpretationReason: String, Codable, Equatable {
     case phrase
 }
 
-struct ReplacementPlan: Codable, Equatable {
+struct ReplacementPlan: Codable, Equatable, Sendable {
     let rawSource: String
     let correctedCore: String
     let preservedLeadingPunctuation: String

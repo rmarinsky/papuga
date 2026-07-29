@@ -651,18 +651,20 @@ final class AutoFixController {
             return
         }
 
-        if let compound = AutoFixDecision.compoundLayoutSpellingSuggestion(
-            mapped: candidate,
-            targetLanguage: targetLang,
-            isMisspelled: { [spellChecker] word, language in
-                spellChecker.isMisspelled(word, language: language)
-            },
-            guesses: { [spellChecker] word, language in
-                spellChecker.guesses(for: word, language: language)
-            }
-        ) {
+        let mappedSpellingStatus = spellChecker.mappedSpellingStatus(candidate, language: targetLang)
+        if AutoFixDecision.shouldSuppressLayoutReplacement(mappedSpellingStatus: mappedSpellingStatus) {
             observeMistakeCandidate(word: word, language: currentLang, bundleID: bundleID)
-            if appPolicy.allowsProposal, Defaults[.autoFixProposalEnabled] {
+            if mappedSpellingStatus == .misspelled,
+               let compound = AutoFixDecision.compoundLayoutSpellingSuggestion(
+                   mapped: candidate,
+                   targetLanguage: targetLang,
+                   isMisspelled: { _, _ in true },
+                   guesses: { [spellChecker] word, language in
+                       spellChecker.guesses(for: word, language: language)
+                   }
+               ),
+               appPolicy.allowsProposal,
+               Defaults[.autoFixProposalEnabled] {
                 showCompoundProposal(
                     original: word,
                     suggestion: compound,

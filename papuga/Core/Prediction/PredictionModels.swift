@@ -117,7 +117,7 @@ struct PredictionGroup: Identifiable, Equatable {
 }
 
 /// One mistake inside a similarity cluster (the "Усі" tab).
-struct ErrorClusterMember: Identifiable, Equatable {
+struct ErrorClusterMember: Identifiable, Equatable, Sendable {
     let id: String
     let source: String
     let language: String
@@ -156,7 +156,7 @@ struct ErrorClusterMember: Identifiable, Equatable {
 /// A group of mistakes that are similar to each other (small edit distance) or
 /// that correct to the same word — surfaced so the user can see patterns across
 /// ALL their errors, not just the recurring ones.
-struct ErrorCluster: Identifiable, Equatable {
+struct ErrorCluster: Identifiable, Equatable, Sendable {
     let id: String
     let representative: String
     let language: String

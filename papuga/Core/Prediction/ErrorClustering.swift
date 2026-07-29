@@ -8,7 +8,7 @@ import Foundation
 /// BK-tree neighbours within `maxDistance` (sub-quadratic) — merged with
 /// union-find. Per-language so Cyrillic and Latin never cross.
 enum ErrorClustering {
-    struct Item {
+    struct Item: Sendable {
         let source: String
         let language: String
         let count: Int

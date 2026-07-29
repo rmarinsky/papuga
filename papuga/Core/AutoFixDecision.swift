@@ -8,6 +8,12 @@ struct SpellingTypoGuardAssessment: Equatable {
 }
 
 enum AutoFixDecision {
+    static func shouldSuppressLayoutReplacement(
+        mappedSpellingStatus: MappedSpellingStatus
+    ) -> Bool {
+        mappedSpellingStatus != .correct
+    }
+
     static func compoundLayoutSpellingSuggestion(
         mapped: String,
         targetLanguage: String,

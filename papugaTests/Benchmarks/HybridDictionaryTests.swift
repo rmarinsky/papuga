@@ -70,7 +70,7 @@ final class HybridDictionaryTests: XCTestCase {
         XCTAssertTrue(guesses.contains("systemguess"))   // system guess still merged in
     }
 
-    func test_hybrid_installedIndexFlagsUnknownWordEvenWhenSystemAcceptsIt() {
+    func test_hybrid_usesStrictIndexOnlyForMappedCandidates() {
         let indexes = DictionaryBuilder.build(
             base: ["uk": [("привіт", 100)]],
             learned: [:]
@@ -78,12 +78,15 @@ final class HybridDictionaryTests: XCTestCase {
         let hybrid = HybridSpellChecker(system: AllCorrectSpellChecker(), indexes: indexes)
 
         XCTAssertFalse(hybrid.isMisspelled("привіт", language: "uk"))
-        XCTAssertTrue(hybrid.isMisspelled("привчт", language: "uk"))
+        XCTAssertFalse(hybrid.isMisspelled("привчт", language: "uk"))
+        XCTAssertEqual(hybrid.mappedSpellingStatus("привіт", language: "uk"), .correct)
+        XCTAssertEqual(hybrid.mappedSpellingStatus("привчт", language: "uk"), .misspelled)
     }
 
     func test_hybrid_withoutIndexFallsBackToSystem() {
         let hybrid = HybridSpellChecker(system: AllWrongSpellChecker())
         XCTAssertTrue(hybrid.isMisspelled("anything", language: "fr"))
         XCTAssertEqual(hybrid.guesses(for: "anything", language: "fr"), ["systemguess"])
+        XCTAssertEqual(hybrid.mappedSpellingStatus("anything", language: "fr"), .unavailable)
     }
 }

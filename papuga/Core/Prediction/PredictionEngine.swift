@@ -72,6 +72,9 @@ final class PredictionEngine {
     private var hasBootstrapped = false
     private var currentGroups: [MistakeGroupData] = []
     private var clustersRequested = false
+    private var groupsGeneration = 0
+    private var clusteredGeneration: Int?
+    private var clusteringTask: Task<Void, Never>?
     private let logger = Logger(subsystem: Constants.bundleIdentifier, category: "Prediction")
 
     init(
@@ -165,6 +168,9 @@ final class PredictionEngine {
         )
         .filter { !known.contains(MistakeObservation.normalizedToken($0.source)) }
         currentGroups = groups
+        groupsGeneration += 1
+        clusteredGeneration = nil
+        clusteringTask?.cancel()
         errorClusters.removeAll(keepingCapacity: true)
         totalCount = groups.count
         flaggedCount = groups.reduce(0) { $0 + $1.count }
@@ -174,7 +180,7 @@ final class PredictionEngine {
         publishRanked(groups: groups) // show whatever is already cached immediately
 
         guard !pending.isEmpty else {
-            if clustersRequested { computeClusters(groups: groups) }
+            if clustersRequested { scheduleErrorClusters(groups: groups) }
             saveCacheToDisk()
             return
         }
@@ -214,7 +220,7 @@ final class PredictionEngine {
             }
             if Task.isCancelled { return }
             learnDomainVocabulary() // now that every group has candidates
-            if clustersRequested { computeClusters(groups: groups) }
+            if clustersRequested { scheduleErrorClusters(groups: groups) }
             phase = .ready
             saveCacheToDisk()
             logger.notice("Prediction pass complete: \(self.totalCount, privacy: .public) groups")
@@ -223,9 +229,14 @@ final class PredictionEngine {
 
     /// Similarity families are expensive and unused by the default grouping.
     /// Build them only after the user selects that view.
-    func prepareErrorClusters() {
-        clustersRequested = true
-        computeClusters(groups: currentGroups)
+    func setErrorClusteringEnabled(_ enabled: Bool) {
+        clustersRequested = enabled
+        guard enabled else {
+            clusteringTask?.cancel()
+            return
+        }
+        guard clusteredGeneration != groupsGeneration else { return }
+        scheduleErrorClusters(groups: currentGroups)
     }
 
     /// After a full pass: a recurring **word-like** mistake with no close typo
@@ -375,11 +386,11 @@ final class PredictionEngine {
     }
 
     /// Cluster ALL current mistakes by similarity for the "Усі" tab.
-    private func computeClusters(groups: [MistakeGroupData]) {
+    private func scheduleErrorClusters(groups: [MistakeGroupData]) {
         let known = handledSourcesProvider().union(domainVocabulary)
         let merged = mergedGroups(from: groups)
             .filter { !known.contains(MistakeObservation.normalizedToken($0.source)) }
-        errorClusters = ErrorClustering.cluster(merged.map { group in
+        let items = merged.map { group in
             let targetCandidate = group.primaryTarget.flatMap { target in
                 group.candidates.first {
                     MistakeObservation.normalizedToken($0.text)
@@ -394,7 +405,19 @@ final class PredictionEngine {
                 canCreateCoreRule: targetCandidate?.canCreateCoreRule,
                 observationIDs: group.observationIDs
             )
-        })
+        }
+        let generation = groupsGeneration
+        clusteringTask?.cancel()
+        clusteringTask = Task { @MainActor in
+            let clusters = await Task.detached(priority: .utility) {
+                ErrorClustering.cluster(items)
+            }.value
+            guard !Task.isCancelled,
+                  clustersRequested,
+                  generation == groupsGeneration else { return }
+            errorClusters = clusters
+            clusteredGeneration = generation
+        }
     }
 
     private func primaryTarget(for group: MistakeGroupData, candidates: [MistakeSuggestionCandidate]) -> String? {
@@ -468,6 +491,10 @@ final class PredictionEngine {
     }
 
     var cacheCountForTesting: Int { cache.count }
+
+    func waitForClusteringForTesting() async {
+        await clusteringTask?.value
+    }
     #endif
 }
 
