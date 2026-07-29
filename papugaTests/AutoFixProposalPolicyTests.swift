@@ -92,7 +92,8 @@ final class AutoFixProposalPolicyTests: XCTestCase {
                     subrole: nil,
                     windowTitleHash: nil,
                     elementIdentifier: nil,
-                    frameHash: nil
+                    frameHash: nil,
+                    elementIdentity: nil
                 ),
                 sourceRange: AXTextRange(location: 0, length: 6),
                 boundaryUTF16Length: 1,

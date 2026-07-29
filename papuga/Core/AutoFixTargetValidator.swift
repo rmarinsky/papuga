@@ -48,6 +48,27 @@ struct FocusedElementSignature: Equatable {
     let elementIdentifier: String?
     let frameHash: Int?
     let selectedRangeLocation: Int?
+    let elementIdentity: AXUIElement?
+
+    init(
+        pid: pid_t,
+        role: String?,
+        subrole: String?,
+        windowTitleHash: Int?,
+        elementIdentifier: String?,
+        frameHash: Int?,
+        selectedRangeLocation: Int?,
+        elementIdentity: AXUIElement? = nil
+    ) {
+        self.pid = pid
+        self.role = role
+        self.subrole = subrole
+        self.windowTitleHash = windowTitleHash
+        self.elementIdentifier = elementIdentifier
+        self.frameHash = frameHash
+        self.selectedRangeLocation = selectedRangeLocation
+        self.elementIdentity = elementIdentity
+    }
 
     var stableIdentity: StableIdentity {
         StableIdentity(
@@ -56,7 +77,8 @@ struct FocusedElementSignature: Equatable {
             subrole: subrole,
             windowTitleHash: windowTitleHash,
             elementIdentifier: elementIdentifier,
-            frameHash: frameHash
+            frameHash: frameHash,
+            elementIdentity: elementIdentity
         )
     }
 
@@ -77,14 +99,15 @@ struct FocusedElementSignature: Equatable {
             return false
         }
 
+        if let elementIdentity,
+           let otherIdentity = other.elementIdentity,
+           elementIdentity != otherIdentity {
+            return false
+        }
+
         if let selectedRangeLocation,
            let otherLocation = other.selectedRangeLocation {
             return otherLocation == selectedRangeLocation + expectedCaretAdvance
-        }
-
-        if let elementIdentifier,
-           let otherIdentifier = other.elementIdentifier {
-            return elementIdentifier == otherIdentifier
         }
 
         return stableIdentity == other.stableIdentity
@@ -97,6 +120,7 @@ struct FocusedElementSignature: Equatable {
         let windowTitleHash: Int?
         let elementIdentifier: String?
         let frameHash: Int?
+        let elementIdentity: AXUIElement?
     }
 }
 
@@ -486,7 +510,8 @@ final class AutoFixTargetValidator {
             windowTitleHash: windowTitleHash(for: focused),
             elementIdentifier: stringAttribute("AXIdentifier" as CFString, from: focused),
             frameHash: frameHash(for: focused),
-            selectedRangeLocation: selectedRangeLocation(for: focused)
+            selectedRangeLocation: selectedRangeLocation(for: focused),
+            elementIdentity: focused
         )
     }
 

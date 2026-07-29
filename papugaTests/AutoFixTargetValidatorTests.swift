@@ -290,4 +290,54 @@ final class AutoFixTargetValidatorTests: XCTestCase {
 
         XCTAssertTrue(first.matchesTypingTarget(second, expectedCaretAdvance: 19))
     }
+
+    func test_typingTargetIdentity_rejectsDynamicGeometryWhenCaretIsUnavailable() {
+        let first = FocusedElementSignature(
+            pid: 100,
+            role: "AXTextField",
+            subrole: nil,
+            windowTitleHash: 42,
+            elementIdentifier: "search",
+            frameHash: 7,
+            selectedRangeLocation: nil
+        )
+
+        let second = FocusedElementSignature(
+            pid: 100,
+            role: "AXTextField",
+            subrole: nil,
+            windowTitleHash: 99,
+            elementIdentifier: "search",
+            frameHash: 8,
+            selectedRangeLocation: nil
+        )
+
+        XCTAssertFalse(first.matchesTypingTarget(second, expectedCaretAdvance: 19))
+    }
+
+    func test_typingTargetIdentity_rejectsDifferentAXElementsWithMatchingCaret() {
+        let first = FocusedElementSignature(
+            pid: 100,
+            role: "AXTextField",
+            subrole: nil,
+            windowTitleHash: 42,
+            elementIdentifier: "search",
+            frameHash: 7,
+            selectedRangeLocation: 1,
+            elementIdentity: AXUIElementCreateApplication(100)
+        )
+
+        let second = FocusedElementSignature(
+            pid: 100,
+            role: "AXTextField",
+            subrole: nil,
+            windowTitleHash: 99,
+            elementIdentifier: "search",
+            frameHash: 8,
+            selectedRangeLocation: 20,
+            elementIdentity: AXUIElementCreateApplication(101)
+        )
+
+        XCTAssertFalse(first.matchesTypingTarget(second, expectedCaretAdvance: 19))
+    }
 }
