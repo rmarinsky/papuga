@@ -7,6 +7,11 @@ private final class AllWrongSpellChecker: SpellCheckingClient {
     func guesses(for word: String, language: String) -> [String] { ["systemguess"] }
 }
 
+private final class AllCorrectSpellChecker: SpellCheckingClient {
+    func isMisspelled(_ word: String, language: String) -> Bool { false }
+    func guesses(for word: String, language: String) -> [String] { [] }
+}
+
 final class HybridDictionaryTests: XCTestCase {
 
     func test_bundledFrequencyDictionariesLoad() {
@@ -63,6 +68,17 @@ final class HybridDictionaryTests: XCTestCase {
         let guesses = hybrid.guesses(for: "привт", language: "uk")
         XCTAssertEqual(guesses.first, "привіт")          // SymSpell correction first
         XCTAssertTrue(guesses.contains("systemguess"))   // system guess still merged in
+    }
+
+    func test_hybrid_installedIndexFlagsUnknownWordEvenWhenSystemAcceptsIt() {
+        let indexes = DictionaryBuilder.build(
+            base: ["uk": [("привіт", 100)]],
+            learned: [:]
+        )
+        let hybrid = HybridSpellChecker(system: AllCorrectSpellChecker(), indexes: indexes)
+
+        XCTAssertFalse(hybrid.isMisspelled("привіт", language: "uk"))
+        XCTAssertTrue(hybrid.isMisspelled("привчт", language: "uk"))
     }
 
     func test_hybrid_withoutIndexFallsBackToSystem() {

@@ -3,12 +3,10 @@ import Foundation
 /// Hybrid spell-check client: the authoritative system checker, plus SymSpell
 /// candidate generation, plus a **learned-known overlay**.
 ///
-/// Design invariant: `isMisspelled` can only ever become *more lenient* than the
-/// system checker — it never flags a word the system accepts, and additionally
-/// un-flags words the user clearly treats as correct (allowlist + own
-/// vocabulary). So enabling it can only *remove* false positives, never add new
-/// ones. `guesses` merges fast SymSpell corrections (incl. the user's own words)
-/// ahead of the system's.
+/// An installed frequency index is authoritative for its language, with the
+/// user's learned vocabulary layered above it. Until the index is ready, the
+/// system checker remains the fallback. `guesses` merges fast SymSpell
+/// corrections ahead of the system's.
 final class HybridSpellChecker: SpellCheckingClient {
     static let production: HybridSpellChecker = {
         let known = LearnedVocabulary.handledSources()
@@ -53,6 +51,9 @@ final class HybridSpellChecker: SpellCheckingClient {
 
     func isMisspelled(_ word: String, language: String) -> Bool {
         if learnedKnown[language]?.contains(word.lowercased()) == true { return false }
+        if let index = lock.withLock({ indexes[language] }) {
+            return index.words[word.lowercased()] == nil
+        }
         return system.isMisspelled(word, language: language)
     }
 
