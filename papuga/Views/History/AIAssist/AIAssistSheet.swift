@@ -561,7 +561,7 @@ struct AIAssistSheet: View {
             )
         }
         guard !combined.isEmpty else {
-            batch = comparisonBatch()
+            self.batch = comparisonBatch()
             result = AIValidationResult(blocked: AIValidationIssue(
                 alias: nil, message: "Жоден provider не повернув придатний результат.", severity: .block
             ))
