@@ -53,6 +53,14 @@ final class SecretScrubberTests: XCTestCase {
             SecretScrubber.sanitizeDiagnostic("token='opaque value'"),
             "token=[REDACTED]"
         )
+        XCTAssertEqual(
+            SecretScrubber.sanitizeDiagnostic(#"{"password":"hunter\"remaining secret"}"#),
+            #"{"password":[REDACTED]}"#
+        )
+        XCTAssertEqual(
+            SecretScrubber.sanitizeDiagnostic(#"password="hunter two words"#),
+            "password=[REDACTED]"
+        )
 
         let crossingBoundary = "token=sk-" + String(repeating: "A", count: 700)
         let error = AIAnalysisRunner.Error.nonZeroExit(7, crossingBoundary)
