@@ -297,9 +297,8 @@ final class AutoFixController {
         }
 
         if isBoundary {
-            let wordWasEmpty = buffer.text.isEmpty
             evaluateAndMaybeFix(boundary: typedString)
-            editingGuard.noteBoundary(bufferWasEmpty: wordWasEmpty, isNewline: Int(keyCode) == kVK_Return)
+            editingGuard.noteBoundary()
             buffer.reset()
             targetValidator.reset()
             return

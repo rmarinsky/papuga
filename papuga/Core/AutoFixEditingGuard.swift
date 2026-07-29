@@ -45,7 +45,7 @@ struct AutoFixEditingGuard {
     }
 
     /// The first boundary re-synchronizes the append-only word buffer with the editor.
-    mutating func noteBoundary(bufferWasEmpty _: Bool, isNewline _: Bool) {
+    mutating func noteBoundary() {
         shouldSuppressCurrentToken = false
     }
 

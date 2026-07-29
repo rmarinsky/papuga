@@ -315,6 +315,58 @@ final class AutoFixTargetValidatorTests: XCTestCase {
         XCTAssertFalse(first.matchesTypingTarget(second, expectedCaretAdvance: 19))
     }
 
+    func test_typingTargetIdentity_acceptsRecreatedAXProxyAtSameFrame() {
+        let first = FocusedElementSignature(
+            pid: 100,
+            role: "AXTextField",
+            subrole: nil,
+            windowTitleHash: 42,
+            elementIdentifier: "search",
+            frameHash: 7,
+            selectedRangeLocation: 1,
+            elementIdentity: AXUIElementCreateApplication(100)
+        )
+
+        let second = FocusedElementSignature(
+            pid: 100,
+            role: "AXTextField",
+            subrole: nil,
+            windowTitleHash: 99,
+            elementIdentifier: "search",
+            frameHash: 7,
+            selectedRangeLocation: 20,
+            elementIdentity: AXUIElementCreateApplication(101)
+        )
+
+        XCTAssertTrue(first.matchesTypingTarget(second, expectedCaretAdvance: 19))
+    }
+
+    func test_typingTargetIdentity_rejectsRecreatedAXProxyAtDifferentFrame() {
+        let first = FocusedElementSignature(
+            pid: 100,
+            role: "AXTextField",
+            subrole: nil,
+            windowTitleHash: 42,
+            elementIdentifier: "search",
+            frameHash: 7,
+            selectedRangeLocation: 1,
+            elementIdentity: AXUIElementCreateApplication(100)
+        )
+
+        let second = FocusedElementSignature(
+            pid: 100,
+            role: "AXTextField",
+            subrole: nil,
+            windowTitleHash: 99,
+            elementIdentifier: "search",
+            frameHash: 8,
+            selectedRangeLocation: 20,
+            elementIdentity: AXUIElementCreateApplication(101)
+        )
+
+        XCTAssertFalse(first.matchesTypingTarget(second, expectedCaretAdvance: 19))
+    }
+
     func test_utf16Substring_readsExactRangeFromFullAXValue() {
         XCTAssertEqual(
             AutoFixTargetValidator.substring(
