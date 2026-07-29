@@ -48,4 +48,18 @@ final class ErrorClusteringTests: XCTestCase {
         let clusters = ErrorClustering.cluster([item("cat", "en"), item("cot", "uk")], maxDistance: 2)
         XCTAssertEqual(clusters.count, 2, "different languages never cluster")
     }
+
+    func test_clustering_stopsWhenWorkerIsCancelled() async {
+        let items = (0..<4_000).map {
+            ErrorClustering.Item(
+                source: "word\($0)", language: "en", count: 1,
+                target: nil, observationIDs: [UUID()]
+            )
+        }
+        let worker = Task.detached { ErrorClustering.cluster(items) }
+        worker.cancel()
+
+        let clusters = await worker.value
+        XCTAssertTrue(clusters.isEmpty)
+    }
 }

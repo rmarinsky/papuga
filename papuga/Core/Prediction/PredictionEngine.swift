@@ -75,6 +75,7 @@ final class PredictionEngine {
     private var groupsGeneration = 0
     private var clusteredGeneration: Int?
     private var clusteringTask: Task<Void, Never>?
+    private var clusteringWorker: Task<[ErrorCluster], Never>?
     private let logger = Logger(subsystem: Constants.bundleIdentifier, category: "Prediction")
 
     init(
@@ -148,6 +149,8 @@ final class PredictionEngine {
     func cancel() {
         bootstrapTask?.cancel()
         analysisTask?.cancel()
+        clusteringTask?.cancel()
+        clusteringWorker?.cancel()
     }
 
     // MARK: Core analysis
@@ -171,6 +174,7 @@ final class PredictionEngine {
         groupsGeneration += 1
         clusteredGeneration = nil
         clusteringTask?.cancel()
+        clusteringWorker?.cancel()
         errorClusters.removeAll(keepingCapacity: true)
         totalCount = groups.count
         flaggedCount = groups.reduce(0) { $0 + $1.count }
@@ -233,6 +237,7 @@ final class PredictionEngine {
         clustersRequested = enabled
         guard enabled else {
             clusteringTask?.cancel()
+            clusteringWorker?.cancel()
             return
         }
         guard clusteredGeneration != groupsGeneration else { return }
@@ -408,15 +413,19 @@ final class PredictionEngine {
         }
         let generation = groupsGeneration
         clusteringTask?.cancel()
+        clusteringWorker?.cancel()
+        let worker = Task.detached(priority: .utility) {
+            ErrorClustering.cluster(items)
+        }
+        clusteringWorker = worker
         clusteringTask = Task { @MainActor in
-            let clusters = await Task.detached(priority: .utility) {
-                ErrorClustering.cluster(items)
-            }.value
+            let clusters = await worker.value
             guard !Task.isCancelled,
                   clustersRequested,
                   generation == groupsGeneration else { return }
             errorClusters = clusters
             clusteredGeneration = generation
+            clusteringWorker = nil
         }
     }
 

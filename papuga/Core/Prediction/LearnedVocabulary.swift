@@ -6,15 +6,21 @@ import Foundation
 /// the user's allowlist ("не чіпати"), and both sides of their custom rules
 /// (a rule source is already handled; a rule target is a correct word).
 enum LearnedVocabulary {
+    static func knownGoodWords(
+        allowlist: [String] = Defaults[.autoFixAllowlist],
+        rules: [CustomAutoReplaceRule] = Defaults[.customAutoReplaceRules]
+    ) -> Set<String> {
+        Set((allowlist + rules.map(\.target)).map(MistakeObservation.normalizedToken))
+            .subtracting([""])
+    }
+
     static func handledSources(
         allowlist: [String] = Defaults[.autoFixAllowlist],
         rules: [CustomAutoReplaceRule] = Defaults[.customAutoReplaceRules]
     ) -> Set<String> {
-        var set = Set<String>()
-        for word in allowlist { set.insert(MistakeObservation.normalizedToken(word)) }
+        var set = knownGoodWords(allowlist: allowlist, rules: rules)
         for rule in rules {
             set.insert(MistakeObservation.normalizedToken(rule.source))
-            set.insert(MistakeObservation.normalizedToken(rule.target))
         }
         set.remove("")
         return set

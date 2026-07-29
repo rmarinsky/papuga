@@ -43,17 +43,19 @@ enum ErrorClustering {
     }
 
     static func cluster(_ items: [Item], maxDistance: Int = 2) -> [ErrorCluster] {
-        guard !items.isEmpty else { return [] }
+        guard !items.isEmpty, !Task.isCancelled else { return [] }
         var clusters: [ErrorCluster] = []
         let byLanguage = Dictionary(grouping: items.indices) { items[$0].language }
 
         for (language, indices) in byLanguage {
+            guard !Task.isCancelled else { return [] }
             let local = indices.map { items[$0] }
             let parent = UnionFind(count: local.count)
 
             // Edge 1: same correction target.
             var byTarget: [String: [Int]] = [:]
             for (i, item) in local.enumerated() {
+                guard !Task.isCancelled else { return [] }
                 if let target = item.normalizedTarget, !target.isEmpty {
                     byTarget[target, default: []].append(i)
                 }
@@ -66,10 +68,12 @@ enum ErrorClustering {
             let tree = BKTree()
             var indexOf: [String: Int] = [:]
             for (i, item) in local.enumerated() {
+                guard !Task.isCancelled else { return [] }
                 let token = item.normalizedSource
                 if indexOf[token] == nil { indexOf[token] = i; tree.insert(token) }
             }
             for (i, item) in local.enumerated() {
+                guard !Task.isCancelled else { return [] }
                 for neighbour in tree.neighbors(of: item.normalizedSource, within: maxDistance) {
                     if let j = indexOf[neighbour] { parent.union(i, j) }
                 }
@@ -77,7 +81,10 @@ enum ErrorClustering {
 
             // Build clusters from connected components.
             var components: [Int: [Int]] = [:]
-            for i in local.indices { components[parent.find(i), default: []].append(i) }
+            for i in local.indices {
+                guard !Task.isCancelled else { return [] }
+                components[parent.find(i), default: []].append(i)
+            }
             for member in components.values {
                 let memberItems = member.map { local[$0] }
                 clusters.append(makeCluster(memberItems, language: language))

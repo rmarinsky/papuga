@@ -8,7 +8,7 @@ import Foundation
 /// `guesses` merges fast SymSpell corrections ahead of the system's.
 final class HybridSpellChecker: SpellCheckingClient {
     static let production: HybridSpellChecker = {
-        let known = LearnedVocabulary.handledSources()
+        let known = LearnedVocabulary.knownGoodWords()
         let learnedKnown = Dictionary(grouping: known, by: { word in
             word.unicodeScalars.contains { (0x0400...0x04FF).contains(Int($0.value)) } ? "uk" : "en"
         }).mapValues(Set.init)

@@ -82,6 +82,14 @@ final class SuggestionQualityTests: XCTestCase {
         XCTAssertTrue(handled.contains("roman"))       // rule target
     }
 
+    func test_learnedVocabulary_knownGoodWordsExcludeRuleSources() {
+        let knownGood = LearnedVocabulary.knownGoodWords(
+            allowlist: ["Плейрайт"],
+            rules: [CustomAutoReplaceRule(source: "teh", target: "the")]
+        )
+        XCTAssertEqual(knownGood, ["плейрайт", "the"])
+    }
+
     @MainActor
     func test_engine_skipsHandledWords() async throws {
         func obs(_ source: String) -> MistakeObservation {
