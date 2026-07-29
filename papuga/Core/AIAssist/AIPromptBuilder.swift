@@ -53,20 +53,12 @@ struct AIPromptBatch {
 
 struct AIComparisonBatchPlan {
     let batches: [AIPromptBatch]
-    let context: AIRoundTripContext
-    let items: [String: AIPromptItem]
-    let redactedSecretCount: Int
+    let aggregateBatch: AIPromptBatch
 
-    var itemCount: Int { items.count }
-    var aggregateBatch: AIPromptBatch {
-        AIPromptBatch(
-            prompt: "",
-            context: context,
-            items: items,
-            redactedSecretCount: redactedSecretCount,
-            truncatedBatch: false
-        )
-    }
+    var context: AIRoundTripContext { aggregateBatch.context }
+    var items: [String: AIPromptItem] { aggregateBatch.items }
+    var redactedSecretCount: Int { aggregateBatch.redactedSecretCount }
+    var itemCount: Int { aggregateBatch.itemCount }
 }
 
 /// Serialises open mistakes into the alias-based prompt from AI-ASSIST.md §3.
@@ -178,9 +170,13 @@ enum AIPromptBuilder {
         }
         return AIComparisonBatchPlan(
             batches: batches,
-            context: context,
-            items: items,
-            redactedSecretCount: base.redactedSecretCount
+            aggregateBatch: AIPromptBatch(
+                prompt: "",
+                context: context,
+                items: items,
+                redactedSecretCount: base.redactedSecretCount,
+                truncatedBatch: false
+            )
         )
     }
 

@@ -27,7 +27,7 @@ contract v2 і ділить набір на пакети по 100 унікаль
   session, а «Повторити пакет» продовжує з першого незавершеного пакета.
 - Raw prompts і responses не записуються на диск; після закриття comparison session вони зникають.
 
-Manual copy/paste лишається одним prompt і використовує описаний нижче legacy contract v1.
+Manual copy/paste лишається одним prompt і також використовує contract v2.
 
 ---
 
