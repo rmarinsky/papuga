@@ -37,7 +37,7 @@ final class PredictionEngine {
     private let chunkSize: Int
     private let liveFeedCap = 6
     private let maxRanked = 80
-    private let candidateLimit = 4
+    private let candidateLimit = 6
 
     /// Words already handled (allowlist / rules) — filtered out of suggestions.
     /// Injectable so tests stay independent of the machine's real Defaults.
@@ -61,8 +61,8 @@ final class PredictionEngine {
 
     // MARK: Cache (in-memory + disk)
 
-    // v6 also AND-merges rule safety across application-specific groups.
-    private static let cacheVersion = 6
+    // v7 stores six candidates with ordered compound transformation paths.
+    private static let cacheVersion = 7
     private var cache: [String: WordPrediction] = [:]
     private let cacheURL: URL
     private let domainVocabURL: URL

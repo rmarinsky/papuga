@@ -60,6 +60,8 @@ struct MistakeSuggestionCandidate: Identifiable, Equatable, Codable {
     let kind: MistakeSuggestionKind
     let text: String
     let confidence: Double
+    let transformationPath: [MistakeSuggestionKind]
+    let localExplanation: String
     let sourceLayoutID: String?
     let targetLayoutID: String?
     let replacementPlan: ReplacementPlan?
@@ -89,6 +91,8 @@ struct MistakeSuggestionCandidate: Identifiable, Equatable, Codable {
             kind: kind,
             text: text,
             confidence: confidence,
+            transformationPath: transformationPath,
+            localExplanation: localExplanation,
             sourceLayoutID: sourceLayoutID,
             targetLayoutID: targetLayoutID,
             replacementPlan: replacementPlan,
@@ -100,6 +104,8 @@ struct MistakeSuggestionCandidate: Identifiable, Equatable, Codable {
         kind: MistakeSuggestionKind,
         text: String,
         confidence: Double,
+        transformationPath: [MistakeSuggestionKind]? = nil,
+        localExplanation: String? = nil,
         sourceLayoutID: String? = nil,
         targetLayoutID: String? = nil,
         replacementPlan: ReplacementPlan? = nil,
@@ -108,10 +114,44 @@ struct MistakeSuggestionCandidate: Identifiable, Equatable, Codable {
         self.kind = kind
         self.text = text
         self.confidence = min(max(confidence, 0), 1)
+        self.transformationPath = transformationPath ?? [kind]
+        self.localExplanation = localExplanation ?? kind.defaultExplanation
         self.sourceLayoutID = sourceLayoutID
         self.targetLayoutID = targetLayoutID
         self.replacementPlan = replacementPlan
         self.coreRuleCreationAllowed = coreRuleCreationAllowed
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind, text, confidence, transformationPath, localExplanation
+        case sourceLayoutID, targetLayoutID, replacementPlan, coreRuleCreationAllowed
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let kind = try values.decode(MistakeSuggestionKind.self, forKey: .kind)
+        self.init(
+            kind: kind,
+            text: try values.decode(String.self, forKey: .text),
+            confidence: try values.decode(Double.self, forKey: .confidence),
+            transformationPath: try values.decodeIfPresent([MistakeSuggestionKind].self, forKey: .transformationPath),
+            localExplanation: try values.decodeIfPresent(String.self, forKey: .localExplanation),
+            sourceLayoutID: try values.decodeIfPresent(String.self, forKey: .sourceLayoutID),
+            targetLayoutID: try values.decodeIfPresent(String.self, forKey: .targetLayoutID),
+            replacementPlan: try values.decodeIfPresent(ReplacementPlan.self, forKey: .replacementPlan),
+            coreRuleCreationAllowed: try values.decodeIfPresent(Bool.self, forKey: .coreRuleCreationAllowed)
+        )
+    }
+}
+
+private extension MistakeSuggestionKind {
+    var defaultExplanation: String {
+        switch self {
+        case .recorded: return "Раніше виправлено так само."
+        case .spelling: return "Найближчий словниковий варіант."
+        case .keyboardLayout: return "Ті самі клавіші в іншій розкладці."
+        case .keyboardAdjacency: return "Ймовірно натиснуто сусідню клавішу."
+        }
     }
 }
 
@@ -143,7 +183,7 @@ final class MistakeSuggestionAnalyzer {
         language: String,
         recordedTargets: [String] = [],
         layoutManager: LayoutManager? = nil,
-        limit: Int = 4
+        limit: Int = 6
     ) -> [MistakeSuggestionCandidate] {
         let token = BufferedToken(rawText: source, keyCodes: [])
         let sourceCore = token.core
@@ -178,7 +218,7 @@ final class MistakeSuggestionAnalyzer {
         language: String,
         recordedTargets: [String] = [],
         layoutManager: LayoutManager? = nil,
-        limit: Int = 4
+        limit: Int = 6
     ) -> [MistakeSuggestionCandidate] {
         var seenSources = Set<String>()
         let uniqueSources = rawSources.filter { seenSources.insert($0).inserted }
@@ -189,7 +229,7 @@ final class MistakeSuggestionAnalyzer {
                 language: language,
                 recordedTargets: recordedTargets,
                 layoutManager: layoutManager,
-                limit: limit
+                limit: 24
             )
         }
         guard let representativeCandidates = batches.first else { return [] }
@@ -221,7 +261,7 @@ final class MistakeSuggestionAnalyzer {
                 for: token,
                 language: language,
                 layoutManager: layoutManager,
-                limit: limit
+                limit: 24
             )
         } else {
             layoutCandidates = []
@@ -317,8 +357,8 @@ final class MistakeSuggestionAnalyzer {
             // flip of a real word). Trust the user's own recorded corrections.
             .filter { $0.kind == .recorded || WordPlausibility.isWordLike($0.text) }
             .sorted { lhs, rhs in
-                if lhs.kind.rank != rhs.kind.rank { return lhs.kind.rank < rhs.kind.rank }
                 if lhs.confidence != rhs.confidence { return lhs.confidence > rhs.confidence }
+                if lhs.kind.rank != rhs.kind.rank { return lhs.kind.rank < rhs.kind.rank }
                 return lhs.text.localizedCaseInsensitiveCompare(rhs.text) == .orderedAscending
             }
             .prefix(limit)
@@ -393,6 +433,33 @@ final class MistakeSuggestionAnalyzer {
                         replacementPlan: plan
                     ))
                     if result.count >= limit { return result }
+                }
+
+                if !coreMapped.isEmpty, !coreIsValid {
+                    for guess in spellChecker.guesses(for: coreMapped, language: targetLanguage).prefix(3) {
+                        let candidate = guess.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !candidate.isEmpty,
+                              !candidate.contains(where: \.isWhitespace),
+                              candidate.count <= MistakeObservation.maxStoredCharCount else {
+                            continue
+                        }
+                        let spellingScore = spellingConfidence(source: coreMapped, candidate: candidate)
+                        result.append(MistakeSuggestionCandidate(
+                            kind: .spelling,
+                            text: candidate,
+                            confidence: min(0.82, spellingScore) - 0.08,
+                            transformationPath: [.keyboardLayout, .spelling],
+                            localExplanation: "Інша розкладка, потім словникове виправлення.",
+                            sourceLayoutID: fromID,
+                            targetLayoutID: toID,
+                            replacementPlan: token.replacementPlan(
+                                correctedCore: candidate,
+                                boundary: "",
+                                reason: .sameLanguageSpelling
+                            )
+                        ))
+                        if result.count >= limit { return result }
+                    }
                 }
             }
         }
@@ -477,6 +544,7 @@ final class MistakeSuggestionAnalyzer {
                 result[index] = candidate
             }
         } else {
+            guard result.count < 24 else { return }
             result.append(candidate)
         }
     }

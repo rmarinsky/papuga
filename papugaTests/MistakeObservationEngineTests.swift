@@ -358,6 +358,42 @@ final class MistakeObservationEngineTests: XCTestCase {
         XCTAssertEqual(recordedCoreWithComma?.canCreateCoreRule, true)
     }
 
+    func test_suggestionAnalyzer_correctsMisspelledMappedWord() throws {
+        let oldOrder = Defaults[.layoutOrder]
+        let oldDisabled = Defaults[.disabledLayouts]
+        defer {
+            Defaults[.layoutOrder] = oldOrder
+            Defaults[.disabledLayouts] = oldDisabled
+        }
+
+        let layoutManager = LayoutManager()
+        let ids = layoutManager.availableLayouts.map(\.id)
+        let us = "com.apple.keylayout.US"
+        let ukrainian = "com.apple.keylayout.Ukrainian-PC"
+        guard ids.contains(us), ids.contains(ukrainian) else {
+            throw XCTSkip("US and Ukrainian-PC input sources are required for this compound suggestion test.")
+        }
+        Defaults[.layoutOrder] = [us, ukrainian]
+        Defaults[.disabledLayouts] = []
+
+        let spellChecker = FakeSpellChecker()
+        spellChecker.misspelled = ["ghbdxn", "привчт"]
+        spellChecker.guessesByWord = ["привчт": ["привіт", "привітання", "привезти", "привід"]]
+        let candidates = MistakeSuggestionAnalyzer(spellChecker: spellChecker).candidates(
+            for: "ghbdxn,",
+            language: "en",
+            layoutManager: layoutManager,
+            limit: 6
+        )
+
+        let compound = try XCTUnwrap(candidates.first { $0.text == "привіт" })
+        XCTAssertEqual(compound.transformationPath, [.keyboardLayout, .spelling])
+        XCTAssertEqual(compound.replacementPlan?.renderedReplacement, "привіт,")
+        XCTAssertFalse(compound.localExplanation.isEmpty)
+        XCTAssertLessThan(compound.confidence, 0.82)
+        XCTAssertEqual(candidates.filter { $0.transformationPath == [.keyboardLayout, .spelling] }.count, 3)
+    }
+
     func test_recordManualCorrection_recordsSourceAndTarget() {
         let store = RecordingStore()
         let engine = MistakeObservationEngine(spellChecker: FakeSpellChecker(), store: store)
