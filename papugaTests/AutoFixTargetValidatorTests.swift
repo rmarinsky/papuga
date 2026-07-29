@@ -194,4 +194,52 @@ final class AutoFixTargetValidatorTests: XCTestCase {
 
         XCTAssertNotEqual(first.stableIdentity, second.stableIdentity)
     }
+
+    func test_typingTargetIdentity_ignoresDynamicWindowTitleAndFrameForStableIdentifier() {
+        let first = FocusedElementSignature(
+            pid: 100,
+            role: "AXTextField",
+            subrole: nil,
+            windowTitleHash: 42,
+            elementIdentifier: "search",
+            frameHash: 7,
+            selectedRangeLocation: 1
+        )
+
+        let second = FocusedElementSignature(
+            pid: 100,
+            role: "AXTextField",
+            subrole: nil,
+            windowTitleHash: 99,
+            elementIdentifier: "search",
+            frameHash: 8,
+            selectedRangeLocation: 20
+        )
+
+        XCTAssertTrue(first.matchesTypingTarget(second))
+    }
+
+    func test_typingTargetIdentity_rejectsDifferentIdentifiers() {
+        let first = FocusedElementSignature(
+            pid: 100,
+            role: "AXTextField",
+            subrole: nil,
+            windowTitleHash: 42,
+            elementIdentifier: "search",
+            frameHash: 7,
+            selectedRangeLocation: 1
+        )
+
+        let second = FocusedElementSignature(
+            pid: 100,
+            role: "AXTextField",
+            subrole: nil,
+            windowTitleHash: 42,
+            elementIdentifier: "other-field",
+            frameHash: 7,
+            selectedRangeLocation: 1
+        )
+
+        XCTAssertFalse(first.matchesTypingTarget(second))
+    }
 }

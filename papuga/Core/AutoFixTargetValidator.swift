@@ -60,6 +60,18 @@ struct FocusedElementSignature: Equatable {
         )
     }
 
+    func matchesTypingTarget(_ other: FocusedElementSignature) -> Bool {
+        guard pid == other.pid,
+              role == other.role,
+              subrole == other.subrole,
+              let elementIdentifier,
+              let otherIdentifier = other.elementIdentifier
+        else {
+            return stableIdentity == other.stableIdentity
+        }
+        return elementIdentifier == otherIdentifier
+    }
+
     struct StableIdentity: Equatable {
         let pid: pid_t
         let role: String?
@@ -162,7 +174,7 @@ final class AutoFixTargetValidator {
             return .unverifiable("missing_current_focused_element")
         }
 
-        guard originalSignature.stableIdentity == currentSignature.stableIdentity else {
+        guard originalSignature.matchesTypingTarget(currentSignature) else {
             return .changed("focused_element_changed")
         }
 
