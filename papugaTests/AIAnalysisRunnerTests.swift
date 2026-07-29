@@ -51,12 +51,13 @@ final class AIAnalysisRunnerTests: XCTestCase {
     }
 
     func test_executeReportsNonZeroExit() async throws {
-        let script = try executable("printf nope >&2; exit 7")
+        let script = try executable("printf 'Workspace Trust Required sk-not-a-real-secret' >&2; exit 7")
         do {
             _ = try await AIAnalysisRunner().execute(executable: script, arguments: [], prompt: "", timeout: 2)
             XCTFail("Expected non-zero exit")
         } catch let error as AIAnalysisRunner.Error {
-            XCTAssertEqual(error, .nonZeroExit(7, "nope"))
+            XCTAssertEqual(error, .nonZeroExit(7, "Workspace Trust Required sk-not-a-real-secret"))
+            XCTAssertEqual(error.localizedDescription, "Workspace Trust Required [REDACTED] (код 7)")
         }
     }
 

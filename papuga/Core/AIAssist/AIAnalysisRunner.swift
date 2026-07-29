@@ -20,12 +20,38 @@ final class AIAnalysisRunner {
         let stderr: String
     }
 
-    enum Error: Swift.Error, Equatable {
+    enum Error: Swift.Error, Equatable, LocalizedError {
         case launchFailed(String)
         case nonZeroExit(Int32, String)
         case timedOut
         case outputTooLarge
         case invalidUTF8
+
+        var errorDescription: String? {
+            switch self {
+            case .launchFailed(let message):
+                return "Не вдалося запустити CLI: \(Self.safeDiagnostic(message))"
+            case .nonZeroExit(let code, let stderr):
+                let diagnostic = Self.safeDiagnostic(stderr)
+                return diagnostic.isEmpty
+                    ? "CLI завершився з кодом \(code)"
+                    : "\(diagnostic) (код \(code))"
+            case .timedOut: return "CLI не відповів за 180 секунд"
+            case .outputTooLarge: return "Відповідь CLI перевищила 2 MB"
+            case .invalidUTF8: return "CLI повернув невалідний текст"
+            }
+        }
+
+        private static func safeDiagnostic(_ value: String) -> String {
+            value.suffix(600)
+                .components(separatedBy: .whitespacesAndNewlines)
+                .filter { !$0.isEmpty }
+                .map {
+                    let token = $0.trimmingCharacters(in: .punctuationCharacters)
+                    return SecretScrubber.isLikelySecret(token) ? "[REDACTED]" : $0
+                }
+                .joined(separator: " ")
+        }
     }
 
     enum OllamaError: Swift.Error, Equatable {
