@@ -34,12 +34,19 @@ struct AIAssistSheet: View {
     @State private var applyProgress = 0
     @State private var applyTotal = 0
     @State private var providerRuns: [AIProvider: ProviderRunState] = [:]
+    @State private var providerExecutions: [AIProvider: AIProviderBatchExecution] = [:]
     @State private var providerSuggestions: [AIProvider: [AISuggestion]] = [:]
     @State private var providerIssues: [AIProvider: String] = [:]
     @State private var runTasks: [AIProvider: Task<Void, Never>] = [:]
+    @State private var comparisonPlan: AIComparisonBatchPlan?
 
     private enum Step { case intro, running, prompt, paste, review, done }
-    private enum ProviderRunState { case running, complete(Int), failed(String), cancelled }
+    private enum ProviderRunState {
+        case running(AIProviderBatchProgress)
+        case complete(AIProviderBatchProgress)
+        case failed(AIProviderBatchProgress, String)
+        case cancelled(AIProviderBatchProgress)
+    }
     private enum ProviderRunError: LocalizedError {
         case notInstalled, needsAuthentication, failed(String)
         var errorDescription: String? {
@@ -175,11 +182,22 @@ struct AIAssistSheet: View {
                         Text(target.provider.title).font(.system(size: 13, weight: .semibold))
                         Text(runStatusText(providerRuns[target.provider]))
                             .font(.caption).foregroundStyle(.secondary)
+                        if let progress = runProgress(providerRuns[target.provider]) {
+                            ProgressView(value: progress.fractionCompleted)
+                                .progressViewStyle(.linear)
+                            Text("\(progress.completedItems) / \(progress.totalItems) · \(progress.resultCount) результатів · \(progress.missingCount) без відповіді")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
                     }
                     Spacer()
                     if case .running? = providerRuns[target.provider] {
                         Button("Скасувати") { cancelProvider(target.provider) }
                             .buttonStyle(.borderless).foregroundStyle(.red)
+                    } else if case .failed? = providerRuns[target.provider] {
+                        Button("Повторити пакет") { retryProvider(target) }
+                            .buttonStyle(.borderless)
                     }
                 }
                 .padding(12)
@@ -202,10 +220,21 @@ struct AIAssistSheet: View {
 
     private func runStatusText(_ state: ProviderRunState?) -> String {
         switch state {
-        case .running, nil: return "Виконується…"
-        case .complete(let count): return "Готово · \(count) результатів"
-        case .failed(let message): return message
-        case .cancelled: return "Скасовано"
+        case .running(let progress):
+            return "Пакет \(min(progress.completedBatches + 1, progress.totalBatches)) з \(progress.totalBatches)"
+        case .complete(let progress): return "Готово · \(progress.completedItems) оброблено"
+        case .failed(let progress, let message):
+            return "Пакет \(min(progress.completedBatches + 1, progress.totalBatches)) з \(progress.totalBatches): \(message)"
+        case .cancelled(let progress): return "Скасовано після \(progress.completedItems)"
+        case nil: return "Готується…"
+        }
+    }
+
+    private func runProgress(_ state: ProviderRunState?) -> AIProviderBatchProgress? {
+        switch state {
+        case .running(let progress), .complete(let progress),
+             .failed(let progress, _), .cancelled(let progress): return progress
+        case nil: return nil
         }
     }
 
@@ -381,6 +410,24 @@ struct AIAssistSheet: View {
     }
 
     private func comparisonBatch() -> AIPromptBatch {
+        AIPromptBuilder.buildComparison(
+            from: groups,
+            candidatesBySource: comparisonCandidates(),
+            sendAppNames: sendAppNames,
+            scrubSecrets: secretScrubbing
+        )
+    }
+
+    private func comparisonBatchPlan() -> AIComparisonBatchPlan {
+        AIPromptBuilder.buildComparisonBatches(
+            from: groups,
+            candidatesBySource: comparisonCandidates(),
+            sendAppNames: sendAppNames,
+            scrubSecrets: secretScrubbing
+        )
+    }
+
+    private func comparisonCandidates() -> [String: [MistakeSuggestionCandidate]] {
         var candidates: [String: [MistakeSuggestionCandidate]] = [:]
         for group in engineGroups {
             let key = MistakeObservation.normalizedToken(group.source)
@@ -389,50 +436,68 @@ struct AIAssistSheet: View {
                 candidates[key, default: []].append(candidate)
             }
         }
-        return AIPromptBuilder.buildComparison(
-            from: groups,
-            candidatesBySource: candidates,
-            sendAppNames: sendAppNames,
-            scrubSecrets: secretScrubbing
-        )
+        return candidates
     }
 
     private func startAnalysis() {
-        batch = comparisonBatch()
-        guard batch?.itemCount ?? 0 > 0 else { return }
+        let plan = comparisonBatchPlan()
+        comparisonPlan = plan
+        batch = plan.aggregateBatch
+        guard plan.itemCount > 0 else { return }
         providerRuns = [:]
+        providerExecutions = [:]
         providerSuggestions = [:]
         providerIssues = [:]
         runTasks.values.forEach { $0.cancel() }
         runTasks = [:]
         step = .running
         for target in analysisTargets {
-            providerRuns[target.provider] = .running
-            runTasks[target.provider] = Task {
-                do {
-                    let raw = try await run(target)
-                    try Task.checkCancellation()
-                    guard let batch else { return }
-                    let validation = AIResponseValidator.validate(raw, context: batch.context)
-                    if let blocked = validation.blocked {
-                        providerRuns[target.provider] = .failed(blocked.message)
-                        providerIssues[target.provider] = blocked.message
-                    } else {
-                        providerSuggestions[target.provider] = validation.recognized
-                        providerRuns[target.provider] = .complete(validation.recognizedCount)
-                    }
-                } catch is CancellationError {
-                    providerRuns[target.provider] = .cancelled
-                } catch {
-                    providerRuns[target.provider] = .failed(error.localizedDescription)
-                    providerIssues[target.provider] = error.localizedDescription
+            runProvider(target)
+        }
+    }
+
+    private func runProvider(_ target: AIAnalysisTarget, resuming previous: AIProviderBatchExecution? = nil) {
+        guard let plan = comparisonPlan else { return }
+        let initial = previous ?? AIProviderBatchExecution(
+            progress: AIProviderBatchProgress(totalItems: plan.itemCount, totalBatches: plan.batches.count),
+            suggestions: [],
+            failure: nil
+        )
+        providerRuns[target.provider] = .running(initial.progress)
+        providerIssues.removeValue(forKey: target.provider)
+        runTasks[target.provider]?.cancel()
+        runTasks[target.provider] = Task {
+            do {
+                let execution = try await AIProviderBatchExecutor.run(
+                    batches: plan.batches,
+                    resuming: initial,
+                    onProgress: { progress in
+                        providerExecutions[target.provider] = progress
+                        providerSuggestions[target.provider] = progress.suggestions
+                        providerRuns[target.provider] = .running(progress.progress)
+                    },
+                    execute: { try await run(target, batch: $0) }
+                )
+                providerExecutions[target.provider] = execution
+                providerSuggestions[target.provider] = execution.suggestions
+                if let failure = execution.failure {
+                    providerIssues[target.provider] = failure.message
+                    providerRuns[target.provider] = .failed(execution.progress, failure.message)
+                } else {
+                    providerRuns[target.provider] = .complete(execution.progress)
                 }
+            } catch is CancellationError {
+                let progress = providerExecutions[target.provider]?.progress ?? initial.progress
+                providerRuns[target.provider] = .cancelled(progress)
+            } catch {
+                providerIssues[target.provider] = error.localizedDescription
+                providerRuns[target.provider] = .failed(initial.progress, error.localizedDescription)
             }
         }
     }
 
-    private func run(_ target: AIAnalysisTarget) async throws -> String {
-        guard let prompt = batch?.prompt else { throw AIAnalysisRunner.Error.invalidUTF8 }
+    private func run(_ target: AIAnalysisTarget, batch: AIPromptBatch) async throws -> String {
+        let prompt = batch.prompt
         let runner = AIAnalysisRunner()
         if target.provider == .ollama {
             let model: String?
@@ -461,7 +526,14 @@ struct AIAssistSheet: View {
 
     private func cancelProvider(_ provider: AIProvider) {
         runTasks[provider]?.cancel()
-        providerRuns[provider] = .cancelled
+        if let progress = providerExecutions[provider]?.progress ?? runProgress(providerRuns[provider]) {
+            providerRuns[provider] = .cancelled(progress)
+        }
+    }
+
+    private func retryProvider(_ target: AIAnalysisTarget) {
+        guard let previous = providerExecutions[target.provider], previous.failure != nil else { return }
+        runProvider(target, resuming: previous)
     }
 
     private func finishComparison() {
@@ -489,6 +561,7 @@ struct AIAssistSheet: View {
             )
         }
         guard !combined.isEmpty else {
+            batch = comparisonBatch()
             result = AIValidationResult(blocked: AIValidationIssue(
                 alias: nil, message: "Жоден provider не повернув придатний результат.", severity: .block
             ))

@@ -216,6 +216,67 @@ final class AIAnalysisRunner {
     }
 }
 
+struct AIProviderBatchFailure: Equatable {
+    let batchIndex: Int
+    let message: String
+}
+
+struct AIProviderBatchExecution: Equatable {
+    var progress: AIProviderBatchProgress
+    var suggestions: [AISuggestion]
+    var failure: AIProviderBatchFailure?
+}
+
+@MainActor
+enum AIProviderBatchExecutor {
+    static func run(
+        batches: [AIPromptBatch],
+        resuming previous: AIProviderBatchExecution? = nil,
+        onProgress: ((AIProviderBatchExecution) -> Void)? = nil,
+        execute: (AIPromptBatch) async throws -> String
+    ) async throws -> AIProviderBatchExecution {
+        var result = previous ?? AIProviderBatchExecution(
+            progress: AIProviderBatchProgress(
+                totalItems: batches.reduce(0) { $0 + $1.itemCount },
+                totalBatches: batches.count
+            ),
+            suggestions: [],
+            failure: nil
+        )
+        result.failure = nil
+
+        for index in result.progress.nextBatchIndex..<batches.count {
+            let batch = batches[index]
+            let raw: String
+            do {
+                raw = try await execute(batch)
+            } catch let error as CancellationError {
+                throw error
+            } catch {
+                result.failure = AIProviderBatchFailure(
+                    batchIndex: index,
+                    message: error.localizedDescription
+                )
+                return result
+            }
+
+            let validation = AIResponseValidator.validate(raw, context: batch.context)
+            if let blocked = validation.blocked {
+                result.failure = AIProviderBatchFailure(batchIndex: index, message: blocked.message)
+                return result
+            }
+            result.suggestions.append(contentsOf: validation.recognized)
+            result.progress.recordCompletedBatch(
+                itemCount: batch.itemCount,
+                resultCount: validation.recognizedCount,
+                missingCount: validation.missingAliases.count
+            )
+            onProgress?(result)
+        }
+        return result
+    }
+}
+
 private final class OutputBuffers: @unchecked Sendable {
     private let lock = NSLock()
     private let limit: Int

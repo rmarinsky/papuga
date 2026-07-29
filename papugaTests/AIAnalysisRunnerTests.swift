@@ -15,6 +15,46 @@ final class AIAnalysisRunnerTests: XCTestCase {
         XCTAssertEqual(progress.fractionCompleted, 100.0 / 205.0, accuracy: 0.001)
     }
 
+    func test_batchExecutionKeepsCompletedResultsAndRetriesFromFailedBatch() async throws {
+        let observations = (1...3).map {
+            MistakeObservation(
+                issueType: .spelling,
+                source: "typo\($0)",
+                language: "en",
+                confidence: 0.8
+            )
+        }
+        let groups = MistakesScreenDerivation.groups(from: observations, filter: .all, query: "")
+        let candidates = Dictionary(uniqueKeysWithValues: (1...3).map {
+            ("typo\($0)", [MistakeSuggestionCandidate(kind: .spelling, text: "type\($0)", confidence: 0.9)])
+        })
+        let plan = AIPromptBuilder.buildComparisonBatches(
+            from: groups,
+            candidatesBySource: candidates,
+            sendAppNames: false,
+            scrubSecrets: true,
+            batchSize: 1
+        )
+
+        let failed = try await AIProviderBatchExecutor.run(batches: plan.batches) { batch in
+            let alias = try XCTUnwrap(batch.context.knownAliases.first)
+            if alias == "m2" { throw AIAnalysisRunner.Error.nonZeroExit(1, "temporary") }
+            return try self.validV2Response(for: batch)
+        }
+
+        XCTAssertEqual(failed.progress.completedItems, 1)
+        XCTAssertEqual(failed.suggestions.map(\.id), ["m1"])
+        XCTAssertEqual(failed.failure?.batchIndex, 1)
+
+        let retried = try await AIProviderBatchExecutor.run(batches: plan.batches, resuming: failed) {
+            try self.validV2Response(for: $0)
+        }
+
+        XCTAssertEqual(retried.progress.completedItems, 3)
+        XCTAssertEqual(retried.suggestions.map(\.id), ["m1", "m2", "m3"])
+        XCTAssertNil(retried.failure)
+    }
+
     func test_cursorRunsNonInteractivelyInPapugasTrustedTemporaryWorkspace() {
         XCTAssertEqual(
             AIProvider.cursorAgent.generationArguments,
@@ -49,6 +89,12 @@ final class AIAnalysisRunnerTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
         addTeardownBlock { try? FileManager.default.removeItem(at: url) }
         return url
+    }
+
+    private func validV2Response(for batch: AIPromptBatch) throws -> String {
+        let alias = try XCTUnwrap(batch.context.knownAliases.first)
+        let target = try XCTUnwrap(batch.items[alias]?.localCandidates.first)
+        return #"{"version":2,"predictions":[{"id":"\#(alias)","rankedTargets":["\#(target)"],"target":"\#(target)","otherTarget":null,"confidence":0.9,"explanation":"candidate"}]}"#
     }
 
     func test_executeTransportsPromptThroughStdinAndDrainsStderr() async throws {
