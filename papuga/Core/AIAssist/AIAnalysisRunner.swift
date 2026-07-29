@@ -1,0 +1,152 @@
+import Foundation
+
+/// Runs user-installed AI CLIs without a shell. Prompts go through stdin and
+/// stdout/stderr are drained concurrently so a noisy provider cannot deadlock.
+final class AIAnalysisRunner {
+    static let outputLimit = 2_000_000
+
+    struct ProcessOutput: Equatable {
+        let stdout: String
+        let stderr: String
+    }
+
+    enum Error: Swift.Error, Equatable {
+        case launchFailed(String)
+        case nonZeroExit(Int32, String)
+        case timedOut
+        case outputTooLarge
+        case invalidUTF8
+    }
+
+    func execute(
+        executable: URL,
+        arguments: [String],
+        prompt: String,
+        timeout: TimeInterval = 180
+    ) async throws -> ProcessOutput {
+        let workDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("papuga-ai-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: workDirectory,
+            withIntermediateDirectories: false,
+            attributes: [.posixPermissions: 0o700]
+        )
+        defer { try? FileManager.default.removeItem(at: workDirectory) }
+
+        let process = Process()
+        let input = Pipe()
+        let output = Pipe()
+        let errors = Pipe()
+        let buffers = OutputBuffers(limit: Self.outputLimit)
+        process.executableURL = executable
+        process.arguments = arguments
+        process.currentDirectoryURL = workDirectory
+        process.standardInput = input
+        process.standardOutput = output
+        process.standardError = errors
+        output.fileHandleForReading.readabilityHandler = { handle in
+            buffers.append(handle.availableData, toStdout: true, process: process)
+        }
+        errors.fileHandleForReading.readabilityHandler = { handle in
+            buffers.append(handle.availableData, toStdout: false, process: process)
+        }
+        defer {
+            output.fileHandleForReading.readabilityHandler = nil
+            errors.fileHandleForReading.readabilityHandler = nil
+            if process.isRunning { process.terminate() }
+        }
+
+        do {
+            try process.run()
+        } catch {
+            throw Error.launchFailed(error.localizedDescription)
+        }
+        input.fileHandleForWriting.write(Data(prompt.utf8))
+        try? input.fileHandleForWriting.close()
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while process.isRunning {
+            try Task.checkCancellation()
+            if buffers.isOversized {
+                process.terminate()
+                while process.isRunning { try await Task.sleep(for: .milliseconds(10)) }
+                throw Error.outputTooLarge
+            }
+            if Date() >= deadline {
+                process.terminate()
+                while process.isRunning { try await Task.sleep(for: .milliseconds(10)) }
+                throw Error.timedOut
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        // Let the readability handlers consume their final EOF chunk.
+        try await Task.sleep(for: .milliseconds(10))
+        let data = buffers.snapshot()
+        if data.oversized { throw Error.outputTooLarge }
+        guard let stdout = String(data: data.stdout, encoding: .utf8),
+              let stderr = String(data: data.stderr, encoding: .utf8) else {
+            throw Error.invalidUTF8
+        }
+        guard process.terminationStatus == 0 else {
+            throw Error.nonZeroExit(process.terminationStatus, stderr)
+        }
+        return ProcessOutput(stdout: stdout, stderr: stderr)
+    }
+
+    func executeAll(
+        _ commands: [(URL, [String])],
+        prompt: String,
+        timeout: TimeInterval = 180
+    ) async -> [Result<ProcessOutput, Swift.Error>] {
+        await withTaskGroup(of: (Int, Result<ProcessOutput, Swift.Error>).self) { group in
+            for (index, command) in commands.enumerated() {
+                group.addTask {
+                    do {
+                        return (index, .success(try await self.execute(
+                            executable: command.0,
+                            arguments: command.1,
+                            prompt: prompt,
+                            timeout: timeout
+                        )))
+                    } catch {
+                        return (index, .failure(error))
+                    }
+                }
+            }
+            var results = Array<Result<ProcessOutput, Swift.Error>?>(repeating: nil, count: commands.count)
+            for await (index, result) in group { results[index] = result }
+            return results.map { $0! }
+        }
+    }
+}
+
+private final class OutputBuffers: @unchecked Sendable {
+    private let lock = NSLock()
+    private let limit: Int
+    private var stdout = Data()
+    private var stderr = Data()
+    private var oversized = false
+
+    init(limit: Int) { self.limit = limit }
+
+    var isOversized: Bool { lock.withLock { oversized } }
+
+    func append(_ data: Data, toStdout: Bool, process: Process) {
+        guard !data.isEmpty else { return }
+        let shouldTerminate = lock.withLock {
+            guard !oversized else { return false }
+            if stdout.count + stderr.count + data.count > limit {
+                oversized = true
+                return true
+            }
+            if toStdout { stdout.append(data) } else { stderr.append(data) }
+            return false
+        }
+        if shouldTerminate, process.isRunning { process.terminate() }
+    }
+
+    func snapshot() -> (stdout: Data, stderr: Data, oversized: Bool) {
+        lock.withLock { (stdout, stderr, oversized) }
+    }
+}
