@@ -65,7 +65,7 @@ struct AISuggestionReviewView: View {
                 Text("Зокрема \(dictionaryCount) у словник — лишається в системному словнику.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            if showSafe { rowList(safe, showReason: false) }
+            if showSafe { rowList(safe, showReason: true) }
         }
         .padding(12)
         .background(

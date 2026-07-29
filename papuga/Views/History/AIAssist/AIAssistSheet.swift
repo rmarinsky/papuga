@@ -19,6 +19,7 @@ struct AIAssistSheet: View {
     @Default(.aiConsentGranted) private var consentGranted
     @Default(.aiSecretScrubbing) private var secretScrubbing
     @Default(.aiSendAppNames) private var sendAppNames
+    @Default(.aiAnalysisTargets) private var analysisTargets
 
     @State private var step: Step = .intro
     @State private var batch: AIPromptBatch?
@@ -32,8 +33,23 @@ struct AIAssistSheet: View {
     @State private var applying = false
     @State private var applyProgress = 0
     @State private var applyTotal = 0
+    @State private var providerRuns: [AIProvider: ProviderRunState] = [:]
+    @State private var providerSuggestions: [AIProvider: [AISuggestion]] = [:]
+    @State private var providerIssues: [AIProvider: String] = [:]
+    @State private var runTasks: [AIProvider: Task<Void, Never>] = [:]
 
-    private enum Step { case intro, prompt, paste, review, done }
+    private enum Step { case intro, running, prompt, paste, review, done }
+    private enum ProviderRunState { case running, complete(Int), failed(String), cancelled }
+    private enum ProviderRunError: LocalizedError {
+        case notInstalled, needsAuthentication, failed(String)
+        var errorDescription: String? {
+            switch self {
+            case .notInstalled: return "CLI не встановлено"
+            case .needsAuthentication: return "Потрібна авторизація"
+            case .failed(let message): return message
+            }
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -81,6 +97,7 @@ struct AIAssistSheet: View {
     private var stepTitle: String {
         switch step {
         case .intro: return "Крок 1 з 4 — як це працює"
+        case .running: return "Моделі аналізують паралельно"
         case .prompt: return "Крок 2 з 4 — скопіювати промт"
         case .paste: return "Крок 3 з 4 — вставити відповідь"
         case .review: return "Крок 4 з 4 — переглянути й застосувати"
@@ -94,6 +111,7 @@ struct AIAssistSheet: View {
     private var content: some View {
         switch step {
         case .intro: intro
+        case .running: runningStep
         case .prompt: promptStep
         case .paste: pasteStep
         case .review: reviewStep
@@ -131,6 +149,63 @@ struct AIAssistSheet: View {
             Text("Знайдено помилок для аналізу: \(groups.count)")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
+
+            if analysisTargets.isEmpty {
+                Label("AI targets не обрані. Manual copy/paste залишається доступним.", systemImage: "terminal")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                HStack {
+                    ForEach(analysisTargets) { target in
+                        Label(target.provider.title, systemImage: "checkmark.circle.fill")
+                            .font(.caption).foregroundStyle(Color("BrandAccentDeep"))
+                    }
+                }
+            }
+        }
+    }
+
+    private var runningStep: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Кожна модель отримала ті самі локальні кандидати.")
+                .font(.system(size: 13, weight: .medium))
+            ForEach(analysisTargets) { target in
+                HStack(spacing: 10) {
+                    runStatusIcon(providerRuns[target.provider])
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(target.provider.title).font(.system(size: 13, weight: .semibold))
+                        Text(runStatusText(providerRuns[target.provider]))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if case .running? = providerRuns[target.provider] {
+                        Button("Скасувати") { cancelProvider(target.provider) }
+                            .buttonStyle(.borderless).foregroundStyle(.red)
+                    }
+                }
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
+            }
+            Text("Помилка одного provider не скасовує готові результати інших.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func runStatusIcon(_ state: ProviderRunState?) -> some View {
+        switch state {
+        case .running, nil: ProgressView().controlSize(.small)
+        case .complete: Image(systemName: "checkmark.circle.fill").foregroundStyle(Color("BrandAccentDeep"))
+        case .failed: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+        case .cancelled: Image(systemName: "xmark.circle").foregroundStyle(.secondary)
+        }
+    }
+
+    private func runStatusText(_ state: ProviderRunState?) -> String {
+        switch state {
+        case .running, nil: return "Виконується…"
+        case .complete(let count): return "Готово · \(count) результатів"
+        case .failed(let message): return message
+        case .cancelled: return "Скасовано"
         }
     }
 
@@ -238,8 +313,24 @@ struct AIAssistSheet: View {
             case .intro:
                 Spacer()
                 Button("Скасувати") { dismiss() }.buttonStyle(.bordered)
-                Button("Згенерувати промт") { buildBatchAndAdvance() }
+                Button("Manual prompt") { buildBatchAndAdvance() }
+                    .buttonStyle(.bordered)
+                Button("Порівняти \(analysisTargets.count) моделей") { startAnalysis() }
                     .buttonStyle(.borderedProminent).tint(Color("BrandAccentDeep"))
+                    .disabled(analysisTargets.isEmpty || !consentGranted)
+            case .running:
+                Button("Назад") {
+                    runTasks.values.forEach { $0.cancel() }
+                    step = .intro
+                }.buttonStyle(.bordered)
+                Spacer()
+                if providerRuns.values.allSatisfy({ state in
+                    if case .running = state { return false }
+                    return true
+                }) {
+                    Button("Порівняти готові") { finishComparison() }
+                        .buttonStyle(.borderedProminent).tint(Color("BrandAccentDeep"))
+                }
             case .prompt:
                 Button("Назад") { step = .intro }.buttonStyle(.bordered)
                 Spacer()
@@ -284,14 +375,130 @@ struct AIAssistSheet: View {
     // MARK: - Actions
 
     private func buildBatchAndAdvance() {
-        batch = AIPromptBuilder.build(
-            from: groups,
-            sendAppNames: sendAppNames,
-            scrubSecrets: secretScrubbing,
-            appNameForBundleID: { AppContextProvider.displayName(forBundleID: $0) }
-        )
+        batch = comparisonBatch()
         copied = false
         step = .prompt
+    }
+
+    private func comparisonBatch() -> AIPromptBatch {
+        let candidates = Dictionary(uniqueKeysWithValues: engineGroups.map {
+            (MistakeObservation.normalizedToken($0.source), $0.candidates)
+        })
+        return AIPromptBuilder.buildComparison(
+            from: groups,
+            candidatesBySource: candidates,
+            sendAppNames: sendAppNames,
+            scrubSecrets: secretScrubbing
+        )
+    }
+
+    private func startAnalysis() {
+        batch = comparisonBatch()
+        guard batch?.itemCount ?? 0 > 0 else { return }
+        providerRuns = [:]
+        providerSuggestions = [:]
+        providerIssues = [:]
+        runTasks.values.forEach { $0.cancel() }
+        runTasks = [:]
+        step = .running
+        for target in analysisTargets {
+            providerRuns[target.provider] = .running
+            runTasks[target.provider] = Task {
+                do {
+                    let raw = try await run(target)
+                    try Task.checkCancellation()
+                    guard let batch else { return }
+                    let validation = AIResponseValidator.validate(raw, context: batch.context)
+                    if let blocked = validation.blocked {
+                        providerRuns[target.provider] = .failed(blocked.message)
+                        providerIssues[target.provider] = blocked.message
+                    } else {
+                        providerSuggestions[target.provider] = validation.recognized
+                        providerRuns[target.provider] = .complete(validation.recognizedCount)
+                    }
+                } catch is CancellationError {
+                    providerRuns[target.provider] = .cancelled
+                } catch {
+                    providerRuns[target.provider] = .failed(error.localizedDescription)
+                    providerIssues[target.provider] = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func run(_ target: AIAnalysisTarget) async throws -> String {
+        guard let prompt = batch?.prompt else { throw AIAnalysisRunner.Error.invalidUTF8 }
+        let runner = AIAnalysisRunner()
+        if target.provider == .ollama {
+            let model: String?
+            if let selected = target.model {
+                model = selected
+            } else {
+                model = try await runner.discoverOllamaModels().first
+            }
+            guard let model else { throw AIAnalysisRunner.OllamaError.missingModel("Оберіть модель") }
+            return try await runner.runOllama(model: model, prompt: prompt)
+        }
+        let state = await AIProviderDiscovery().probe(target)
+        let executable: URL
+        switch state {
+        case .ready(let url, _): executable = url
+        case .needsAuthentication: throw ProviderRunError.needsAuthentication
+        case .notInstalled: throw ProviderRunError.notInstalled
+        case .failed(let message): throw ProviderRunError.failed(message)
+        }
+        return try await runner.execute(
+            executable: executable,
+            arguments: target.provider.generationArguments,
+            prompt: prompt
+        ).stdout
+    }
+
+    private func cancelProvider(_ provider: AIProvider) {
+        runTasks[provider]?.cancel()
+        providerRuns[provider] = .cancelled
+    }
+
+    private func finishComparison() {
+        guard let batch else { return }
+        var byAlias: [String: [(AIProvider, AISuggestion)]] = [:]
+        for (provider, suggestions) in providerSuggestions {
+            for suggestion in suggestions { byAlias[suggestion.id, default: []].append((provider, suggestion)) }
+        }
+        let combined = byAlias.compactMap { alias, entries -> AISuggestion? in
+            let grouped = Dictionary(grouping: entries) {
+                MistakeObservation.normalizedToken($0.1.target ?? "")
+            }
+            guard let winner = grouped.max(by: { lhs, rhs in lhs.value.count < rhs.value.count })?.value,
+                  let suggestion = winner.max(by: { $0.1.confidence < $1.1.confidence })?.1 else { return nil }
+            let reasons = entries.map { "\($0.0.title): \($0.1.reason)" }.joined(separator: "\n")
+            return AISuggestion(
+                id: alias,
+                action: .rule,
+                target: suggestion.target,
+                tag: suggestion.tag,
+                clusterId: nil,
+                confidence: suggestion.confidence,
+                reason: "\(winner.count) з \(entries.count) погодились\n\(reasons)",
+                needsReview: true
+            )
+        }
+        guard !combined.isEmpty else {
+            result = AIValidationResult(blocked: AIValidationIssue(
+                alias: nil, message: "Жоден provider не повернув придатний результат.", severity: .block
+            ))
+            step = .paste
+            return
+        }
+        result = AIValidationResult(
+            recognized: combined,
+            issues: providerIssues.map { AIValidationIssue(alias: nil, message: "\($0.key.title): \($0.value)", severity: .warn) },
+            missingAliases: batch.context.knownAliases.subtracting(Set(combined.map(\.id))).sorted()
+        )
+        editedAction = Dictionary(uniqueKeysWithValues: combined.map { ($0.id, $0.action) })
+        editedTarget = Dictionary(uniqueKeysWithValues: combined.map { ($0.id, $0.target ?? "") })
+        selected = []
+        step = .review
     }
 
     private func copyPrompt() {
@@ -306,21 +513,11 @@ struct AIAssistSheet: View {
         let r = AIResponseValidator.validate(pasted, context: batch.context, corroborate: corroborator())
         result = r
         guard !r.isBlocked else { return }
-        // Default selection: confirmed rules ON; unconfirmed rules + dictionary + ignore OFF
-        // (dictionary is irreversible — strictly opt-in, AI-ASSIST.md §7).
         // Seed the per-row editable state from the AI's proposal.
         editedAction = Dictionary(uniqueKeysWithValues: r.recognized.map { ($0.id, $0.action) })
         editedTarget = Dictionary(uniqueKeysWithValues: r.recognized.map { ($0.id, $0.target ?? "") })
 
-        // Pre-select the safe set: dictionary (safe), plus corroborated rules — which now
-        // includes deterministic layout flips, confirmed by the CharacterMapper corroborator.
-        let preselected = r.recognized.filter { suggestion in
-            if suggestion.action == .dictionary { return true }
-            guard suggestion.action == .rule || suggestion.action == .merge else { return false }
-            guard let target = suggestion.target, !target.isEmpty else { return false }
-            return !suggestion.needsReview
-        }
-        selected = Set(preselected.map(\.id))
+        selected = []
         step = .review
     }
 

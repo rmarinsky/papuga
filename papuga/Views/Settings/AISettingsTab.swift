@@ -1,96 +1,117 @@
+import AppKit
 import Defaults
 import SwiftUI
 
-/// "AI" settings: how the "Покращити з ШІ" flow gets classifications, plus the privacy
-/// switches that gate it. Consent is OFF by default and the secret scrubber is ON by
-/// default (AI-ASSIST.md §8). Only paste mode is functional today.
 struct AISettingsTab: View {
-    @Default(.aiProvider) private var providerRaw
+    @Default(.aiAnalysisTargets) private var targets
     @Default(.aiConsentGranted) private var consentGranted
     @Default(.aiSecretScrubbing) private var secretScrubbing
     @Default(.aiSendAppNames) private var sendAppNames
-    @Default(.openRouterModel) private var openRouterModel
-
-    private var selectedProvider: AIProvider { AIProvider(rawValue: providerRaw) ?? .paste }
+    @State private var states: [AIProvider: AIProviderState] = [:]
 
     var body: some View {
         Form {
             Section {
-                ForEach(AIProvider.allCases) { provider in
-                    providerRow(provider)
-                }
+                ForEach(AIProvider.allCases) { provider in providerRow(provider) }
             } header: {
-                Text("Спосіб")
+                Text("Моделі · обрано \(targets.count) з 3")
             } footer: {
-                Text("«Покращити з ШІ» бере твій штучний інтелект і класифікує рідкісні помилки, які прості правила не ловлять. Відкривається у вкладці «Помилки введення» кнопкою «Покращити з ШІ».")
+                Text("Агенти отримують однакові локальні кандидати й лише пропонують результат. Жодна дія не застосовується автоматично.")
             }
 
-            if selectedProvider == .openRouter {
-                Section("OpenRouter") {
-                    TextField("Модель", text: $openRouterModel)
-                        .disabled(true)
-                    Text("Ключ зберігатиметься у Keychain. З'явиться у наступному оновленні.")
-                        .font(.caption)
+            if targets.isEmpty {
+                Section("Немає встановленого агента") {
+                    Text("Встанови агент з офіційного сайту або скопіюй prompt і використай будь-який чат вручну.")
                         .foregroundStyle(.secondary)
+                    ForEach(AIProvider.allCases) { provider in
+                        HStack {
+                            Text(provider.installCommand).font(.system(.caption, design: .monospaced))
+                            Spacer()
+                            Button("Copy command") { copy(provider.installCommand) }
+                            Link("Open official guide", destination: provider.guideURL)
+                        }
+                    }
                 }
             }
 
-            Section {
+            Section("Приватність") {
                 Toggle("Дозволити надсилати слова моєму ШІ", isOn: $consentGranted)
-                Text(consentGranted
-                     ? "Увімкнено. Для режиму «вставити» слова потрапляють у буфер обміну, коли копіюєш промт."
-                     : "Вимкнено. Без цього дозволу жодне слово не покидає пристрій.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
                 Toggle("Прибирати схожі на секрети слова", isOn: $secretScrubbing)
-                Text("Паролі, ключі, email, посилання й довгі випадкові рядки не потраплять у промт.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
                 Toggle("Додавати назви застосунків як підказку", isOn: $sendAppNames)
-            } header: {
-                Text("Приватність")
+                Text("Raw prompts і responses існують лише доки відкрите порівняння. Manual copy/paste завжди доступний.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
+        .task { await refreshStates() }
     }
 
-    @ViewBuilder
     private func providerRow(_ provider: AIProvider) -> some View {
-        Button {
-            if provider.isAvailable { providerRaw = provider.rawValue }
+        let selected = targets.contains { $0.provider == provider }
+        return Button {
+            if selected {
+                targets.removeAll { $0.provider == provider }
+            } else if targets.count < AIAnalysisSelection.maximum {
+                targets = AIAnalysisSelection.normalized(targets + [AIAnalysisTarget(provider: provider, model: nil)])
+            }
         } label: {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: selectedProvider == provider ? "largecircle.fill.circle" : "circle")
-                    .font(.system(size: 15))
-                    .foregroundStyle(selectedProvider == provider ? Color("BrandAccentDeep") : .secondary)
-                    .padding(.top, 1)
+            HStack(spacing: 10) {
+                Image(systemName: selected ? "checkmark.square.fill" : "square")
+                    .foregroundStyle(selected ? Color("BrandAccentDeep") : .secondary)
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(provider.title)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.primary)
-                        if !provider.isAvailable {
-                            Text("скоро")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 1)
-                                .background(Capsule().fill(.quaternary))
-                        }
-                    }
-                    Text(provider.subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Text(provider.title).font(.system(size: 13, weight: .medium))
+                    Text(statusText(provider)).font(.caption).foregroundStyle(.secondary)
                 }
-                Spacer(minLength: 0)
+                Spacer()
             }
             .contentShape(Rectangle())
-            .opacity(provider.isAvailable ? 1 : 0.55)
         }
         .buttonStyle(.plain)
-        .disabled(!provider.isAvailable)
+        .disabled(!selected && targets.count >= AIAnalysisSelection.maximum)
+    }
+
+    private func statusText(_ provider: AIProvider) -> String {
+        guard provider != .ollama else { return "Локальна модель через localhost" }
+        switch states[provider] {
+        case .ready(_, let version): return version
+        case .needsAuthentication: return "Потрібна авторизація"
+        case .notInstalled: return "Не встановлено"
+        case .failed(let message): return message
+        case nil: return "Перевіряється…"
+        }
+    }
+
+    private func refreshStates() async {
+        for provider in AIProvider.allCases where provider != .ollama {
+            let target = targets.first { $0.provider == provider } ?? AIAnalysisTarget(provider: provider, model: nil)
+            states[provider] = await AIProviderDiscovery().probe(target)
+        }
+    }
+
+    private func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
+private extension AIProvider {
+    var installCommand: String {
+        switch self {
+        case .codex: return "npm install -g @openai/codex"
+        case .claudeCode: return "npm install -g @anthropic-ai/claude-code"
+        case .cursorAgent: return "curl https://cursor.com/install -fsS | bash"
+        case .openCode: return "curl -fsSL https://opencode.ai/install | bash"
+        case .ollama: return "Download Ollama.dmg"
+        }
+    }
+
+    var guideURL: URL {
+        switch self {
+        case .codex: return URL(string: "https://developers.openai.com/codex/cli")!
+        case .claudeCode: return URL(string: "https://docs.anthropic.com/en/docs/claude-code/getting-started")!
+        case .cursorAgent: return URL(string: "https://docs.cursor.com/en/cli/installation")!
+        case .openCode: return URL(string: "https://opencode.ai/docs/")!
+        case .ollama: return URL(string: "https://docs.ollama.com/macos")!
+        }
     }
 }

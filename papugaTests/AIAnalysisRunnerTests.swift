@@ -2,6 +2,19 @@ import XCTest
 @testable import papuga
 
 final class AIAnalysisRunnerTests: XCTestCase {
+    func test_selectionNeverExceedsThreeTargets() {
+        let targets = AIProvider.allCases.map { AIAnalysisTarget(provider: $0, model: nil) }
+        XCTAssertEqual(AIAnalysisSelection.normalized(targets).count, 3)
+        XCTAssertEqual(AIAnalysisSelection.normalized(targets).map(\.provider), Array(AIProvider.allCases.prefix(3)))
+    }
+
+    func test_discoveryFindsManualExecutableAndReportsVersion() async throws {
+        let script = try executable("printf 'papuga-agent 1.0'")
+        let target = AIAnalysisTarget(provider: .codex, model: nil, executablePath: script.path)
+        let state = await AIProviderDiscovery().probe(target)
+        XCTAssertEqual(state, .ready(executable: script, version: "papuga-agent 1.0"))
+    }
+
     private func executable(_ body: String) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("papuga-fake-ai-\(UUID().uuidString)")

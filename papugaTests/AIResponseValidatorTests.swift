@@ -7,6 +7,23 @@ import XCTest
 /// answers blocked, and the target-plausibility gate flagging implausible rules.
 final class AIResponseValidatorTests: XCTestCase {
 
+    func testV2AcceptsLocalCandidateOrOneOtherAndRejectsUnknownTarget() {
+        let context = AIRoundTripContext(
+            knownAliases: ["m1"],
+            sourceForAlias: ["m1": "ghbdxn"],
+            languageForAlias: ["m1": "en"],
+            allowedTargetsForAlias: ["m1": ["привіт", "привітання"]]
+        )
+        let local = #"{"version":2,"predictions":[{"id":"m1","rankedTargets":["привіт","привітання"],"target":"привіт","otherTarget":null,"confidence":0.95,"explanation":"Розкладка і одна літера."}]}"#
+        XCTAssertEqual(AIResponseValidator.validate(local, context: context).recognized.first?.target, "привіт")
+
+        let other = #"{"version":2,"predictions":[{"id":"m1","rankedTargets":["привіт"],"target":"вітаю","otherTarget":"вітаю","confidence":0.7,"explanation":"Контекстне вітання."}]}"#
+        XCTAssertEqual(AIResponseValidator.validate(other, context: context).recognized.first?.target, "вітаю")
+
+        let unknown = #"{"version":2,"predictions":[{"id":"m1","rankedTargets":["вигадка"],"target":"вигадка","otherTarget":null,"confidence":0.9,"explanation":"Немає серед кандидатів."}]}"#
+        XCTAssertTrue(AIResponseValidator.validate(unknown, context: context).isBlocked)
+    }
+
     // Mirror of the verify_roundtrip dataset (alias != UUID; m7 source is truncated).
     private func context() -> AIRoundTripContext {
         let sources = [

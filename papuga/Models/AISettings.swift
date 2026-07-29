@@ -1,46 +1,78 @@
 import Defaults
 import Foundation
 
-/// How Papuga obtains AI classifications for the "Покращити з AI" flow.
-/// `paste` (bring-your-own ChatGPT/Claude) is the only mode wired up today; the others
-/// are declared so the settings UI and storage are stable as they come online.
-enum AIProvider: String, CaseIterable, Identifiable, Defaults.Serializable {
-    case paste
+enum AIProvider: String, CaseIterable, Identifiable, Codable, Defaults.Serializable {
+    case codex
+    case claudeCode
+    case cursorAgent
+    case openCode
     case ollama
-    case openRouter
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .paste: return "Вставити вручну (ChatGPT / Claude)"
-        case .ollama: return "Локальна модель (Ollama)"
-        case .openRouter: return "OpenRouter (свій ключ)"
+        case .codex: return "Codex"
+        case .claudeCode: return "Claude Code"
+        case .cursorAgent: return "Cursor Agent"
+        case .openCode: return "OpenCode"
+        case .ollama: return "Ollama"
         }
     }
 
-    var subtitle: String {
+    var executableName: String? {
         switch self {
-        case .paste: return "Без налаштувань: копіюєш промт у свій ШІ, вставляєш відповідь назад."
-        case .ollama: return "Працює офлайн на твоєму Mac. Нічого не йде в інтернет."
-        case .openRouter: return "Хмарні моделі через твій API-ключ. Ключ зберігається локально."
+        case .codex: return "codex"
+        case .claudeCode: return "claude"
+        case .cursorAgent: return "cursor-agent"
+        case .openCode: return "opencode"
+        case .ollama: return nil
         }
     }
 
-    /// Only paste mode is functional right now; the rest render disabled with «скоро».
-    var isAvailable: Bool { self == .paste }
+    var generationArguments: [String] {
+        switch self {
+        case .codex: return ["exec", "--skip-git-repo-check", "-"]
+        case .claudeCode: return ["-p", "--output-format", "json"]
+        case .cursorAgent: return ["-p", "--output-format", "json"]
+        case .openCode: return ["run"]
+        case .ollama: return []
+        }
+    }
+
+    var versionArguments: [String] { ["--version"] }
+
+    var authArguments: [String]? {
+        switch self {
+        case .codex: return ["login", "status"]
+        case .claudeCode: return ["auth", "status"]
+        case .openCode: return ["auth", "list"]
+        case .cursorAgent, .ollama: return nil
+        }
+    }
+}
+
+struct AIAnalysisTarget: Codable, Hashable, Defaults.Serializable, Identifiable {
+    let provider: AIProvider
+    var model: String?
+    var executablePath: String?
+
+    var id: String { "\(provider.rawValue)|\(model ?? "")" }
+}
+
+enum AIAnalysisSelection {
+    static let maximum = 3
+
+    static func normalized(_ targets: [AIAnalysisTarget]) -> [AIAnalysisTarget] {
+        var seen = Set<String>()
+        return targets.filter { seen.insert($0.id).inserted }.prefix(maximum).map { $0 }
+    }
 }
 
 extension Defaults.Keys {
-    /// Selected `AIProvider` raw value.
-    static let aiProvider = Key<String>("aiProvider", default: AIProvider.paste.rawValue)
-    /// Code-enforced consent gate — words only leave the device once this is true. App is
-    /// unsandboxed, so this boolean is the single barrier (AI-ASSIST.md §8.1). Default false.
+    /// Empty is the migration path from the retired manual `.paste` provider.
+    static let aiAnalysisTargets = Key<[AIAnalysisTarget]>("aiAnalysisTargets", default: [])
     static let aiConsentGranted = Key<Bool>("aiConsentGranted", default: false)
-    /// Strip likely secrets/PII from the prompt before sending. Default ON (AI-ASSIST.md §8.2).
     static let aiSecretScrubbing = Key<Bool>("aiSecretScrubbing", default: true)
-    /// Include the originating app names as hints in the prompt.
     static let aiSendAppNames = Key<Bool>("aiSendAppNames", default: true)
-    /// Preferred OpenRouter model id (used once that provider ships).
-    static let openRouterModel = Key<String>("openRouterModel", default: "google/gemini-2.5-flash-lite")
 }

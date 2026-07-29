@@ -4,6 +4,16 @@ import Foundation
 /// stdout/stderr are drained concurrently so a noisy provider cannot deadlock.
 final class AIAnalysisRunner {
     static let outputLimit = 2_000_000
+    private let session: URLSession
+    private let ollamaBaseURL: URL
+
+    init(
+        session: URLSession = .shared,
+        ollamaBaseURL: URL = URL(string: "http://127.0.0.1:11434")!
+    ) {
+        self.session = session
+        self.ollamaBaseURL = ollamaBaseURL
+    }
 
     struct ProcessOutput: Equatable {
         let stdout: String
@@ -17,6 +27,72 @@ final class AIAnalysisRunner {
         case outputTooLarge
         case invalidUTF8
     }
+
+    enum OllamaError: Swift.Error, Equatable {
+        case invalidResponse
+        case http(Int)
+        case missingModel(String)
+    }
+
+    func discoverOllamaModels() async throws -> [String] {
+        let (data, response) = try await session.data(from: ollamaBaseURL.appendingPathComponent("api/tags"))
+        guard let http = response as? HTTPURLResponse else { throw OllamaError.invalidResponse }
+        guard (200..<300).contains(http.statusCode) else { throw OllamaError.http(http.statusCode) }
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let models = root["models"] as? [[String: Any]] else {
+            throw OllamaError.invalidResponse
+        }
+        return models.compactMap { $0["name"] as? String }
+    }
+
+    func runOllama(model: String, prompt: String) async throws -> String {
+        guard try await discoverOllamaModels().contains(model) else {
+            throw OllamaError.missingModel(model)
+        }
+        var request = URLRequest(url: ollamaBaseURL.appendingPathComponent("api/chat"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "model": model,
+            "messages": [["role": "user", "content": prompt]],
+            "stream": false,
+            "options": ["temperature": 0],
+            "format": Self.responseSchema
+        ])
+        let (data, response) = try await session.data(for: request)
+        guard data.count <= Self.outputLimit else { throw Error.outputTooLarge }
+        guard let http = response as? HTTPURLResponse else { throw OllamaError.invalidResponse }
+        guard (200..<300).contains(http.statusCode) else { throw OllamaError.http(http.statusCode) }
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let message = root["message"] as? [String: Any],
+              let content = message["content"] as? String else {
+            throw OllamaError.invalidResponse
+        }
+        return content
+    }
+
+    private static let responseSchema: [String: Any] = [
+        "type": "object",
+        "required": ["version", "predictions"],
+        "properties": [
+            "version": ["type": "integer", "const": 2],
+            "predictions": [
+                "type": "array",
+                "items": [
+                    "type": "object",
+                    "required": ["id", "rankedTargets", "target", "confidence", "explanation"],
+                    "properties": [
+                        "id": ["type": "string"],
+                        "rankedTargets": ["type": "array", "items": ["type": "string"]],
+                        "target": ["type": "string"],
+                        "otherTarget": ["type": ["string", "null"]],
+                        "confidence": ["type": "number"],
+                        "explanation": ["type": "string", "maxLength": 240]
+                    ]
+                ]
+            ]
+        ]
+    ]
 
     func execute(
         executable: URL,

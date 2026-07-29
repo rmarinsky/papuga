@@ -6,6 +6,26 @@ import XCTest
 /// back, and the emitted context round-trips cleanly through the existing validator.
 final class AIPromptBuilderTests: XCTestCase {
 
+    func testComparisonPromptV2CarriesSixLocalCandidates() {
+        let observation = MistakeObservation(
+            issueType: .layoutCandidate, source: "ghbdxn", language: "en", confidence: 0.8
+        )
+        let groups = MistakesScreenDerivation.groups(from: [observation], filter: .all, query: "")
+        let candidates = (1...6).map {
+            MistakeSuggestionCandidate(kind: .spelling, text: "варіант\($0)", confidence: 0.9 - Double($0) / 10)
+        }
+        let batch = AIPromptBuilder.buildComparison(
+            from: groups,
+            candidatesBySource: ["ghbdxn": candidates],
+            sendAppNames: false,
+            scrubSecrets: true
+        )
+
+        XCTAssertTrue(batch.prompt.contains("version\":2"))
+        XCTAssertTrue(batch.prompt.contains("варіант6"))
+        XCTAssertEqual(batch.context.allowedTargetsForAlias.values.first?.count, 6)
+    }
+
     func testKindMapping() {
         XCTAssertEqual(AIPromptBuilder.kind(for: .layoutCandidate), "layout")
         XCTAssertEqual(AIPromptBuilder.kind(for: .spelling), "spelling")

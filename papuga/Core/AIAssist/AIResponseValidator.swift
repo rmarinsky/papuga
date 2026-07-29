@@ -41,6 +41,9 @@ enum AIResponseValidator {
                 severity: .block)
             return result
         }
+        if intValue(root["version"]) == 2 {
+            return validateV2(root, context: context)
+        }
         guard intValue(root["version"]) == 1, let rawSuggestions = root["suggestions"] as? [Any] else {
             result.blocked = AIValidationIssue(alias: nil,
                 message: "Формат не той (нема version:1 чи масиву suggestions). Згенеруй промт ще раз.",
@@ -173,6 +176,73 @@ enum AIResponseValidator {
         result.issues = issues
         result.missingAliases = missing
         return result
+    }
+
+    private static func validateV2(_ root: [String: Any], context: AIRoundTripContext) -> AIValidationResult {
+        guard let predictions = root["predictions"] as? [[String: Any]] else {
+            return AIValidationResult(blocked: AIValidationIssue(
+                alias: nil, message: "Формат v2 не містить predictions.", severity: .block
+            ))
+        }
+        var recognized: [AISuggestion] = []
+        var seen = Set<String>()
+        var issues: [AIValidationIssue] = []
+        for prediction in predictions.prefix(maxSuggestions) {
+            guard let alias = prediction["id"] as? String,
+                  context.knownAliases.contains(alias),
+                  seen.insert(alias).inserted,
+                  let target = prediction["target"] as? String else { continue }
+            let source = context.sourceForAlias[alias] ?? ""
+            let normalizedTarget = MistakeObservation.normalizedToken(target)
+            guard !normalizedTarget.isEmpty,
+                  MistakeObservation.normalizedToken(source) != normalizedTarget else { continue }
+            let otherTarget = prediction["otherTarget"] as? String
+            let allowed = context.allowedTargetsForAlias[alias] ?? []
+            guard allowed.contains(normalizedTarget)
+                    || otherTarget.map(MistakeObservation.normalizedToken) == normalizedTarget else {
+                issues.append(AIValidationIssue(
+                    alias: alias,
+                    message: "\(alias): target не є локальним кандидатом або єдиним otherTarget — пропущено.",
+                    severity: .warn
+                ))
+                continue
+            }
+            if let ranked = prediction["rankedTargets"] as? [String],
+               ranked.contains(where: {
+                   let normalized = MistakeObservation.normalizedToken($0)
+                   return !allowed.contains(normalized)
+                       && otherTarget.map(MistakeObservation.normalizedToken) != normalized
+               }) {
+                issues.append(AIValidationIssue(
+                    alias: alias, message: "\(alias): rankedTargets містить невідомий target — пропущено.", severity: .warn
+                ))
+                continue
+            }
+            let confidence = min(1, max(0, doubleValue(prediction["confidence"]) ?? 0.5))
+            let explanation = String((prediction["explanation"] as? String ?? "").prefix(240))
+            let crossScript = dominantScript(source) != dominantScript(target)
+            recognized.append(AISuggestion(
+                id: alias,
+                action: .rule,
+                target: target,
+                tag: crossScript ? .layout : .spelling,
+                clusterId: nil,
+                confidence: confidence,
+                reason: explanation,
+                needsReview: true
+            ))
+        }
+        guard !recognized.isEmpty else {
+            return AIValidationResult(blocked: AIValidationIssue(
+                alias: nil, message: "Жодного безпечного prediction v2 не розпізнано.", severity: .block
+            ), issues: issues)
+        }
+        let answered = Set(recognized.map(\.id))
+        return AIValidationResult(
+            recognized: recognized,
+            issues: issues,
+            missingAliases: context.knownAliases.subtracting(answered).sorted()
+        )
     }
 
     // MARK: - JSON extraction (fence-strip -> brace-scan fallback)

@@ -62,15 +62,18 @@ struct AIRoundTripContext: Equatable {
     let sourceForAlias: [String: String]
     /// alias -> language code ("uk"/"en") for plausibility script checks.
     let languageForAlias: [String: String]
+    let allowedTargetsForAlias: [String: Set<String>]
 
     init(knownAliases: Set<String>,
          truncatedAliases: Set<String> = [],
          sourceForAlias: [String: String] = [:],
-         languageForAlias: [String: String] = [:]) {
+         languageForAlias: [String: String] = [:],
+         allowedTargetsForAlias: [String: Set<String>] = [:]) {
         self.knownAliases = knownAliases
         self.truncatedAliases = truncatedAliases
         self.sourceForAlias = sourceForAlias
         self.languageForAlias = languageForAlias
+        self.allowedTargetsForAlias = allowedTargetsForAlias
     }
 }
 
