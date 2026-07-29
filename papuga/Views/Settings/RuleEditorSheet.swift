@@ -10,19 +10,22 @@ struct RuleEditorSeed: Identifiable {
     var source: String = ""
     var target: String = ""
     var mode: RuleEditorSheet.Mode = .replace
+    var matchesFullToken = false
 
     init(
         ruleID: UUID? = nil,
         allowlistOriginal: String? = nil,
         source: String = "",
         target: String = "",
-        mode: RuleEditorSheet.Mode = .replace
+        mode: RuleEditorSheet.Mode = .replace,
+        matchesFullToken: Bool = false
     ) {
         self.ruleID = ruleID
         self.allowlistOriginal = allowlistOriginal
         self.source = source
         self.target = target
         self.mode = mode
+        self.matchesFullToken = matchesFullToken
     }
 }
 
@@ -263,7 +266,12 @@ struct RuleEditorSheet: View {
 
     // MARK: - Validation + save
 
-    private var trimmedSource: String { HistoryWordActionPolicy.normalizedSource(source) }
+    private var trimmedSource: String {
+        seed.matchesFullToken
+            ? source.trimmingCharacters(in: .whitespacesAndNewlines)
+            : HistoryWordActionPolicy.normalizedSource(source)
+    }
+    private var sourceCore: String { HistoryWordActionPolicy.normalizedSource(trimmedSource) }
     private var trimmedTarget: String { HistoryWordActionPolicy.sanitizedTarget(target) ?? "" }
 
     private var sourceValid: Bool {
@@ -285,14 +293,14 @@ struct RuleEditorSheet: View {
     private var conflictText: String? {
         guard sourceValid else { return nil }
         let sourceWasAllowlisted = seed.allowlistOriginal.map(HistoryWordActionPolicy.normalizedSource)?
-            .caseInsensitiveCompare(trimmedSource) == .orderedSame
+            .caseInsensitiveCompare(sourceCore) == .orderedSame
         let sourceHasAllowlist = allowlist.contains {
-            HistoryWordActionPolicy.normalizedSource($0).caseInsensitiveCompare(trimmedSource) == .orderedSame
+            HistoryWordActionPolicy.normalizedSource($0).caseInsensitiveCompare(sourceCore) == .orderedSame
         }
         let sourceHasOtherRule = customRules.contains {
             $0.id != seed.ruleID
                 && HistoryWordActionPolicy.normalizedSource($0.source)
-                    .caseInsensitiveCompare(trimmedSource) == .orderedSame
+                    .caseInsensitiveCompare(sourceCore) == .orderedSame
         }
 
         switch mode {
@@ -312,12 +320,13 @@ struct RuleEditorSheet: View {
     private func save() {
         guard canSave else { return }
         let src = trimmedSource
+        let sourceKey = sourceCore
 
         switch mode {
         case .replace:
             // A word can't be both replaced and left alone.
             allowlist.removeAll {
-                HistoryWordActionPolicy.normalizedSource($0).caseInsensitiveCompare(src) == .orderedSame
+                HistoryWordActionPolicy.normalizedSource($0).caseInsensitiveCompare(sourceKey) == .orderedSame
             }
             if let original = seed.allowlistOriginal {
                 let originalCore = HistoryWordActionPolicy.normalizedSource(original)
@@ -328,18 +337,23 @@ struct RuleEditorSheet: View {
             if let ruleID = seed.ruleID, let idx = customRules.firstIndex(where: { $0.id == ruleID }) {
                 customRules[idx].source = src
                 customRules[idx].target = trimmedTarget
+                customRules[idx].matchesFullToken = seed.matchesFullToken
             } else {
                 // Only the first matching rule fires at runtime, so a duplicate
                 // source would be dead weight — replace any existing one.
                 customRules.removeAll {
-                    HistoryWordActionPolicy.normalizedSource($0.source).caseInsensitiveCompare(src) == .orderedSame
+                    HistoryWordActionPolicy.normalizedSource($0.source).caseInsensitiveCompare(sourceKey) == .orderedSame
                 }
-                customRules.append(CustomAutoReplaceRule(source: src, target: trimmedTarget))
+                customRules.append(CustomAutoReplaceRule(
+                    source: src,
+                    target: trimmedTarget,
+                    matchesFullToken: seed.matchesFullToken
+                ))
             }
 
         case .leaveAlone:
             customRules.removeAll {
-                HistoryWordActionPolicy.normalizedSource($0.source).caseInsensitiveCompare(src) == .orderedSame
+                HistoryWordActionPolicy.normalizedSource($0.source).caseInsensitiveCompare(sourceKey) == .orderedSame
             }
             if let ruleID = seed.ruleID {
                 customRules.removeAll { $0.id == ruleID }

@@ -80,6 +80,10 @@ struct MistakeSuggestionCandidate: Identifiable, Equatable, Codable {
         coreRuleCreationAllowed ?? replacementPlan?.canCreateCoreRule ?? true
     }
 
+    var canCreateRule: Bool {
+        canCreateCoreRule || replacementPlan?.interpretationReason == .layoutFullToken
+    }
+
     func withCoreRuleCreationAllowed(_ allowed: Bool) -> MistakeSuggestionCandidate {
         MistakeSuggestionCandidate(
             kind: kind,

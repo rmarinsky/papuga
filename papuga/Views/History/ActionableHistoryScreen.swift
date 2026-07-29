@@ -273,8 +273,8 @@ struct HistoryCandidateStrip: View {
                         )
                     }
                     .buttonStyle(.plain)
-                    .disabled(!candidate.canCreateCoreRule)
-                    .help(candidate.canCreateCoreRule
+                    .disabled(!candidate.canCreateRule)
+                    .help(candidate.canCreateRule
                         ? "Створити правило для «\(candidate.replacementPlan?.renderedReplacement ?? candidate.text)»"
                         : HistoryWordActionPolicy.fullTokenLayoutRuleReason)
                 }

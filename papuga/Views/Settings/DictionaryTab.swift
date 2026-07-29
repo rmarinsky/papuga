@@ -108,7 +108,8 @@ struct DictionaryTab: View {
                                     ruleID: rule.id,
                                     source: rule.source,
                                     target: rule.target,
-                                    mode: .replace
+                                    mode: .replace,
+                                    matchesFullToken: rule.matchesFullToken == true
                                 )
                             },
                             onDelete: { customRules.removeAll { $0.id == rule.id } }

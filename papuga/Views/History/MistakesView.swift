@@ -665,12 +665,16 @@ struct MistakesView: View {
                     == MistakeObservation.normalizedToken(target)
             }
         }
-        guard targetCandidate?.canCreateCoreRule != false else { return }
+        guard targetCandidate?.canCreateRule != false else { return }
+        let fullTokenPlan = targetCandidate?.replacementPlan.flatMap {
+            $0.interpretationReason == .layoutFullToken ? $0 : nil
+        }
         pendingObservationIDs = group.observationIDs
         editorSeed = RuleEditorSeed(
-            source: HistoryWordActionPolicy.normalizedSource(group.source),
+            source: fullTokenPlan?.rawSource ?? HistoryWordActionPolicy.normalizedSource(group.source),
             target: HistoryWordActionPolicy.sanitizedTarget(resolvedTarget) ?? "",
-            mode: .replace
+            mode: .replace,
+            matchesFullToken: fullTokenPlan != nil
         )
     }
 
