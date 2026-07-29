@@ -149,8 +149,7 @@ final class PredictionEngine {
     func cancel() {
         bootstrapTask?.cancel()
         analysisTask?.cancel()
-        clusteringTask?.cancel()
-        clusteringWorker?.cancel()
+        cancelClustering()
     }
 
     // MARK: Core analysis
@@ -173,8 +172,7 @@ final class PredictionEngine {
         currentGroups = groups
         groupsGeneration += 1
         clusteredGeneration = nil
-        clusteringTask?.cancel()
-        clusteringWorker?.cancel()
+        cancelClustering()
         errorClusters.removeAll(keepingCapacity: true)
         totalCount = groups.count
         flaggedCount = groups.reduce(0) { $0 + $1.count }
@@ -236,8 +234,7 @@ final class PredictionEngine {
     func setErrorClusteringEnabled(_ enabled: Bool) {
         clustersRequested = enabled
         guard enabled else {
-            clusteringTask?.cancel()
-            clusteringWorker?.cancel()
+            cancelClustering()
             return
         }
         guard clusteredGeneration != groupsGeneration else { return }
@@ -412,8 +409,7 @@ final class PredictionEngine {
             )
         }
         let generation = groupsGeneration
-        clusteringTask?.cancel()
-        clusteringWorker?.cancel()
+        cancelClustering()
         let worker = Task.detached(priority: .utility) {
             ErrorClustering.cluster(items)
         }
@@ -426,7 +422,15 @@ final class PredictionEngine {
             errorClusters = clusters
             clusteredGeneration = generation
             clusteringWorker = nil
+            clusteringTask = nil
         }
+    }
+
+    private func cancelClustering() {
+        clusteringTask?.cancel()
+        clusteringWorker?.cancel()
+        clusteringTask = nil
+        clusteringWorker = nil
     }
 
     private func primaryTarget(for group: MistakeGroupData, candidates: [MistakeSuggestionCandidate]) -> String? {
@@ -500,6 +504,7 @@ final class PredictionEngine {
     }
 
     var cacheCountForTesting: Int { cache.count }
+    var hasClusteringTasksForTesting: Bool { clusteringTask != nil || clusteringWorker != nil }
 
     func waitForClusteringForTesting() async {
         await clusteringTask?.value

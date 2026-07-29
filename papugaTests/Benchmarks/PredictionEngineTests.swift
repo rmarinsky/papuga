@@ -363,6 +363,7 @@ final class PredictionEngineTests: XCTestCase {
         await engine.waitForClusteringForTesting()
         XCTAssertFalse(engine.errorClusters.isEmpty)
         engine.setErrorClusteringEnabled(false)
+        XCTAssertFalse(engine.hasClusteringTasksForTesting)
     }
 
     // MARK: - Benchmark on real data (gated)
