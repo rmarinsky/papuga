@@ -8,6 +8,7 @@ struct AISettingsTab: View {
     @Default(.aiSecretScrubbing) private var secretScrubbing
     @Default(.aiSendAppNames) private var sendAppNames
     @State private var states: [AIProvider: AIProviderState] = [:]
+    @State private var ollamaModels: [String] = []
 
     var body: some View {
         Form {
@@ -17,6 +18,21 @@ struct AISettingsTab: View {
                 Text("Моделі · обрано \(targets.count) з 3")
             } footer: {
                 Text("Агенти отримують однакові локальні кандидати й лише пропонують результат. Жодна дія не застосовується автоматично.")
+            }
+
+            if let ollama = targets.first(where: { $0.provider == .ollama }) {
+                Section("Ollama model") {
+                    Picker("Model", selection: Binding(
+                        get: { ollama.model ?? ollamaModels.first ?? "" },
+                        set: { selectOllamaModel($0) }
+                    )) {
+                        ForEach(ollamaModels, id: \.self) { Text($0).tag($0) }
+                    }
+                    if ollamaModels.isEmpty {
+                        Text("Ollama server недоступний або не має моделей.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
             }
 
             if targets.isEmpty {
@@ -48,26 +64,33 @@ struct AISettingsTab: View {
 
     private func providerRow(_ provider: AIProvider) -> some View {
         let selected = targets.contains { $0.provider == provider }
-        return Button {
-            if selected {
-                targets.removeAll { $0.provider == provider }
-            } else if targets.count < AIAnalysisSelection.maximum {
-                targets = AIAnalysisSelection.normalized(targets + [AIAnalysisTarget(provider: provider, model: nil)])
-            }
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: selected ? "checkmark.square.fill" : "square")
-                    .foregroundStyle(selected ? Color("BrandAccentDeep") : .secondary)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(provider.title).font(.system(size: 13, weight: .medium))
-                    Text(statusText(provider)).font(.caption).foregroundStyle(.secondary)
+        return HStack {
+            Button {
+                if selected {
+                    targets.removeAll { $0.provider == provider }
+                } else if targets.count < AIAnalysisSelection.maximum {
+                    let model = provider == .ollama ? ollamaModels.first : nil
+                    targets = AIAnalysisSelection.normalized(targets + [AIAnalysisTarget(provider: provider, model: model)])
                 }
-                Spacer()
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: selected ? "checkmark.square.fill" : "square")
+                        .foregroundStyle(selected ? Color("BrandAccentDeep") : .secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(provider.title).font(.system(size: 13, weight: .medium))
+                        Text(statusText(provider)).font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .disabled(!selected && targets.count >= AIAnalysisSelection.maximum)
+            if provider != .ollama {
+                Button("Обрати…") { chooseExecutable(for: provider) }
+                    .buttonStyle(.borderless)
+            }
         }
-        .buttonStyle(.plain)
-        .disabled(!selected && targets.count >= AIAnalysisSelection.maximum)
     }
 
     private func statusText(_ provider: AIProvider) -> String {
@@ -82,10 +105,27 @@ struct AISettingsTab: View {
     }
 
     private func refreshStates() async {
+        ollamaModels = (try? await AIAnalysisRunner().discoverOllamaModels()) ?? []
         for provider in AIProvider.allCases where provider != .ollama {
             let target = targets.first { $0.provider == provider } ?? AIAnalysisTarget(provider: provider, model: nil)
             states[provider] = await AIProviderDiscovery().probe(target)
         }
+    }
+
+    private func selectOllamaModel(_ model: String) {
+        guard let index = targets.firstIndex(where: { $0.provider == .ollama }) else { return }
+        targets[index].model = model
+    }
+
+    private func chooseExecutable(for provider: AIProvider) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let target = AIAnalysisTarget(provider: provider, model: nil, executablePath: url.path)
+        targets.removeAll { $0.provider == provider }
+        targets = AIAnalysisSelection.normalized(targets + [target])
+        Task { states[provider] = await AIProviderDiscovery().probe(target) }
     }
 
     private func copy(_ text: String) {

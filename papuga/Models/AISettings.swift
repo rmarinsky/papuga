@@ -48,7 +48,8 @@ enum AIProvider: String, CaseIterable, Identifiable, Codable, Defaults.Serializa
         case .codex: return ["login", "status"]
         case .claudeCode: return ["auth", "status"]
         case .openCode: return ["auth", "list"]
-        case .cursorAgent, .ollama: return nil
+        case .cursorAgent: return ["status"]
+        case .ollama: return nil
         }
     }
 }
