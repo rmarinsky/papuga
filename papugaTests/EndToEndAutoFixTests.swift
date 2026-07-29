@@ -219,6 +219,38 @@ final class EndToEndAutoFixTests: XCTestCase {
         )
     }
 
+    func test_selenideSelectorsPhraseBecomesLayoutIncidentProposal() throws {
+        let fromID = "com.apple.keylayout.Ukrainian-PC"
+        let toID = "com.apple.keylayout.US"
+        let fromSource = try source(forID: fromID)
+        let toSource = try source(forID: toID)
+        mapper.buildMap(for: fromSource, sourceID: fromID)
+        mapper.buildMap(for: toSource, sourceID: toID)
+
+        let originals = ["іудутшву", "іудусещкі"]
+        let expected = ["selenide", "selectors"]
+        var tracker = LayoutIncidentTracker()
+
+        for (original, corrected) in zip(originals, expected) {
+            let candidate = mapper.convert(text: original, fromSourceID: fromID, toSourceID: toID)
+            XCTAssertEqual(candidate, corrected)
+            tracker.append(LayoutIncidentToken(
+                original: original,
+                candidate: candidate,
+                boundary: " ",
+                targetLayoutID: toID,
+                evidence: .strong
+            ))
+        }
+
+        XCTAssertEqual(tracker.originalBody, "іудутшву іудусещкі")
+        XCTAssertEqual(tracker.candidateBody, "selenide selectors")
+        XCTAssertEqual(
+            tracker.decision(scoreOriginal: 1, scoreCandidate: 0.52, threshold: 0.35),
+            .propose
+        )
+    }
+
     func test_controlCharacterPrefixedPhysicalInputStillMapsToZaraz() throws {
         let fromID = "com.apple.keylayout.US"
         let toID = "com.apple.keylayout.Ukrainian-PC"

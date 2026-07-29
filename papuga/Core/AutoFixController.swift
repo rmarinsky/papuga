@@ -429,7 +429,11 @@ final class AutoFixController {
         )
         defer { finishDecision() }
         let targetSession = targetValidator.session
-        let targetValidation = targetValidator.validateCurrentTarget(expectedBundleID: bundleID)
+        let targetValidation = targetValidator.validateCurrentTarget(
+            expectedBundleID: bundleID,
+            source: word,
+            boundary: boundary
+        )
         if case .changed(let reason) = targetValidation {
             logSkip(.targetChanged, word: word, bundleID: bundleID, extra: [
                 "target_reason": .string(reason),

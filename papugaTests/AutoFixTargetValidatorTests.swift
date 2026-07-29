@@ -216,7 +216,7 @@ final class AutoFixTargetValidatorTests: XCTestCase {
             selectedRangeLocation: 20
         )
 
-        XCTAssertTrue(first.matchesTypingTarget(second))
+        XCTAssertTrue(first.matchesTypingTarget(second, expectedCaretAdvance: 19))
     }
 
     func test_typingTargetIdentity_rejectsDifferentIdentifiers() {
@@ -240,6 +240,54 @@ final class AutoFixTargetValidatorTests: XCTestCase {
             selectedRangeLocation: 1
         )
 
-        XCTAssertFalse(first.matchesTypingTarget(second))
+        XCTAssertFalse(first.matchesTypingTarget(second, expectedCaretAdvance: 0))
+    }
+
+    func test_typingTargetIdentity_rejectsUnexpectedCaretForSameIdentifier() {
+        let first = FocusedElementSignature(
+            pid: 100,
+            role: "AXTextField",
+            subrole: nil,
+            windowTitleHash: 42,
+            elementIdentifier: "search",
+            frameHash: 7,
+            selectedRangeLocation: 1
+        )
+
+        let second = FocusedElementSignature(
+            pid: 100,
+            role: "AXTextField",
+            subrole: nil,
+            windowTitleHash: 99,
+            elementIdentifier: "search",
+            frameHash: 8,
+            selectedRangeLocation: 50
+        )
+
+        XCTAssertFalse(first.matchesTypingTarget(second, expectedCaretAdvance: 19))
+    }
+
+    func test_typingTargetIdentity_allowsDynamicGeometryWithoutIdentifierWhenCaretMatches() {
+        let first = FocusedElementSignature(
+            pid: 100,
+            role: "AXTextField",
+            subrole: nil,
+            windowTitleHash: 42,
+            elementIdentifier: nil,
+            frameHash: 7,
+            selectedRangeLocation: 1
+        )
+
+        let second = FocusedElementSignature(
+            pid: 100,
+            role: "AXTextField",
+            subrole: nil,
+            windowTitleHash: 99,
+            elementIdentifier: nil,
+            frameHash: 8,
+            selectedRangeLocation: 20
+        )
+
+        XCTAssertTrue(first.matchesTypingTarget(second, expectedCaretAdvance: 19))
     }
 }

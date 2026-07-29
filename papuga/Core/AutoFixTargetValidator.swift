@@ -60,16 +60,34 @@ struct FocusedElementSignature: Equatable {
         )
     }
 
-    func matchesTypingTarget(_ other: FocusedElementSignature) -> Bool {
+    func matchesTypingTarget(
+        _ other: FocusedElementSignature,
+        expectedCaretAdvance: Int
+    ) -> Bool {
         guard pid == other.pid,
               role == other.role,
-              subrole == other.subrole,
-              let elementIdentifier,
-              let otherIdentifier = other.elementIdentifier
+              subrole == other.subrole
         else {
-            return stableIdentity == other.stableIdentity
+            return false
         }
-        return elementIdentifier == otherIdentifier
+
+        if let elementIdentifier,
+           let otherIdentifier = other.elementIdentifier,
+           elementIdentifier != otherIdentifier {
+            return false
+        }
+
+        if let selectedRangeLocation,
+           let otherLocation = other.selectedRangeLocation {
+            return otherLocation == selectedRangeLocation + expectedCaretAdvance
+        }
+
+        if let elementIdentifier,
+           let otherIdentifier = other.elementIdentifier {
+            return elementIdentifier == otherIdentifier
+        }
+
+        return stableIdentity == other.stableIdentity
     }
 
     struct StableIdentity: Equatable {
@@ -148,16 +166,27 @@ final class AutoFixTargetValidator {
         return session
     }
 
-    func validateCurrentTarget(expectedBundleID: String?) -> AutoFixTargetValidation {
+    func validateCurrentTarget(
+        expectedBundleID: String?,
+        source: String,
+        boundary: String
+    ) -> AutoFixTargetValidation {
         guard let session else {
             return .unverifiable("missing_session")
         }
-        return validateCurrentTarget(for: session, expectedBundleID: expectedBundleID)
+        return validateCurrentTarget(
+            for: session,
+            expectedBundleID: expectedBundleID,
+            source: source,
+            boundary: boundary
+        )
     }
 
     func validateCurrentTarget(
         for session: AutoFixTargetSession,
-        expectedBundleID: String? = nil
+        expectedBundleID: String? = nil,
+        source: String,
+        boundary: String
     ) -> AutoFixTargetValidation {
         let activeBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         let expected = expectedBundleID?.nilIfEmpty ?? session.bundleID?.nilIfEmpty
@@ -174,7 +203,12 @@ final class AutoFixTargetValidator {
             return .unverifiable("missing_current_focused_element")
         }
 
-        guard originalSignature.matchesTypingTarget(currentSignature) else {
+        let expectedCaretAdvance = max(0, source.utf16.count - session.firstCharacter.utf16.count)
+            + boundary.utf16.count
+        guard originalSignature.matchesTypingTarget(
+            currentSignature,
+            expectedCaretAdvance: expectedCaretAdvance
+        ) else {
             return .changed("focused_element_changed")
         }
 
@@ -212,7 +246,12 @@ final class AutoFixTargetValidator {
         source: String,
         boundary: String
     ) -> TextReplacementAnchor? {
-        guard validateCurrentTarget(for: session, expectedBundleID: expectedBundleID) == .verified,
+        guard validateCurrentTarget(
+            for: session,
+            expectedBundleID: expectedBundleID,
+            source: source,
+            boundary: boundary
+        ) == .verified,
               let focused = Self.focusedElement(),
               let signature = Self.focusedElementSignature(for: focused),
               signature.pid == session.focusedElementSignature?.pid,
