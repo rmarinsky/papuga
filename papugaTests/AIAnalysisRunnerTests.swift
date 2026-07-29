@@ -2,6 +2,19 @@ import XCTest
 @testable import papuga
 
 final class AIAnalysisRunnerTests: XCTestCase {
+    func test_providerProgressAdvancesOnlyAfterAValidatedBatch() {
+        var progress = AIProviderBatchProgress(totalItems: 205, totalBatches: 3)
+
+        progress.recordCompletedBatch(itemCount: 100, resultCount: 92, missingCount: 8)
+
+        XCTAssertEqual(progress.completedItems, 100)
+        XCTAssertEqual(progress.completedBatches, 1)
+        XCTAssertEqual(progress.resultCount, 92)
+        XCTAssertEqual(progress.missingCount, 8)
+        XCTAssertEqual(progress.nextBatchIndex, 1)
+        XCTAssertEqual(progress.fractionCompleted, 100.0 / 205.0, accuracy: 0.001)
+    }
+
     func test_cursorRunsNonInteractivelyInPapugasTrustedTemporaryWorkspace() {
         XCTAssertEqual(
             AIProvider.cursorAgent.generationArguments,

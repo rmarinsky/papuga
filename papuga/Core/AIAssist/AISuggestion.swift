@@ -103,3 +103,24 @@ struct AIValidationResult: Equatable {
         self.missingAliases = missingAliases
     }
 }
+
+struct AIProviderBatchProgress: Equatable {
+    let totalItems: Int
+    let totalBatches: Int
+    private(set) var completedItems = 0
+    private(set) var completedBatches = 0
+    private(set) var resultCount = 0
+    private(set) var missingCount = 0
+
+    var nextBatchIndex: Int { completedBatches }
+    var fractionCompleted: Double {
+        totalItems == 0 ? 1 : Double(completedItems) / Double(totalItems)
+    }
+
+    mutating func recordCompletedBatch(itemCount: Int, resultCount: Int, missingCount: Int) {
+        completedItems = min(totalItems, completedItems + max(0, itemCount))
+        completedBatches = min(totalBatches, completedBatches + 1)
+        self.resultCount += max(0, resultCount)
+        self.missingCount += max(0, missingCount)
+    }
+}
