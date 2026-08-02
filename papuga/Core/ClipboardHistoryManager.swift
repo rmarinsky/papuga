@@ -187,12 +187,10 @@ final class ClipboardHistoryManager {
         }
 
         lastObservedChangeCount = currentChangeCount
-        guard !pasteboardContainsExcludedType else {
+        guard let state = clipboardManager.save(excluding: Self.excludedPasteboardTypes) else {
             AppLogger.post(logger, "Clipboard history skipped confidential or transient content")
             return
         }
-
-        let state = clipboardManager.save()
         guard !state.items.isEmpty else {
             AppLogger.warn(logger, "Clipboard history skipped capture: no items")
             return
@@ -226,13 +224,7 @@ final class ClipboardHistoryManager {
             appendToDisk(entry)
         }
 
-        AppLogger.post(logger, "Clipboard history captured: entries=\(entries.count), title=\(entry.title)")
-    }
-
-    private var pasteboardContainsExcludedType: Bool {
-        pasteboard.pasteboardItems?.contains { item in
-            item.types.contains(where: Self.excludedPasteboardTypes.contains)
-        } ?? false
+        AppLogger.post(logger, "Clipboard history captured: entries=\(entries.count)")
     }
 
     private func promoteEntryToTop(entryID: UUID) {

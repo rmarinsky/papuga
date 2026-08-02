@@ -309,7 +309,7 @@ final class AutoFixDecisionHistoryStore: AutoFixDecisionRecording {
                 }
             }
         } catch {
-            logger.warning("Decision history append failed: \(error.localizedDescription, privacy: .public)")
+            logger.warning("Decision history append failed: \(error.localizedDescription, privacy: .private)")
         }
     }
 
@@ -326,7 +326,7 @@ final class AutoFixDecisionHistoryStore: AutoFixDecisionRecording {
             }
             try data.write(to: fileURL, options: .atomic)
         } catch {
-            logger.warning("Decision history rewrite failed: \(error.localizedDescription, privacy: .public)")
+            logger.warning("Decision history rewrite failed: \(error.localizedDescription, privacy: .private)")
         }
     }
 
@@ -354,7 +354,7 @@ final class AutoFixDecisionHistoryStore: AutoFixDecisionRecording {
             }
             try encoder.encode(bounded).write(to: aggregateFileURL, options: .atomic)
         } catch {
-            logger.warning("Decision aggregate rewrite failed: \(error.localizedDescription, privacy: .public)")
+            logger.warning("Decision aggregate rewrite failed: \(error.localizedDescription, privacy: .private)")
         }
     }
 

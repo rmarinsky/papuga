@@ -52,7 +52,7 @@ enum IgnoreWordService {
         if addedToAllowlist || removedReplacementRuleCount > 0 || taughtAppleSpelling {
             AppLogger.action(
                 AppLogger.autoFix,
-                "Added ignore word '\(word)' allowlist=\(addedToAllowlist) removed_rules=\(removedReplacementRuleCount) apple_spelling=\(taughtAppleSpelling)"
+                "Ignore word added: allowlist=\(addedToAllowlist) removed_rules=\(removedReplacementRuleCount) apple_spelling=\(taughtAppleSpelling)"
             )
         }
 

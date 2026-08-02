@@ -358,7 +358,7 @@ final class AutoFixController {
             )
             return nil
         }
-        AppLogger.action(logger, "Undoing recent auto-fix: \(pending.replacement) -> \(pending.original)")
+        AppLogger.action(logger, "Undoing recent auto-fix: replacementLength=\(pending.replacement.count) originalLength=\(pending.original.count)")
         let elapsedMs = Int((ProcessInfo.processInfo.systemUptime - pending.timestamp) * 1000)
         if pending.changesInputLayout {
             layoutManager.switchTo(pending.fromLayoutID)
@@ -1399,7 +1399,7 @@ final class AutoFixController {
         ) else {
             return false
         }
-        AppLogger.action(logger, "Auto-fix phrase applying: \(original) -> \(candidate)")
+        AppLogger.action(logger, "Auto-fix phrase applying: originalLength=\(original.count) candidateLength=\(candidate.count)")
         AutoFixProposalCoordinator.shared.dismiss()
         switchLayoutIfNeeded(
             fromLayoutID: fromLayoutID,
@@ -1474,7 +1474,7 @@ final class AutoFixController {
         ) else {
             return false
         }
-        AppLogger.action(logger, "Auto-fix applying: \(original) -> \(candidate)")
+        AppLogger.action(logger, "Auto-fix applying: originalLength=\(original.count) candidateLength=\(candidate.count)")
         markDecision(outcome: .replaced, reason: nil, matching: original)
         switchLayoutIfNeeded(
             fromLayoutID: fromLayoutID,
@@ -1795,7 +1795,7 @@ final class AutoFixController {
             )
             return false
         }
-        AppLogger.action(logger, "AutoFix proposal accepted: \(proposal.original) -> \(proposal.candidate)")
+        AppLogger.action(logger, "AutoFix proposal accepted: originalLength=\(proposal.original.count) candidateLength=\(proposal.candidate.count)")
         resetLayoutIncident()
         let replacementScope: ReplacementScope = proposal.original.contains(where: \.isWhitespace) ? .phrase : .singleToken
         if proposal.changesInputLayout {
@@ -2014,7 +2014,7 @@ final class AutoFixController {
         ) else {
             return
         }
-        AppLogger.action(logger, "Custom rule applying: \(rule.source) -> \(rule.target)")
+        AppLogger.action(logger, "Custom rule applying: sourceLength=\(rule.source.count) targetLength=\(rule.target.count)")
         updateCustomRuleDecision(candidate: rule.target, source: original)
         markDecision(outcome: .ruleApplied, reason: nil, matching: original)
         let fromLayoutID = layoutManager.getCurrentLayoutID()
@@ -2307,7 +2307,7 @@ final class AutoFixController {
         layoutID: String? = nil,
         extra: [String: AnalyticsValue] = [:]
     ) {
-        AppLogger.post(logger, "auto-fix skipped: reason=\(reason.rawValue) word=\(word)")
+        AppLogger.post(logger, "auto-fix skipped: reason=\(reason.rawValue) wordLength=\(word.count)")
         markDecision(outcome: .skipped, reason: reason.rawValue, matching: word)
         var props: [String: AnalyticsValue] = [
             "reason": .string(reason.rawValue),

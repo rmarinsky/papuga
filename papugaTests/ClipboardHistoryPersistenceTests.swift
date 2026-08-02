@@ -73,7 +73,29 @@ final class ClipboardHistoryPersistenceTests: XCTestCase {
 
             XCTAssertTrue(manager.entries.isEmpty, typeName)
             XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path), typeName)
+
+            let reloaded = ClipboardHistoryManager(maxEntries: 10, pollInterval: 60, fileURL: fileURL)
+            waitForBootstrap(reloaded)
+            XCTAssertTrue(reloaded.entries.isEmpty, typeName)
         }
+    }
+
+    func test_saveWithExcludedTypeDoesNotReadClipboardRepresentations() {
+        let originalClipboard = ClipboardManager().save()
+        defer { ClipboardManager().restore(originalClipboard) }
+        let marker = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
+        let provider = TrackingPasteboardDataProvider()
+        let item = NSPasteboardItem()
+        item.setDataProvider(provider, forTypes: [.string])
+        item.setData(Data(), forType: marker)
+        NSPasteboard.general.clearContents()
+        XCTAssertTrue(NSPasteboard.general.writeObjects([item]))
+        provider.didProvideData = false
+
+        let state = ClipboardManager().save(excluding: [marker])
+
+        XCTAssertNil(state)
+        XCTAssertFalse(provider.didProvideData)
     }
 
     func test_signatureIsStableForSamePasteboardContent() {
@@ -125,5 +147,18 @@ final class ClipboardHistoryPersistenceTests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
         return false
+    }
+}
+
+private final class TrackingPasteboardDataProvider: NSObject, NSPasteboardItemDataProvider {
+    var didProvideData = false
+
+    func pasteboard(
+        _ pasteboard: NSPasteboard?,
+        item: NSPasteboardItem,
+        provideDataForType type: NSPasteboard.PasteboardType
+    ) {
+        didProvideData = true
+        item.setString("secret sentinel", forType: type)
     }
 }

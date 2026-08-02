@@ -69,7 +69,7 @@ final class FixToastCoordinator {
         show(panel: panel, size: NSSize(width: ceil(width), height: 34), near: point)
         scheduleDismiss(after: duration)
 
-        AppLogger.action(logger, "Fix recovery shown: \(title)")
+        AppLogger.action(logger, "Fix recovery shown: titleLength=\(title.count)")
     }
 
     private func show(panel: ToastPanel, size: NSSize, near point: NSPoint) {

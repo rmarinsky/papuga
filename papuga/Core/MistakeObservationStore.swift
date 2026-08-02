@@ -175,7 +175,7 @@ final class MistakeObservationStore: MistakeObservationRecording {
                 try handle.write(contentsOf: line)
             }
         } catch {
-            logger.warning("MistakeObservationStore append failed: \(error.localizedDescription, privacy: .public)")
+            logger.warning("MistakeObservationStore append failed: \(error.localizedDescription, privacy: .private)")
         }
     }
 
@@ -272,7 +272,7 @@ final class MistakeObservationStore: MistakeObservationRecording {
             }
             logger.notice("MistakeObservationStore wrote \(snapshot.count, privacy: .public) entries")
         } catch {
-            logger.warning("MistakeObservationStore rewrite failed: \(error.localizedDescription, privacy: .public)")
+            logger.warning("MistakeObservationStore rewrite failed: \(error.localizedDescription, privacy: .private)")
         }
     }
 }
