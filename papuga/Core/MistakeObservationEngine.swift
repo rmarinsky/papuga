@@ -420,9 +420,9 @@ final class MistakeSuggestionAnalyzer {
                 let targetLanguage = AutoFixDecision.languageHintForLayoutID(toID)
                 let fullCore = BufferedToken.normalizedCore(from: fullMapped)
                 let fullIsValid = !fullCore.isEmpty
-                    && !spellChecker.isMisspelled(fullCore, language: targetLanguage)
+                    && isValidGeneratedCandidate(fullCore, language: targetLanguage)
                 let coreIsValid = !coreMapped.isEmpty
-                    && !spellChecker.isMisspelled(coreMapped, language: targetLanguage)
+                    && isValidGeneratedCandidate(coreMapped, language: targetLanguage)
                 let decision = LayoutInterpretationPolicy.select(
                     token: token,
                     fullMapped: fullMapped,
@@ -517,7 +517,7 @@ final class MistakeSuggestionAnalyzer {
                 candidateChars[index] = replacement
                 let candidate = String(candidateChars)
                 guard candidate != source, seen.insert(candidate).inserted else { continue }
-                guard !spellChecker.isMisspelled(candidate, language: language) else { continue }
+                guard isValidGeneratedCandidate(candidate, language: language) else { continue }
 
                 result.append(MistakeSuggestionCandidate(
                     kind: .keyboardAdjacency,
@@ -533,6 +533,14 @@ final class MistakeSuggestionAnalyzer {
             }
         }
         return result
+    }
+
+    private func isValidGeneratedCandidate(_ word: String, language: String) -> Bool {
+        switch spellChecker.mappedSpellingStatus(word, language: language) {
+        case .correct: return true
+        case .misspelled: return false
+        case .unavailable: return !spellChecker.isMisspelled(word, language: language)
+        }
     }
 
     private func ensureMapped(layoutID: String, layoutManager: LayoutManager) -> Bool {

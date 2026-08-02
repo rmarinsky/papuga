@@ -11,6 +11,21 @@ final class DictionarySpellChecker: SpellCheckingClient {
     func guesses(for word: String, language: String) -> [String] { [] }
 }
 
+private final class StrictMappedSpellChecker: SpellCheckingClient {
+    private(set) var systemCalls = 0
+
+    func isMisspelled(_ word: String, language: String) -> Bool {
+        systemCalls += 1
+        return true
+    }
+
+    func guesses(for word: String, language: String) -> [String] { [] }
+
+    func mappedSpellingStatus(_ word: String, language: String) -> MappedSpellingStatus {
+        word.lowercased() == "hello" ? .correct : .misspelled
+    }
+}
+
 final class KeyboardAdjacencyTests: XCTestCase {
 
     func test_grid_neighbours_arePhysicallyAdjacent() {
@@ -51,5 +66,23 @@ final class KeyboardAdjacencyTests: XCTestCase {
             candidates.contains { $0.kind == .keyboardAdjacency && $0.text == "hello" },
             "expected a keyboard-adjacency candidate 'hello', got \(candidates.map { "\($0.kind.rawValue):\($0.text)" })"
         )
+    }
+
+    @MainActor
+    func test_analyzer_validatesGeneratedCandidatesWithoutSystemSpellChecker() throws {
+        let layoutManager = LayoutManager()
+        let hasEnglish = layoutManager.orderedLayouts()
+            .contains { AutoFixDecision.languageHintForLayoutID($0) == "en" }
+        try XCTSkipUnless(hasEnglish, "needs a US English layout on the test machine")
+        let spellChecker = StrictMappedSpellChecker()
+        let analyzer = MistakeSuggestionAnalyzer(spellChecker: spellChecker)
+
+        let candidates = analyzer.candidates(
+            for: "hwllo", language: "en", recordedTargets: [],
+            layoutManager: layoutManager, limit: 6
+        )
+
+        XCTAssertTrue(candidates.contains { $0.kind == .keyboardAdjacency && $0.text == "hello" })
+        XCTAssertEqual(spellChecker.systemCalls, 0)
     }
 }
