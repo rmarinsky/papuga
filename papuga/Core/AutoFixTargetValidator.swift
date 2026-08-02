@@ -285,14 +285,14 @@ final class AutoFixTargetValidator {
                 source: source,
                 boundary: boundary
               ),
-              Self.string(for: sourceRange, in: focused) == source,
-              Self.string(
-                for: AXTextRange(
-                    location: sourceRange.location + sourceRange.length,
-                    length: boundary.utf16.count
-                ),
-                in: focused
-              ) == boundary
+              Self.waitForReadableAnchor(
+                source: source,
+                boundary: boundary,
+                sourceRange: sourceRange,
+                attempts: 5,
+                retryDelay: { Thread.sleep(forTimeInterval: 0.005) },
+                readString: { Self.string(for: $0, in: focused) }
+              )
         else {
             return nil
         }
@@ -413,6 +413,26 @@ final class AutoFixTargetValidator {
             }
         }
         return false
+    }
+
+    nonisolated static func waitForReadableAnchor(
+        source: String,
+        boundary: String,
+        sourceRange: AXTextRange,
+        attempts: Int,
+        retryDelay: () -> Void,
+        readString: (AXTextRange) -> String?
+    ) -> Bool {
+        waitForCommittedReplacement(
+            expected: source + boundary,
+            at: AXTextRange(
+                location: sourceRange.location,
+                length: sourceRange.length + boundary.utf16.count
+            ),
+            attempts: attempts,
+            retryDelay: retryDelay,
+            readString: readString
+        )
     }
 
     private static func postUnicodeReplacement(_ replacement: String) -> Bool {

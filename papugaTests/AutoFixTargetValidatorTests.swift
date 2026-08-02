@@ -147,6 +147,27 @@ final class AutoFixTargetValidatorTests: XCTestCase {
         XCTAssertEqual(delays, 2)
     }
 
+    func test_anchorReadback_waitsForDelayedWebEditorText() {
+        let sourceRange = AXTextRange(location: 4, length: 6)
+        var reads = 0
+        var delays = 0
+
+        XCTAssertTrue(AutoFixTargetValidator.waitForReadableAnchor(
+            source: "ghbdsn",
+            boundary: " ",
+            sourceRange: sourceRange,
+            attempts: 3,
+            retryDelay: { delays += 1 },
+            readString: { range in
+                XCTAssertEqual(range, AXTextRange(location: 4, length: 7))
+                reads += 1
+                return reads == 1 ? "ghbdsn" : "ghbdsn "
+            }
+        ))
+        XCTAssertEqual(reads, 2)
+        XCTAssertEqual(delays, 1)
+    }
+
     func test_stable_identity_ignores_caret_location() {
         let first = FocusedElementSignature(
             pid: 100,
