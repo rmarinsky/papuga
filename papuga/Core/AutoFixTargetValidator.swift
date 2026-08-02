@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Carbon.HIToolbox
 import CoreGraphics
 import Foundation
 
@@ -20,6 +21,7 @@ struct TextReplacementAnchor: Equatable {
     let boundaryUTF16Length: Int
     let caretAfterBoundary: Int
     let expectedSource: String
+    let allowsKeyboardFallback: Bool
 
     static func sourceRange(
         caretAfterBoundary: Int,
@@ -38,6 +40,11 @@ struct TextReplacementResult: Equatable {
     /// Nil only when the editor committed the replacement but did not confirm the requested
     /// collapsed caret, so a later undo/retry cannot be anchored safely.
     let recoveryAnchor: TextReplacementAnchor?
+}
+
+struct KeyboardFallbackPlan: Equatable {
+    let deleteCount: Int
+    let replacement: String
 }
 
 struct FocusedElementSignature: Equatable {
@@ -284,18 +291,20 @@ final class AutoFixTargetValidator {
                 caretAfterBoundary: selection.location,
                 source: source,
                 boundary: boundary
-              ),
-              Self.waitForReadableAnchor(
-                source: source,
-                boundary: boundary,
-                sourceRange: sourceRange,
-                attempts: 5,
-                retryDelay: { Thread.sleep(forTimeInterval: 0.005) },
-                readString: { Self.string(for: $0, in: focused) }
               )
         else {
             return nil
         }
+
+        let hasReadableAnchor = Self.waitForReadableAnchor(
+            source: source,
+            boundary: boundary,
+            sourceRange: sourceRange,
+            attempts: 5,
+            retryDelay: { Thread.sleep(forTimeInterval: 0.005) },
+            readString: { Self.string(for: $0, in: focused) }
+        )
+        guard hasReadableAnchor || boundary == " " else { return nil }
 
         return TextReplacementAnchor(
             targetPID: signature.pid,
@@ -304,15 +313,30 @@ final class AutoFixTargetValidator {
             sourceRange: sourceRange,
             boundaryUTF16Length: boundary.utf16.count,
             caretAfterBoundary: selection.location,
-            expectedSource: source
+            expectedSource: source,
+            allowsKeyboardFallback: !hasReadableAnchor
         )
     }
 
-    /// Replaces exactly the anchored source range. The boundary after the source is never selected,
-    /// deleted, or recreated, so rich editors keep their paragraph/list semantics intact.
+    /// Uses the exact anchored range when available. Web editors without AX text readback may use
+    /// the verified keyboard fallback, but only for an ordinary space boundary.
     func replaceAnchoredText(_ anchor: TextReplacementAnchor, with replacement: String) -> TextReplacementResult? {
-        guard let focused = validatedElement(for: anchor),
-              Self.isAttributeSettable(kAXSelectedTextRangeAttribute as CFString, on: focused),
+        guard let focused = validatedElement(for: anchor) else {
+            guard anchor.allowsKeyboardFallback,
+                  validatedTarget(for: anchor) != nil,
+                  let plan = Self.keyboardFallbackPlan(
+                    source: anchor.expectedSource,
+                    boundary: " ",
+                    replacement: replacement
+                  ),
+                  Self.postKeyboardFallback(plan)
+            else {
+                return nil
+            }
+            return TextReplacementResult(recoveryAnchor: nil)
+        }
+
+        guard Self.isAttributeSettable(kAXSelectedTextRangeAttribute as CFString, on: focused),
               Self.isAttributeSettable(kAXSelectedTextAttribute as CFString, on: focused),
               Self.setSelectedTextRange(anchor.sourceRange, on: focused)
         else {
@@ -383,8 +407,21 @@ final class AutoFixTargetValidator {
                 sourceRange: AXTextRange(location: anchor.sourceRange.location, length: replacementLength),
                 boundaryUTF16Length: anchor.boundaryUTF16Length,
                 caretAfterBoundary: resultingSelection.location,
-                expectedSource: replacement
+                expectedSource: replacement,
+                allowsKeyboardFallback: false
             )
+        )
+    }
+
+    nonisolated static func keyboardFallbackPlan(
+        source: String,
+        boundary: String,
+        replacement: String
+    ) -> KeyboardFallbackPlan? {
+        guard boundary == " " else { return nil }
+        return KeyboardFallbackPlan(
+            deleteCount: source.count + 1,
+            replacement: replacement + boundary
         )
     }
 
@@ -467,11 +504,64 @@ final class AutoFixTargetValidator {
         return true
     }
 
+    private static func postKeyboardFallback(_ plan: KeyboardFallbackPlan) -> Bool {
+        let source = CGEventSource(stateID: .hidSystemState)
+        guard let deleteDown = CGEvent(
+            keyboardEventSource: source,
+            virtualKey: CGKeyCode(kVK_Delete),
+            keyDown: true
+        ), let deleteUp = CGEvent(
+            keyboardEventSource: source,
+            virtualKey: CGKeyCode(kVK_Delete),
+            keyDown: false
+        ), let replacementDown = CGEvent(
+            keyboardEventSource: source,
+            virtualKey: 0,
+            keyDown: true
+        ), let replacementUp = CGEvent(
+            keyboardEventSource: source,
+            virtualKey: 0,
+            keyDown: false
+        ) else {
+            return false
+        }
+
+        let utf16 = Array(plan.replacement.utf16)
+        utf16.withUnsafeBufferPointer { buffer in
+            replacementDown.keyboardSetUnicodeString(
+                stringLength: buffer.count,
+                unicodeString: buffer.baseAddress
+            )
+            replacementUp.keyboardSetUnicodeString(
+                stringLength: buffer.count,
+                unicodeString: buffer.baseAddress
+            )
+        }
+        [deleteDown, deleteUp, replacementDown, replacementUp].forEach(PapugaSyntheticEvent.tag)
+        for _ in 0..<plan.deleteCount {
+            deleteDown.post(tap: .cgAnnotatedSessionEventTap)
+            deleteUp.post(tap: .cgAnnotatedSessionEventTap)
+        }
+        replacementDown.post(tap: .cgAnnotatedSessionEventTap)
+        replacementUp.post(tap: .cgAnnotatedSessionEventTap)
+        return true
+    }
+
     func isReplacementAnchorValid(_ anchor: TextReplacementAnchor) -> Bool {
         validatedElement(for: anchor) != nil
+            || (anchor.allowsKeyboardFallback && validatedTarget(for: anchor) != nil)
     }
 
     private func validatedElement(for anchor: TextReplacementAnchor) -> AXUIElement? {
+        guard let focused = validatedTarget(for: anchor),
+              Self.string(for: anchor.sourceRange, in: focused) == anchor.expectedSource
+        else {
+            return nil
+        }
+        return focused
+    }
+
+    private func validatedTarget(for anchor: TextReplacementAnchor) -> AXUIElement? {
         guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == anchor.bundleID,
               let focused = Self.focusedElement(),
               let signature = Self.focusedElementSignature(for: focused),
@@ -480,8 +570,7 @@ final class AutoFixTargetValidator {
               Self.selectedTextRange(for: focused) == AXTextRange(
                 location: anchor.caretAfterBoundary,
                 length: 0
-              ),
-              Self.string(for: anchor.sourceRange, in: focused) == anchor.expectedSource
+              )
         else {
             return nil
         }

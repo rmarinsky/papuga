@@ -168,6 +168,22 @@ final class AutoFixTargetValidatorTests: XCTestCase {
         XCTAssertEqual(delays, 1)
     }
 
+    func test_keyboardFallbackPlan_replacesVerifiedSpaceTerminatedBuffer() throws {
+        let plan = try XCTUnwrap(AutoFixTargetValidator.keyboardFallbackPlan(
+            source: "ghbdsn",
+            boundary: " ",
+            replacement: "привіт"
+        ))
+
+        XCTAssertEqual(plan.deleteCount, 7)
+        XCTAssertEqual(plan.replacement, "привіт ")
+        XCTAssertNil(AutoFixTargetValidator.keyboardFallbackPlan(
+            source: "ghbdsn",
+            boundary: "\r",
+            replacement: "привіт"
+        ))
+    }
+
     func test_stable_identity_ignores_caret_location() {
         let first = FocusedElementSignature(
             pid: 100,
