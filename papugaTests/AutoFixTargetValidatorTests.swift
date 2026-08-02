@@ -184,6 +184,24 @@ final class AutoFixTargetValidatorTests: XCTestCase {
         ))
     }
 
+    func test_keyboardFallbackPolicy_acceptsMissingWebEditorSelectionOnlyForSpace() {
+        XCTAssertTrue(AutoFixTargetValidator.canUseKeyboardFallback(
+            boundary: " ",
+            selection: nil,
+            sourceRange: nil
+        ))
+        XCTAssertFalse(AutoFixTargetValidator.canUseKeyboardFallback(
+            boundary: "\r",
+            selection: nil,
+            sourceRange: nil
+        ))
+        XCTAssertFalse(AutoFixTargetValidator.canUseKeyboardFallback(
+            boundary: " ",
+            selection: AXTextRange(location: 10, length: 2),
+            sourceRange: nil
+        ))
+    }
+
     func test_stable_identity_ignores_caret_location() {
         let first = FocusedElementSignature(
             pid: 100,

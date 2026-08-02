@@ -17,9 +17,9 @@ struct TextReplacementAnchor: Equatable {
     let targetPID: pid_t
     let bundleID: String
     let focusedElementIdentity: FocusedElementSignature.StableIdentity
-    let sourceRange: AXTextRange
+    let sourceRange: AXTextRange?
     let boundaryUTF16Length: Int
-    let caretAfterBoundary: Int
+    let caretAfterBoundary: Int?
     let expectedSource: String
     let allowsKeyboardFallback: Bool
 
@@ -284,27 +284,35 @@ final class AutoFixTargetValidator {
         ) == .verified,
               let focused = Self.focusedElement(),
               let signature = Self.focusedElementSignature(for: focused),
-              signature.pid == session.focusedElementSignature?.pid,
-              let selection = Self.selectedTextRange(for: focused),
-              selection.length == 0,
-              let sourceRange = TextReplacementAnchor.sourceRange(
-                caretAfterBoundary: selection.location,
-                source: source,
-                boundary: boundary
-              )
+              signature.pid == session.focusedElementSignature?.pid
         else {
             return nil
         }
 
-        let hasReadableAnchor = Self.waitForReadableAnchor(
-            source: source,
+        let selection = Self.selectedTextRange(for: focused)
+        let sourceRange: AXTextRange? = selection.flatMap { selection in
+            guard selection.length == 0 else { return nil }
+            return TextReplacementAnchor.sourceRange(
+                caretAfterBoundary: selection.location,
+                source: source,
+                boundary: boundary
+            )
+        }
+        let hasReadableAnchor = sourceRange.map { sourceRange in
+            Self.waitForReadableAnchor(
+                source: source,
+                boundary: boundary,
+                sourceRange: sourceRange,
+                attempts: 5,
+                retryDelay: { Thread.sleep(forTimeInterval: 0.005) },
+                readString: { Self.string(for: $0, in: focused) }
+            )
+        } ?? false
+        guard hasReadableAnchor || Self.canUseKeyboardFallback(
             boundary: boundary,
-            sourceRange: sourceRange,
-            attempts: 5,
-            retryDelay: { Thread.sleep(forTimeInterval: 0.005) },
-            readString: { Self.string(for: $0, in: focused) }
-        )
-        guard hasReadableAnchor || boundary == " " else { return nil }
+            selection: selection,
+            sourceRange: sourceRange
+        ) else { return nil }
 
         return TextReplacementAnchor(
             targetPID: signature.pid,
@@ -312,7 +320,7 @@ final class AutoFixTargetValidator {
             focusedElementIdentity: signature.stableIdentity,
             sourceRange: sourceRange,
             boundaryUTF16Length: boundary.utf16.count,
-            caretAfterBoundary: selection.location,
+            caretAfterBoundary: selection?.location,
             expectedSource: source,
             allowsKeyboardFallback: !hasReadableAnchor
         )
@@ -321,7 +329,10 @@ final class AutoFixTargetValidator {
     /// Uses the exact anchored range when available. Web editors without AX text readback may use
     /// the verified keyboard fallback, but only for an ordinary space boundary.
     func replaceAnchoredText(_ anchor: TextReplacementAnchor, with replacement: String) -> TextReplacementResult? {
-        guard let focused = validatedElement(for: anchor) else {
+        guard let sourceRange = anchor.sourceRange,
+              let caretAfterBoundary = anchor.caretAfterBoundary,
+              let focused = validatedElement(for: anchor)
+        else {
             guard anchor.allowsKeyboardFallback,
                   validatedTarget(for: anchor) != nil,
                   let plan = Self.keyboardFallbackPlan(
@@ -338,7 +349,7 @@ final class AutoFixTargetValidator {
 
         guard Self.isAttributeSettable(kAXSelectedTextRangeAttribute as CFString, on: focused),
               Self.isAttributeSettable(kAXSelectedTextAttribute as CFString, on: focused),
-              Self.setSelectedTextRange(anchor.sourceRange, on: focused)
+              Self.setSelectedTextRange(sourceRange, on: focused)
         else {
             return nil
         }
@@ -351,7 +362,7 @@ final class AutoFixTargetValidator {
 
         let replacementLength = replacement.utf16.count
         let replacementRange = AXTextRange(
-            location: anchor.sourceRange.location,
+            location: sourceRange.location,
             length: replacementLength
         )
         var replacementCommitted = axWriteSucceeded && Self.waitForCommittedReplacement(
@@ -366,8 +377,8 @@ final class AutoFixTargetValidator {
         // the write. The exact source range is already validated, so replace that selection with
         // tagged Unicode events and confirm the resulting text before reporting success.
         if !replacementCommitted,
-           Self.string(for: anchor.sourceRange, in: focused) == anchor.expectedSource,
-           Self.setSelectedTextRange(anchor.sourceRange, on: focused),
+           Self.string(for: sourceRange, in: focused) == anchor.expectedSource,
+           Self.setSelectedTextRange(sourceRange, on: focused),
            Self.postUnicodeReplacement(replacement) {
             replacementCommitted = Self.waitForCommittedReplacement(
                 expected: replacement,
@@ -380,13 +391,13 @@ final class AutoFixTargetValidator {
 
         guard replacementCommitted else {
             _ = Self.setSelectedTextRange(
-                AXTextRange(location: anchor.caretAfterBoundary, length: 0),
+                AXTextRange(location: caretAfterBoundary, length: 0),
                 on: focused
             )
             return nil
         }
 
-        let resultingCaret = anchor.sourceRange.location + replacementLength + anchor.boundaryUTF16Length
+        let resultingCaret = sourceRange.location + replacementLength + anchor.boundaryUTF16Length
         _ = Self.setSelectedTextRange(
             AXTextRange(location: resultingCaret, length: 0),
             on: focused
@@ -404,7 +415,7 @@ final class AutoFixTargetValidator {
                 targetPID: anchor.targetPID,
                 bundleID: anchor.bundleID,
                 focusedElementIdentity: anchor.focusedElementIdentity,
-                sourceRange: AXTextRange(location: anchor.sourceRange.location, length: replacementLength),
+                sourceRange: AXTextRange(location: sourceRange.location, length: replacementLength),
                 boundaryUTF16Length: anchor.boundaryUTF16Length,
                 caretAfterBoundary: resultingSelection.location,
                 expectedSource: replacement,
@@ -423,6 +434,16 @@ final class AutoFixTargetValidator {
             deleteCount: source.count + 1,
             replacement: replacement + boundary
         )
+    }
+
+    nonisolated static func canUseKeyboardFallback(
+        boundary: String,
+        selection: AXTextRange?,
+        sourceRange: AXTextRange?
+    ) -> Bool {
+        guard boundary == " " else { return false }
+        guard let selection else { return true }
+        return selection.length == 0 && sourceRange != nil
     }
 
     nonisolated static func replacementWasCommitted(
@@ -553,8 +574,9 @@ final class AutoFixTargetValidator {
     }
 
     private func validatedElement(for anchor: TextReplacementAnchor) -> AXUIElement? {
-        guard let focused = validatedTarget(for: anchor),
-              Self.string(for: anchor.sourceRange, in: focused) == anchor.expectedSource
+        guard let sourceRange = anchor.sourceRange,
+              let focused = validatedTarget(for: anchor),
+              Self.string(for: sourceRange, in: focused) == anchor.expectedSource
         else {
             return nil
         }
@@ -566,13 +588,16 @@ final class AutoFixTargetValidator {
               let focused = Self.focusedElement(),
               let signature = Self.focusedElementSignature(for: focused),
               signature.pid == anchor.targetPID,
-              signature.stableIdentity == anchor.focusedElementIdentity,
-              Self.selectedTextRange(for: focused) == AXTextRange(
-                location: anchor.caretAfterBoundary,
-                length: 0
-              )
+              signature.stableIdentity == anchor.focusedElementIdentity
         else {
             return nil
+        }
+
+        let selection = Self.selectedTextRange(for: focused)
+        if let caretAfterBoundary = anchor.caretAfterBoundary {
+            guard selection == AXTextRange(location: caretAfterBoundary, length: 0) else { return nil }
+        } else {
+            guard selection == nil else { return nil }
         }
         return focused
     }
