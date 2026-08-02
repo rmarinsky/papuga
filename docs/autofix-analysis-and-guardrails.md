@@ -102,10 +102,10 @@ full-text history row.
 
 ### Whole-sentence layout incidents
 
-A suspicious first word waits for a 750 ms grace period. A following printable key turns it into a
+A suspicious first word waits for a 300 ms grace period. A following printable key turns it into a
 single in-memory incident instead of applying or proposing individual words. Papuga captures at
 most 30 words or 300 UTF-16 code units and finalizes on sentence punctuation plus a boundary,
-Return/Tab, or a 1.2-second pause after a completed word.
+Return/Tab, or a 600 ms pause after a completed word.
 
 Automatic replacement requires at least three strong tokens, 75% support, no contradictions, and
 a phrase margin above the active threshold. Two strong tokens with 60% support can produce one

@@ -148,8 +148,8 @@ struct LayoutIncidentTracker: Equatable {
 }
 
 struct LayoutIncidentTimerState: Equatable {
-    static let singleWordGrace: TimeInterval = 0.75
-    static let incidentIdleDelay: TimeInterval = 1.2
+    static let singleWordGrace: TimeInterval = 0.3
+    static let incidentIdleDelay: TimeInterval = 0.6
 
     enum DueAction: Equatable {
         case applySingleWord
