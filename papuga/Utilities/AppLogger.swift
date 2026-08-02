@@ -13,22 +13,22 @@ enum AppLogger {
     static let analytics = Logger(subsystem: Constants.bundleIdentifier, category: "Analytics")
 
     static func pre(_ logger: Logger, _ message: String) {
-        logger.debug("\(message, privacy: .public)")
+        logger.debug("\(message, privacy: .private)")
     }
 
     static func action(_ logger: Logger, _ message: String) {
-        logger.notice("\(message, privacy: .public)")
+        logger.notice("\(message, privacy: .private)")
     }
 
     static func post(_ logger: Logger, _ message: String) {
-        logger.debug("\(message, privacy: .public)")
+        logger.debug("\(message, privacy: .private)")
     }
 
     static func warn(_ logger: Logger, _ message: String) {
-        logger.warning("\(message, privacy: .public)")
+        logger.warning("\(message, privacy: .private)")
     }
 
     static func error(_ logger: Logger, _ message: String) {
-        logger.error("\(message, privacy: .public)")
+        logger.error("\(message, privacy: .private)")
     }
 }
