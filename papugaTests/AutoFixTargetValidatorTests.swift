@@ -341,7 +341,7 @@ final class AutoFixTargetValidatorTests: XCTestCase {
         XCTAssertTrue(first.matchesTypingTarget(second, expectedCaretAdvance: 19))
     }
 
-    func test_typingTargetIdentity_rejectsRecreatedAXProxyAtDifferentFrame() {
+    func test_typingTargetIdentity_acceptsRecreatedAXProxyAtDifferentFrameWhenCaretMatches() {
         let first = FocusedElementSignature(
             pid: 100,
             role: "AXTextField",
@@ -364,7 +364,7 @@ final class AutoFixTargetValidatorTests: XCTestCase {
             elementIdentity: AXUIElementCreateApplication(101)
         )
 
-        XCTAssertFalse(first.matchesTypingTarget(second, expectedCaretAdvance: 19))
+        XCTAssertTrue(first.matchesTypingTarget(second, expectedCaretAdvance: 19))
     }
 
     func test_utf16Substring_readsExactRangeFromFullAXValue() {

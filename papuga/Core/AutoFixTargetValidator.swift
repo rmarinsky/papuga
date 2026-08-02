@@ -98,16 +98,16 @@ struct FocusedElementSignature: Equatable {
             return false
         }
 
+        if let selectedRangeLocation,
+           let otherLocation = other.selectedRangeLocation {
+            return otherLocation == selectedRangeLocation + expectedCaretAdvance
+        }
+
         if let elementIdentity,
            let otherIdentity = other.elementIdentity,
            elementIdentity != otherIdentity,
            (frameHash == nil || frameHash != other.frameHash) {
             return false
-        }
-
-        if let selectedRangeLocation,
-           let otherLocation = other.selectedRangeLocation {
-            return otherLocation == selectedRangeLocation + expectedCaretAdvance
         }
 
         return stableIdentity == other.stableIdentity
