@@ -84,6 +84,12 @@ final class AutoFixDecisionTests: XCTestCase {
         XCTAssertFalse(AutoFixDecision.shouldReplace(scoreOriginal: 0.6, scoreCandidate: 0.5, threshold: 0.0))
     }
 
+    func test_shouldBypassLayoutIncidentGrace_onlyForDisplayedHundredPercentConfidence() {
+        XCTAssertTrue(AutoFixDecision.shouldBypassLayoutIncidentGrace(scoreCandidate: 1))
+        XCTAssertTrue(AutoFixDecision.shouldBypassLayoutIncidentGrace(scoreCandidate: 0.995))
+        XCTAssertFalse(AutoFixDecision.shouldBypassLayoutIncidentGrace(scoreCandidate: 0.994))
+    }
+
     func test_shouldSuggestPhraseLayoutMistake_for_cyrillic_to_english_phrase() {
         XCTAssertTrue(AutoFixDecision.shouldSuggestPhraseLayoutMistake(
             original: "вщ цу рфму ф екфтіскшиешщт",

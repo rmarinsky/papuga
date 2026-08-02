@@ -1110,6 +1110,10 @@ final class AutoFixController {
         }
 
         guard evidence == .strong else { return false }
+        if case .replace = singleAction,
+           AutoFixDecision.shouldBypassLayoutIncidentGrace(scoreCandidate: scoreCandidate) {
+            return false
+        }
         guard layoutIncident.append(token) != .wouldExceedCap else {
             resetLayoutIncident()
             return false
