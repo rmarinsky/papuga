@@ -11,7 +11,7 @@ final class AppLoggerPrivacyTests: XCTestCase {
 
         AppLogger.action(logger, "Private value: \(sentinel)")
 
-        let entries = try logEntries(category: category)
+        let entries = try waitForLogEntries(category: category) { !$0.isEmpty }
         XCTAssertEqual(entries.last?.formatString, "%{private}s")
     }
 
@@ -32,7 +32,25 @@ final class AppLoggerPrivacyTests: XCTestCase {
         )
 
         XCTAssertEqual(result?.word, sentinel)
-        XCTAssertFalse(try logEntries(category: "AutoFix").contains { $0.eventMessage.contains(sentinel) })
+        let entries = try waitForLogEntries(category: "AutoFix") { entries in
+            entries.contains { $0.formatString.contains("Ignore word added:") }
+        }
+        XCTAssertTrue(entries.contains { $0.formatString.contains("Ignore word added:") })
+        XCTAssertFalse(entries.contains { $0.eventMessage.contains(sentinel) })
+    }
+
+    private func waitForLogEntries(
+        category: String,
+        until condition: ([LogEntry]) -> Bool
+    ) throws -> [LogEntry] {
+        let deadline = Date().addingTimeInterval(5)
+        var entries: [LogEntry] = []
+        repeat {
+            entries = try logEntries(category: category)
+            if condition(entries) { return entries }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        } while Date() < deadline
+        return entries
     }
 
     private func logEntries(category: String) throws -> [LogEntry] {

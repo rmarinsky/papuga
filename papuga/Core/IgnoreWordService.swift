@@ -1,6 +1,7 @@
 import AppKit
 import Defaults
 import Foundation
+import OSLog
 
 struct IgnoreWordResult: Equatable {
     let word: String
@@ -50,9 +51,8 @@ enum IgnoreWordService {
         let taughtAppleSpelling = teachAppleSpelling && teachAppleSpellingDictionaryIfAppropriate(word)
 
         if addedToAllowlist || removedReplacementRuleCount > 0 || taughtAppleSpelling {
-            AppLogger.action(
-                AppLogger.autoFix,
-                "Ignore word added: allowlist=\(addedToAllowlist) removed_rules=\(removedReplacementRuleCount) apple_spelling=\(taughtAppleSpelling)"
+            AppLogger.autoFix.notice(
+                "Ignore word added: allowlist=\(addedToAllowlist, privacy: .public) removed_rules=\(removedReplacementRuleCount, privacy: .public) apple_spelling=\(taughtAppleSpelling, privacy: .public)"
             )
         }
 
