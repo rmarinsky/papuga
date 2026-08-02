@@ -303,6 +303,36 @@ final class PredictionEngineTests: XCTestCase {
         XCTAssertEqual(warmSpellChecker.misspelledCalls, 0, "repeated bootstrap stays idempotent")
     }
 
+    func test_engine_prunesCacheEntriesMissingFromCurrentObservations() async {
+        let first = MistakeObservation(
+            issueType: .manualCorrection,
+            source: "teh",
+            suggestedTarget: "the",
+            language: "en",
+            confidence: 0.9
+        )
+        let removed = MistakeObservation(
+            issueType: .manualCorrection,
+            source: "wierd",
+            suggestedTarget: "weird",
+            language: "en",
+            confidence: 0.9
+        )
+        let cache = tempCacheURL()
+        defer { removeTempCache(at: cache) }
+        let engine = PredictionEngine(
+            analyzer: MistakeSuggestionAnalyzer(spellChecker: CountingSpellChecker()),
+            cacheURL: cache
+        )
+        engine.domainLearningEnabled = false
+
+        await engine.analyzeToCompletionForTesting(observations: [first, removed], force: false)
+        XCTAssertEqual(engine.cacheCountForTesting, 2)
+
+        await engine.analyzeToCompletionForTesting(observations: [first], force: false)
+        XCTAssertEqual(engine.cacheCountForTesting, 1)
+    }
+
     func test_engineAndMergesRuleSafetyAcrossApps() async throws {
         let entries = [
             MistakeObservation(

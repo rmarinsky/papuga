@@ -169,6 +169,8 @@ final class PredictionEngine {
             query: ""
         )
         .filter { !known.contains(MistakeObservation.normalizedToken($0.source)) }
+        let activeGroupIDs = Set(groups.map(\.id))
+        cache = cache.filter { activeGroupIDs.contains($0.key) }
         currentGroups = groups
         groupsGeneration += 1
         clusteredGeneration = nil
