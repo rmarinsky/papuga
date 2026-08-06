@@ -606,6 +606,7 @@ final class AutoFixController {
                 targetLayoutID: targetID,
                 scoreOriginal: scoreOriginal,
                 scoreCandidate: scoreCandidate,
+                rawScoreCandidate: scoreCandidate,
                 threshold: threshold,
                 algorithm: algorithm,
                 currentLang: currentLang,
@@ -637,6 +638,7 @@ final class AutoFixController {
                 targetLayoutID: targetID,
                 scoreOriginal: scoreOriginal,
                 scoreCandidate: scoreCandidate,
+                rawScoreCandidate: scoreCandidate,
                 threshold: threshold,
                 algorithm: algorithm,
                 currentLang: currentLang,
@@ -829,6 +831,7 @@ final class AutoFixController {
                 targetLayoutID: targetID,
                 scoreOriginal: scoreOriginal,
                 scoreCandidate: effectiveScoreCandidate,
+                rawScoreCandidate: scoreCandidate,
                 threshold: effectiveThreshold,
                 algorithm: algorithm,
                 currentLang: currentLang,
@@ -887,6 +890,7 @@ final class AutoFixController {
             targetLayoutID: targetID,
             scoreOriginal: scoreOriginal,
             scoreCandidate: effectiveScoreCandidate,
+            rawScoreCandidate: scoreCandidate,
             threshold: effectiveThreshold,
             algorithm: algorithm,
             currentLang: currentLang,
@@ -1027,6 +1031,11 @@ final class AutoFixController {
         targetLayoutID: String,
         scoreOriginal: Double,
         scoreCandidate: Double,
+        // The un-boosted language score. `scoreCandidate` may carry the
+        // ProtectedLexicon adjustment, which says *which word* is meant — it is
+        // not evidence about how safe it is to skip the grace period. Only the
+        // instant-apply bypass reads this.
+        rawScoreCandidate: Double,
         threshold: Double,
         algorithm: LanguageScorerAlgorithm,
         currentLang: String,
@@ -1079,6 +1088,7 @@ final class AutoFixController {
                         targetLayoutID: targetLayoutID,
                         scoreOriginal: scoreOriginal,
                         scoreCandidate: scoreCandidate,
+                        rawScoreCandidate: rawScoreCandidate,
                         threshold: threshold,
                         algorithm: algorithm,
                         currentLang: currentLang,
@@ -1111,7 +1121,7 @@ final class AutoFixController {
 
         guard evidence == .strong else { return false }
         if case .replace = singleAction,
-           AutoFixDecision.shouldBypassLayoutIncidentGrace(scoreCandidate: scoreCandidate) {
+           AutoFixDecision.shouldBypassLayoutIncidentGrace(scoreCandidate: rawScoreCandidate) {
             return false
         }
         guard layoutIncident.append(token) != .wouldExceedCap else {
@@ -1865,9 +1875,19 @@ final class AutoFixController {
         Defaults[.customAutoReplaceRules] = rules
         cachedCustomRules = rules
 
-        var allowlist = Defaults[.autoFixAllowlist]
-        allowlist.removeAll { $0.caseInsensitiveCompare(proposal.original) == .orderedSame }
-        Defaults[.autoFixAllowlist] = allowlist
+        // The allowlist stores normalized cores (IgnoreWordService.add), so a
+        // raw comparison here silently kept the "never replace" entry alive and
+        // the brand-new rule could never fire. RecommendationEngine and
+        // AISuggestionApplier already normalize on this path.
+        let allowlistKey = BufferedToken.normalizedCore(from: proposal.original)
+        if !allowlistKey.isEmpty {
+            var allowlist = Defaults[.autoFixAllowlist]
+            allowlist.removeAll {
+                BufferedToken.normalizedCore(from: $0)
+                    .caseInsensitiveCompare(allowlistKey) == .orderedSame
+            }
+            Defaults[.autoFixAllowlist] = allowlist
+        }
     }
 
     private func canCreateRule(from proposal: AutoFixProposal) -> Bool {

@@ -176,9 +176,22 @@ enum AutoFixDecision {
         case containsForbiddenChars
     }
 
+    /// `IgnoreWordService.add` stores the *normalized core* of the word (edge
+    /// punctuation stripped), and `CorrectionKnowledgePunctuationMigration`
+    /// rewrote existing entries into that form. So the lookup has to normalize
+    /// too: the live path asks with the raw buffer text, which still carries
+    /// its edges. Comparing raw against a normalized store meant "Ніколи не
+    /// замінювати" on `.hsq` stored `hsq` and then never matched `.hsq` again.
+    ///
+    /// Both sides are normalized so legacy entries written before the
+    /// migration still match, and so callers that already pass `token.core`
+    /// (MistakeObservationEngine) are unaffected — normalization is idempotent.
     static func isInAllowlist(_ word: String, allowlist: [String]) -> Bool {
-        let normalized = word.lowercased()
-        return allowlist.contains { $0.lowercased() == normalized }
+        let normalized = BufferedToken.normalizedCore(from: word).lowercased()
+        guard !normalized.isEmpty else { return false }
+        return allowlist.contains {
+            BufferedToken.normalizedCore(from: $0).lowercased() == normalized
+        }
     }
 
     /// True when the word is in the system spell-check dictionary for the
