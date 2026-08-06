@@ -67,8 +67,21 @@ final class HybridSpellChecker: SpellCheckingClient {
         Set(lock.withLock { indexes.keys })
     }
 
+    /// Promote-only, exactly like `mappedSpellingStatus`: the overlays can
+    /// declare a word known, but only the system dictionary can declare one
+    /// wrong. This is the original invariant — "can only ever become more
+    /// lenient than the system checker, so enabling it can only remove false
+    /// positives, never add new ones" — which 65c6e8d replaced with an
+    /// outright `index.words[key] == nil`, making absence from a 50k list
+    /// proof of misspelling.
+    ///
+    /// The index consult is what lets the bundled supplement suppress domain
+    /// false positives (`пофіксити`, `фідбек`, `дедлайн`) — the flood the
+    /// whole SymSpell layer was added to fix.
     func isMisspelled(_ word: String, language: String) -> Bool {
-        if learnedKnown[language]?.contains(word.lowercased()) == true { return false }
+        let key = word.lowercased()
+        if learnedKnown[language]?.contains(key) == true { return false }
+        if lock.withLock({ indexes[language] })?.words[key] != nil { return false }
         return system.isMisspelled(word, language: language)
     }
 

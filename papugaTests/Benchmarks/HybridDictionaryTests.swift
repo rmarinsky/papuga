@@ -14,9 +14,20 @@ private final class AllCorrectSpellChecker: SpellCheckingClient {
 
 final class HybridDictionaryTests: XCTestCase {
 
+    /// Sizes reflect the filtered lists (see Resources/FrequencyWords/NOTICE.md):
+    /// the raw 50k dumps are cut down to what the macOS dictionary accepts,
+    /// which removes 18,904 uk entries — most of them Russian.
     func test_bundledFrequencyDictionariesLoad() {
-        XCTAssertGreaterThan(DictionaryBuilder.loadBundledBase(language: "uk").count, 49_000)
-        XCTAssertGreaterThan(DictionaryBuilder.loadBundledBase(language: "en").count, 49_000)
+        XCTAssertGreaterThan(DictionaryBuilder.loadBundledBase(language: "uk").count, 25_000)
+        XCTAssertGreaterThan(DictionaryBuilder.loadBundledBase(language: "en").count, 34_000)
+    }
+
+    /// The `#` comment markers in the hand-edited supplement must not become
+    /// dictionary words.
+    func test_bundledBaseSkipsCommentLines() {
+        let uk = DictionaryBuilder.loadBundledBase(language: "uk")
+        XCTAssertFalse(uk.contains { $0.0.hasPrefix("#") })
+        XCTAssertFalse(uk.contains { $0.0.isEmpty })
     }
 
     func test_builder_parse() {
@@ -162,16 +173,27 @@ final class HybridDictionaryTests: XCTestCase {
         }
     }
 
-    /// Documents the data problem that step 5 fixes: these are absent from the
-    /// list, which is precisely why the list must not be the authority.
-    func test_bundledUkrainianListHasNoApostropheForms() {
-        let base = DictionaryBuilder.loadBundledBase(language: "uk")
-        let withApostrophes = base.filter { entry in
-            entry.0.contains(where: { $0 == "'" || $0 == "\u{2019}" || $0 == "\u{02BC}" })
+    /// The upstream list has zero apostrophe forms; the supplement supplies
+    /// them so they carry a frequency signal for ranking. (They spell correctly
+    /// either way — macOS knows them — but without a count they sort last among
+    /// equally-distant guesses.)
+    func test_supplementSuppliesApostropheForms() {
+        let words = Set(DictionaryBuilder.loadBundledBase(language: "uk").map(\.0))
+        for word in ["п'ять", "м'ясо", "об'єкт", "сім'я", "здоров'я", "ім'я", "комп'ютер"] {
+            XCTAssertTrue(words.contains(word), "\(word) missing from the bundled uk vocabulary")
         }
-        XCTAssertTrue(
-            withApostrophes.isEmpty,
-            "the list gained apostrophe forms — revisit the comment on mappedSpellingStatus"
-        )
+    }
+
+    /// The regenerated list must not readmit Russian as valid Ukrainian.
+    func test_ukrainianListNoLongerCarriesRussian() {
+        let words = Set(DictionaryBuilder.loadBundledBase(language: "uk").map(\.0))
+        for word in ["что", "это", "если", "тебя", "ничего", "пожалуйста"] {
+            XCTAssertFalse(words.contains(word), "\(word) is Russian and must not be in the uk list")
+        }
+        // Genuinely shared words must survive — this is why the filter defers
+        // to the macOS dictionary instead of subtracting a Russian lexicon.
+        for word in ["так", "він", "тебе", "привіт", "дякую"] {
+            XCTAssertTrue(words.contains(word), "\(word) was over-filtered out of the uk list")
+        }
     }
 }
