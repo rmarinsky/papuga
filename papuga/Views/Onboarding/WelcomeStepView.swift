@@ -13,9 +13,8 @@ struct WelcomeStepView: View {
                         RoundedRectangle(cornerRadius: 18, style: .continuous)
                             .fill(Color("BrandTintSoft"))
                             .frame(width: 76, height: 76)
-                        Image(systemName: "bird.fill")
-                            .font(.system(size: 38, weight: .semibold))
-                            .foregroundStyle(Color("BrandAccent"))
+                        Text("🦜")
+                            .font(.system(size: 42))
                     }
                     .padding(.top, 20)
 
