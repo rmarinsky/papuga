@@ -105,6 +105,21 @@ struct FocusedElementSignature: Equatable {
             return false
         }
 
+        // Deliberate early return: when both signatures expose a caret, caret
+        // arithmetic alone decides, *before* windowTitleHash / frameHash /
+        // stableIdentity are consulted. This reads like a missing identity
+        // check, and it is not — those fields are unstable in exactly the
+        // editors that do expose a caret. Browser tabs retitle while you type,
+        // documents gain an "edited" marker, and chat composers grow and
+        // scroll, all of which change the identity mid-word and would drop a
+        // correction the user was mid-way through earning.
+        //
+        // The residual risk is a same-role sibling field whose caret happens to
+        // land on start + expectedCaretAdvance. `captureReplacementAnchor`
+        // catches that by reading the text back before mutating, so this
+        // shortcut is only load-bearing where the readback also fails.
+        // Pinned by AutoFixTargetValidatorTests
+        // .allowsDynamicGeometryWithoutIdentifierWhenCaretMatches.
         if let selectedRangeLocation,
            let otherLocation = other.selectedRangeLocation {
             return otherLocation == selectedRangeLocation + expectedCaretAdvance
@@ -424,24 +439,51 @@ final class AutoFixTargetValidator {
         )
     }
 
+    /// Largest token this path will blind-delete.
+    ///
+    /// The fallback fires Delete keystrokes without being able to read the
+    /// field back, so the count is asserted, not verified. A single typed token
+    /// between whitespace boundaries is short; anything long means the anchor's
+    /// `expectedSource` no longer describes reality, and the safe answer is to
+    /// do nothing rather than eat an unknown amount of the user's text.
+    nonisolated static let maxUnverifiedDeleteCharacters = 48
+
     nonisolated static func keyboardFallbackPlan(
         source: String,
         boundary: String,
         replacement: String
     ) -> KeyboardFallbackPlan? {
         guard boundary == " " else { return nil }
+        // Deleting nothing then typing a replacement would duplicate text.
+        guard !source.isEmpty, !replacement.isEmpty else { return nil }
+        guard source.count <= maxUnverifiedDeleteCharacters else { return nil }
         return KeyboardFallbackPlan(
+            // Grapheme count, deliberately — unlike every AX range in this file,
+            // which is UTF-16. One Delete keypress removes one user-perceived
+            // character, so an emoji (2 UTF-16 units) still takes one press.
+            // Counting UTF-16 here would over-delete.
             deleteCount: source.count + 1,
             replacement: replacement + boundary
         )
     }
 
+    /// `selection == nil` means the editor exposes no AX text range at all —
+    /// Chrome and similar web editors. That case is allowed on purpose (see
+    /// e93324d); refusing it would remove AutoFix from web fields entirely.
+    ///
+    /// It is the weakest guarantee in the app: the replacement is posted blind
+    /// and, because `replaceAnchoredText` returns no recovery anchor for it,
+    /// **no undo is offered** — precisely where the mutation is least verified.
+    /// The delete count is bounded in `keyboardFallbackPlan` so the blast
+    /// radius is at least fixed.
     nonisolated static func canUseKeyboardFallback(
         boundary: String,
         selection: AXTextRange?,
         sourceRange: AXTextRange?
     ) -> Bool {
         guard boundary == " " else { return false }
+        // A non-collapsed selection means the user has text selected; deleting
+        // backwards from there would destroy it.
         guard let selection else { return true }
         return selection.length == 0 && sourceRange != nil
     }

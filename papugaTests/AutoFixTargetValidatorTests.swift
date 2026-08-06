@@ -184,6 +184,48 @@ final class AutoFixTargetValidatorTests: XCTestCase {
         ))
     }
 
+    /// This path deletes without being able to read the field back, so the
+    /// count is asserted rather than verified. A long `expectedSource` means
+    /// the anchor no longer describes reality; do nothing rather than eat an
+    /// unknown amount of the user's text.
+    func test_keyboardFallbackPlan_refusesToBlindDeleteAnImplausiblyLongToken() {
+        let cap = AutoFixTargetValidator.maxUnverifiedDeleteCharacters
+        XCTAssertNotNil(AutoFixTargetValidator.keyboardFallbackPlan(
+            source: String(repeating: "a", count: cap),
+            boundary: " ",
+            replacement: "ok"
+        ))
+        XCTAssertNil(AutoFixTargetValidator.keyboardFallbackPlan(
+            source: String(repeating: "a", count: cap + 1),
+            boundary: " ",
+            replacement: "ok"
+        ))
+    }
+
+    /// Deleting nothing and then typing would duplicate text rather than
+    /// replace it.
+    func test_keyboardFallbackPlan_refusesEmptySourceOrReplacement() {
+        XCTAssertNil(AutoFixTargetValidator.keyboardFallbackPlan(
+            source: "", boundary: " ", replacement: "привіт"
+        ))
+        XCTAssertNil(AutoFixTargetValidator.keyboardFallbackPlan(
+            source: "ghbdsn", boundary: " ", replacement: ""
+        ))
+    }
+
+    /// Backspace removes one user-perceived character, so the count is
+    /// grapheme-based even though every AX range in that file is UTF-16.
+    /// Counting UTF-16 here would over-delete on emoji and combining marks.
+    func test_keyboardFallbackPlan_countsGraphemesNotUTF16Units() throws {
+        let plan = try XCTUnwrap(AutoFixTargetValidator.keyboardFallbackPlan(
+            source: "ab🇺🇦é",           // 4 graphemes, more UTF-16 units
+            boundary: " ",
+            replacement: "ok"
+        ))
+        XCTAssertEqual(plan.deleteCount, 5, "should be 4 graphemes + the boundary")
+        XCTAssertGreaterThan("ab🇺🇦é".utf16.count, 4, "test string must actually differ")
+    }
+
     func test_keyboardFallbackPolicy_acceptsMissingWebEditorSelectionOnlyForSpace() {
         XCTAssertTrue(AutoFixTargetValidator.canUseKeyboardFallback(
             boundary: " ",
