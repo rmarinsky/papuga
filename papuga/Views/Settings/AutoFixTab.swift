@@ -186,7 +186,17 @@ struct AutoFixTab: View {
     }
 }
 
-private enum AutoFixSensitivityPreset: String, CaseIterable, Identifiable {
+/// Two independent axes, not one "aggressiveness" dial:
+/// `threshold` gates *silent* auto-replacement (higher = replaces less) and
+/// `proposalWindow` gates how much of the sub-threshold band becomes a visible
+/// proposal (wider = hints more). So `moreHints` deliberately has both the
+/// highest threshold and the widest window: it trades silent replacement for
+/// visible suggestions. Do not "fix" that into a monotonic threshold ramp.
+///
+/// `balanced` is the shipped default; keep it in sync with
+/// `Defaults.Keys.autoFixThreshold` / `.autoFixProposalWindow`.
+/// Internal rather than private so tests can assert that coupling.
+enum AutoFixSensitivityPreset: String, CaseIterable, Identifiable {
     case careful
     case balanced
     case moreHints

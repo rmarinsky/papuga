@@ -137,7 +137,12 @@ extension Defaults.Keys {
 
     static let autoFixEnabled = Key<Bool>("autoFixEnabled", default: true)
     static let autoFixAlgorithm = Key<String>("autoFixAlgorithm", default: LanguageScorerAlgorithm.appleNL.rawValue)
-    static let autoFixThreshold = Key<Double>("autoFixThreshold", default: 0.3)
+    /// Must stay in sync with `AutoFixSensitivityPreset.balanced`. The Settings
+    /// picker labels the current state by finding the nearest preset, so a
+    /// default that matches none of them made a fresh install display
+    /// "Збалансовано" while actually running a lower (more eager) threshold
+    /// than every preset on offer, `Обмежено` included.
+    static let autoFixThreshold = Key<Double>("autoFixThreshold", default: 0.35)
     /// Minimum gap between the top two candidate layouts' scores before we trust the winner. When
     /// two layouts (e.g. Ukrainian vs Russian) score within this margin the direction is ambiguous,
     /// so we surface a proposal instead of silently auto-applying a guess. 0 = always pick the top.
@@ -156,7 +161,10 @@ extension Defaults.Keys {
     static let autoFixSpellingTypoGuardMinWordLength = Key<Int>("autoFixSpellingTypoGuardMinWordLength", default: 4)
     static let autoFixSpellingTypoGuardMaxEditDistance = Key<Int>("autoFixSpellingTypoGuardMaxEditDistance", default: 1)
     static let autoFixProposalEnabled = Key<Bool>("autoFixProposalEnabled", default: true)
-    static let autoFixProposalWindow = Key<Double>("autoFixProposalWindow", default: 0.12)
+    /// Must stay in sync with `AutoFixSensitivityPreset.balanced` — see
+    /// `autoFixThreshold`. The old 0.12 also contradicted
+    /// docs/autofix-analysis-and-guardrails.md, which documents 0.22.
+    static let autoFixProposalWindow = Key<Double>("autoFixProposalWindow", default: 0.22)
     static let autoFixAppPolicyOverrides = Key<[String: String]>("autoFixAppPolicyOverrides", default: [:])
     static let autoFixLayoutSwitchPolicy = Key<String>(
         "autoFixLayoutSwitchPolicy",
