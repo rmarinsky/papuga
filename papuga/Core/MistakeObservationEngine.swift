@@ -440,12 +440,17 @@ final class MistakeSuggestionAnalyzer {
                     && isValidGeneratedCandidate(fullCore, language: targetLanguage)
                 let coreIsValid = !coreMapped.isEmpty
                     && isValidGeneratedCandidate(coreMapped, language: targetLanguage)
+                // "No dictionary could answer" is not "the dictionary said no".
+                let unverifiable = !fullIsValid && !coreIsValid
+                    && (isNotRejectedCandidate(fullCore, language: targetLanguage)
+                        || isNotRejectedCandidate(coreMapped, language: targetLanguage))
                 let decision = LayoutInterpretationPolicy.select(
                     token: token,
                     fullMapped: fullMapped,
                     coreMapped: coreMapped,
                     fullIsValid: fullIsValid,
                     coreIsValid: coreIsValid,
+                    unverifiable: unverifiable,
                     boundary: ""
                 )
                 for plan in decision.suggestions {
@@ -552,12 +557,21 @@ final class MistakeSuggestionAnalyzer {
         return result
     }
 
+    /// A hard filter: only dictionary-attested words may be *invented* by
+    /// Papuga (adjacency edits). `mappedSpellingStatus` now consults the system
+    /// dictionary itself, so the old `.unavailable` fallback to `isMisspelled`
+    /// would just be a second, redundant NSSpellChecker round-trip.
     private func isValidGeneratedCandidate(_ word: String, language: String) -> Bool {
-        switch spellChecker.mappedSpellingStatus(word, language: language) {
-        case .correct: return true
-        case .misspelled: return false
-        case .unavailable: return !spellChecker.isMisspelled(word, language: language)
-        }
+        spellChecker.mappedSpellingStatus(word, language: language) == .correct
+    }
+
+    /// Weaker question, for the full-token vs core-only layout interpretation.
+    /// That choice is a *tie-break* between two readings of the same keystrokes,
+    /// not an invention, so "no dictionary could answer" must not read the same
+    /// as "the dictionary said no" — otherwise a whole target language without
+    /// a dictionary loses its layout candidates entirely.
+    private func isNotRejectedCandidate(_ word: String, language: String) -> Bool {
+        spellChecker.mappedSpellingStatus(word, language: language) != .misspelled
     }
 
     private func ensureMapped(layoutID: String, layoutManager: LayoutManager) -> Bool {

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// Hybrid spell-check client: the authoritative system checker, plus SymSpell
@@ -53,10 +54,48 @@ final class HybridSpellChecker: SpellCheckingClient {
         return system.isMisspelled(word, language: language)
     }
 
+    /// The frequency index may only ever **promote** a word to `.correct`; it
+    /// may never demote one to `.misspelled`.
+    ///
+    /// The index is 50k conversational surface forms per language. It is a good
+    /// "this is definitely a word" signal and a hopeless "this is definitely
+    /// not a word" signal: it contains no Ukrainian apostrophe forms at all
+    /// (`п'ять`, `м'ясо`, `об'єкт`…) and only a fraction of an inflected
+    /// language's forms. Treating absence as proof of misspelling is what made
+    /// correct-but-uncommon Ukrainian unfixable.
+    ///
+    /// So the ordering is: learned overlay, then index overlay, then the
+    /// system dictionary as the actual authority. That restores the invariant
+    /// this file was written with — the index can only remove false positives,
+    /// never add new ones — and makes the async `installIndexes` load
+    /// behaviourally invisible rather than a silent first-run quality cliff.
+    ///
+    /// `.unavailable` now means "no authority can answer for this language",
+    /// not "no SymSpell index" (which was always true for ru/pl/de). Asking
+    /// NSSpellChecker about a language it does not support silently falls back
+    /// to automatic detection and returns nonsense, so that case must stay
+    /// distinguishable from a real verdict.
     func mappedSpellingStatus(_ word: String, language: String) -> MappedSpellingStatus {
-        if learnedKnown[language]?.contains(word.lowercased()) == true { return .correct }
-        guard let index = lock.withLock({ indexes[language] }) else { return .unavailable }
-        return index.words[word.lowercased()] == nil ? .misspelled : .correct
+        let key = word.lowercased()
+        if learnedKnown[language]?.contains(key) == true { return .correct }
+        if lock.withLock({ indexes[language] })?.words[key] != nil { return .correct }
+        guard Self.systemSupports(language) else { return .unavailable }
+        return system.isMisspelled(word, language: language) ? .misspelled : .correct
+    }
+
+    /// `NSSpellChecker.availableLanguages` is a stable, cheap-to-snapshot list,
+    /// but it is an IPC round-trip, so take it once.
+    private static let supportedSystemLanguages: Set<String> = {
+        Set(NSSpellChecker.shared.availableLanguages.map { code in
+            // Entries look like "uk", "en_GB", "pt_PT" — compare on the base.
+            String(code.prefix(while: { $0 != "_" && $0 != "-" })).lowercased()
+        })
+    }()
+
+    static func systemSupports(_ language: String) -> Bool {
+        let base = String(language.prefix(while: { $0 != "_" && $0 != "-" })).lowercased()
+        guard !base.isEmpty else { return false }
+        return supportedSystemLanguages.contains(base)
     }
 
     func guesses(for word: String, language: String) -> [String] {

@@ -654,7 +654,49 @@ final class AutoFixController {
         }
 
         let mappedSpellingStatus = spellChecker.mappedSpellingStatus(candidate, language: targetLang)
-        if AutoFixDecision.shouldSuppressLayoutReplacement(mappedSpellingStatus: mappedSpellingStatus) {
+        let layoutGate = AutoFixDecision.layoutReplacementGate(
+            mappedSpellingStatus: mappedSpellingStatus,
+            candidateIsWordLike: WordPlausibility.isWordLike(candidate)
+        )
+        switch layoutGate {
+        case .allow:
+            break
+
+        case .requireProposal:
+            // No dictionary can vouch for this target — an unsupported target
+            // language, or the launch window before the index lands. Papuga
+            // used to go silent here, which killed layout auto-fix outright for
+            // ru/pl/de. Offer it instead of asserting it.
+            observeMistakeCandidate(word: word, language: currentLang, bundleID: bundleID)
+            guard appPolicy.allowsProposal, Defaults[.autoFixProposalEnabled] else {
+                logSkip(.belowThreshold, word: word, bundleID: bundleID, extra: [
+                    "candidate": .string(candidate),
+                    "to_lang": .string(targetLang),
+                    "mapped_spelling": .string("unavailable")
+                ])
+                resetLayoutIncident()
+                return
+            }
+            maybeShowProposal(
+                original: word,
+                candidate: candidate,
+                boundary: boundary,
+                fromLayoutID: currentID,
+                targetLayoutID: targetID,
+                scoreOriginal: scoreOriginal,
+                scoreCandidate: scoreCandidate,
+                threshold: threshold,
+                algorithm: algorithm,
+                currentLang: currentLang,
+                targetLang: targetLang,
+                bundleID: bundleID,
+                targetSession: targetSession,
+                force: true
+            )
+            resetLayoutIncident()
+            return
+
+        case .suppress:
             observeMistakeCandidate(word: word, language: currentLang, bundleID: bundleID)
             if mappedSpellingStatus == .misspelled,
                let compound = AutoFixDecision.compoundLayoutSpellingSuggestion(

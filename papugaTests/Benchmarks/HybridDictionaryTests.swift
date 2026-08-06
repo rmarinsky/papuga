@@ -70,23 +70,108 @@ final class HybridDictionaryTests: XCTestCase {
         XCTAssertTrue(guesses.contains("systemguess"))   // system guess still merged in
     }
 
-    func test_hybrid_usesStrictIndexOnlyForMappedCandidates() {
+    /// The core invariant: the frequency index may only ever **promote** a word
+    /// to `.correct`. It is 50k conversational surface forms — a good "this is
+    /// a word" signal and a hopeless "this is not a word" signal (it contains
+    /// no Ukrainian apostrophe forms at all). When it was treated as
+    /// authoritative, every correct-but-uncommon word became `.misspelled` and
+    /// layout auto-fix failed closed on it.
+    func test_hybrid_indexPromotesButNeverDemotes() {
         let indexes = DictionaryBuilder.build(
             base: ["uk": [("привіт", 100)]],
             learned: [:]
         )
         let hybrid = HybridSpellChecker(system: AllCorrectSpellChecker(), indexes: indexes)
 
-        XCTAssertFalse(hybrid.isMisspelled("привіт", language: "uk"))
-        XCTAssertFalse(hybrid.isMisspelled("привчт", language: "uk"))
+        // In the index → correct, regardless of the system checker.
         XCTAssertEqual(hybrid.mappedSpellingStatus("привіт", language: "uk"), .correct)
-        XCTAssertEqual(hybrid.mappedSpellingStatus("привчт", language: "uk"), .misspelled)
+        // Absent from the index but the system accepts it → still correct.
+        XCTAssertEqual(hybrid.mappedSpellingStatus("привчт", language: "uk"), .correct)
     }
 
-    func test_hybrid_withoutIndexFallsBackToSystem() {
+    func test_hybrid_systemRejectionStillFailsClosed() {
+        let indexes = DictionaryBuilder.build(base: ["uk": [("привіт", 100)]], learned: [:])
+        let hybrid = HybridSpellChecker(system: AllWrongSpellChecker(), indexes: indexes)
+
+        // Index promotes it even though the system rejects everything.
+        XCTAssertEqual(hybrid.mappedSpellingStatus("привіт", language: "uk"), .correct)
+        // Nothing vouches for this one and the system rejects it → suppress.
+        XCTAssertEqual(hybrid.mappedSpellingStatus("кнокп", language: "uk"), .misspelled)
+    }
+
+    /// A learned word is correct even when neither the index nor the system
+    /// knows it — that is the whole point of the overlay.
+    func test_hybrid_learnedOverlayPromotesWithoutAnIndex() {
+        let hybrid = HybridSpellChecker(
+            system: AllWrongSpellChecker(),
+            learnedKnown: ["uk": ["пофіксити"]]
+        )
+        XCTAssertEqual(hybrid.mappedSpellingStatus("пофіксити", language: "uk"), .correct)
+        XCTAssertEqual(hybrid.mappedSpellingStatus("ПОФІКСИТИ", language: "uk"), .correct)
+    }
+
+    /// Without an index the system checker is the authority — which is what
+    /// this test always claimed to assert. It previously reported
+    /// `.unavailable` instead, so every layout replacement into a language with
+    /// no bundled index (ru, pl, de, fr…) was suppressed outright.
+    func test_hybrid_withoutIndexFallsBackToSystem() throws {
+        try XCTSkipUnless(
+            HybridSpellChecker.systemSupports("fr"),
+            "macOS on this machine has no French dictionary"
+        )
         let hybrid = HybridSpellChecker(system: AllWrongSpellChecker())
         XCTAssertTrue(hybrid.isMisspelled("anything", language: "fr"))
         XCTAssertEqual(hybrid.guesses(for: "anything", language: "fr"), ["systemguess"])
-        XCTAssertEqual(hybrid.mappedSpellingStatus("anything", language: "fr"), .unavailable)
+        XCTAssertEqual(hybrid.mappedSpellingStatus("anything", language: "fr"), .misspelled)
+    }
+
+    /// `.unavailable` now means "no authority can answer", not "no SymSpell
+    /// index". Asking NSSpellChecker about a language it does not support
+    /// silently falls back to automatic detection and returns nonsense, so that
+    /// case has to stay distinguishable from a real verdict.
+    func test_hybrid_unsupportedLanguageIsUnavailableRatherThanMisspelled() {
+        let hybrid = HybridSpellChecker(system: AllWrongSpellChecker())
+        XCTAssertFalse(HybridSpellChecker.systemSupports("zz"))
+        XCTAssertEqual(hybrid.mappedSpellingStatus("anything", language: "zz"), .unavailable)
+    }
+
+    func test_systemSupports_matchesOnTheBaseLanguageCode() {
+        // macOS reports regional variants like "en_GB"; a bare "en" must match.
+        XCTAssertTrue(HybridSpellChecker.systemSupports("en"))
+        XCTAssertTrue(HybridSpellChecker.systemSupports("en_US"))
+        XCTAssertFalse(HybridSpellChecker.systemSupports(""))
+    }
+
+    /// End-to-end against the real bundled lists + the real system dictionary.
+    ///
+    /// The bundled `frequency_uk.txt` contains **zero** apostrophe forms, so
+    /// while the index was authoritative every one of these was `.misspelled`:
+    /// layout auto-fix failed closed on them and the compound path offered a
+    /// different, more frequent word instead. macOS does know them.
+    func test_realDictionary_acceptsUkrainianApostropheForms() throws {
+        try XCTSkipUnless(
+            HybridSpellChecker.systemSupports("uk"),
+            "macOS on this machine has no Ukrainian dictionary"
+        )
+        let hybrid = HybridSpellChecker()
+        for word in ["п'ять", "м'ясо", "об'єкт", "сім'я", "здоров'я", "ім'я"] {
+            XCTAssertEqual(
+                hybrid.mappedSpellingStatus(word, language: "uk"), .correct,
+                "\(word) must not be treated as a layout-fix blocker"
+            )
+        }
+    }
+
+    /// Documents the data problem that step 5 fixes: these are absent from the
+    /// list, which is precisely why the list must not be the authority.
+    func test_bundledUkrainianListHasNoApostropheForms() {
+        let base = DictionaryBuilder.loadBundledBase(language: "uk")
+        let withApostrophes = base.filter { entry in
+            entry.0.contains(where: { $0 == "'" || $0 == "\u{2019}" || $0 == "\u{02BC}" })
+        }
+        XCTAssertTrue(
+            withApostrophes.isEmpty,
+            "the list gained apostrophe forms — revisit the comment on mappedSpellingStatus"
+        )
     }
 }

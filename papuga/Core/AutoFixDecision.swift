@@ -7,11 +7,51 @@ struct SpellingTypoGuardAssessment: Equatable {
     let editDistance: Int?
 }
 
+/// What to do with a layout candidate once the dictionary has had its say.
+/// The previous boolean collapsed three genuinely different situations into
+/// "suppress", which is why an unsupported target language and a word the
+/// dictionary actively rejects were treated identically.
+enum LayoutReplacementGate: Equatable {
+    /// The target is dictionary-attested. Continue to scoring.
+    case allow
+    /// Plausible, but nothing can verify it — suggest, never silently mutate.
+    case requireProposal
+    /// A dictionary says the target is not a word. Fail closed.
+    case suppress
+}
+
 enum AutoFixDecision {
+    /// Preserves the fail-closed intent this gate was added with — a target the
+    /// dictionary rejects is still never auto-replaced — while no longer
+    /// treating "we have no dictionary for this language" as the same thing.
+    ///
+    /// `.unavailable` used to mean silence: layout auto-fix was entirely dead
+    /// for any target language without a bundled index (ru, pl, de, …) and for
+    /// every language during the async index load at launch. A word-like
+    /// candidate in that state is now offered as a proposal, which is the
+    /// honest answer — Papuga thinks this is the fix but cannot prove it.
+    static func layoutReplacementGate(
+        mappedSpellingStatus: MappedSpellingStatus,
+        candidateIsWordLike: Bool
+    ) -> LayoutReplacementGate {
+        switch mappedSpellingStatus {
+        case .correct:
+            return .allow
+        case .misspelled:
+            return .suppress
+        case .unavailable:
+            return candidateIsWordLike ? .requireProposal : .suppress
+        }
+    }
+
     static func shouldSuppressLayoutReplacement(
-        mappedSpellingStatus: MappedSpellingStatus
+        mappedSpellingStatus: MappedSpellingStatus,
+        candidateIsWordLike: Bool = false
     ) -> Bool {
-        mappedSpellingStatus != .correct
+        layoutReplacementGate(
+            mappedSpellingStatus: mappedSpellingStatus,
+            candidateIsWordLike: candidateIsWordLike
+        ) == .suppress
     }
 
     static func compoundLayoutSpellingSuggestion(

@@ -128,12 +128,19 @@ struct LayoutInterpretationDecision: Equatable {
 }
 
 enum LayoutInterpretationPolicy {
+    /// - Parameter unverifiable: neither reading is dictionary-attested, but
+    ///   no dictionary actually *rejected* them either — there is simply no
+    ///   authority for that language (or it has not loaded yet). Distinguishing
+    ///   this from a real rejection keeps layout candidates alive for target
+    ///   languages macOS has no dictionary for; they come back as
+    ///   suggestion-only so they can be offered but never silently applied.
     static func select(
         token: BufferedToken,
         fullMapped: String,
         coreMapped: String,
         fullIsValid: Bool,
         coreIsValid: Bool,
+        unverifiable: Bool = false,
         boundary: String
     ) -> LayoutInterpretationDecision {
         let fullPlan = ReplacementPlan(
@@ -162,7 +169,18 @@ enum LayoutInterpretationPolicy {
         case (false, true):
             return LayoutInterpretationDecision(kind: .replace, suggestions: [corePlan])
         case (false, false):
-            return LayoutInterpretationDecision(kind: .rejected, suggestions: [])
+            guard unverifiable else {
+                return LayoutInterpretationDecision(kind: .rejected, suggestions: [])
+            }
+            // Offer the reading that at least looks like a word; if both do,
+            // the core plan wins because it preserves the user's punctuation.
+            let plans = [corePlan, fullPlan].filter {
+                WordPlausibility.isWordLike($0.correctedCore)
+            }
+            guard let best = plans.first else {
+                return LayoutInterpretationDecision(kind: .rejected, suggestions: [])
+            }
+            return LayoutInterpretationDecision(kind: .suggestionOnly, suggestions: [best])
         }
     }
 }
