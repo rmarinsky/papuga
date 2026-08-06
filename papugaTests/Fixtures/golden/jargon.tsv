@@ -1,0 +1,19 @@
+# Domain vocabulary the user actually types. RESULTS.md identified exactly
+# this class as the real source of the "819 open groups" flood -- not layout
+# errors. These are expected to fail until domain learning or a supplement
+# covers them; the floor records how many currently do.
+# input	language	expected	verdict
+пофіксити	uk	-	nofix
+фідбек	uk	-	nofix
+дедлайн	uk	-	nofix
+рефакторинг	uk	-	nofix
+деплой	uk	-	nofix
+реліз	uk	-	nofix
+мерджити	uk	-	nofix
+комміт	uk	-	nofix
+бекенд	uk	-	nofix
+фронтенд	uk	-	nofix
+репозиторій	uk	-	nofix
+плейрайт	uk	-	nofix
+віджет	uk	-	nofix
+скріншот	uk	-	nofix

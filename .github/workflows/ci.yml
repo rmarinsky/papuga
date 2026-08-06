@@ -64,3 +64,25 @@ jobs:
             -only-testing:papugaTests \
             CODE_SIGNING_ALLOWED=NO \
             | xcbeautify --renderer github-actions
+
+      # Separate step so a suggestion-quality regression is legible as itself
+      # rather than as one failure among 370. Prints the per-bucket table; the
+      # floors live in papugaTests/Fixtures/golden/thresholds.json.
+      # Buckets whose language has no macOS dictionary on the runner skip
+      # loudly rather than silently passing.
+      - name: Check prediction quality against golden corpus
+        run: |
+          set -o pipefail
+          xcodebuild test-without-building \
+            -project papuga.xcodeproj \
+            -scheme papuga \
+            -destination 'platform=macOS' \
+            -clonedSourcePackagesDirPath "$SWIFTPM_PACKAGES_PATH" \
+            -only-testing:papugaTests/PredictionQualityTests \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee quality.log \
+            | xcbeautify --renderer github-actions
+          echo '### Prediction quality' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          sed -n '/=== Prediction quality ===/,/^$/p' quality.log >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

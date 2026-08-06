@@ -49,6 +49,16 @@ final class HybridSpellChecker: SpellCheckingClient {
         lock.withLock { self.indexes = indexes }
     }
 
+    /// Which languages currently have a frequency index installed.
+    ///
+    /// `production` builds its indexes on a background queue, so anything
+    /// measuring guess *quality* has to wait for them rather than silently
+    /// sampling the pre-load state. Correctness no longer depends on this —
+    /// the index only promotes — but ranking does.
+    var indexedLanguages: Set<String> {
+        Set(lock.withLock { indexes.keys })
+    }
+
     func isMisspelled(_ word: String, language: String) -> Bool {
         if learnedKnown[language]?.contains(word.lowercased()) == true { return false }
         return system.isMisspelled(word, language: language)

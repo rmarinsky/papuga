@@ -1,0 +1,16 @@
+# frequency_uk.txt carries 3206 entries with Russian-only letters, and `что`
+# is its 8th most frequent "Ukrainian" word (49617). Because the index
+# promotes anything it contains, these are accepted as valid Ukrainian --
+# so a layout flip can land on a Russian word and a guess can rank one above
+# the genuine Ukrainian form.
+#
+# `verdict = fix` because these ARE mistakes when typing Ukrainian. Expect
+# this bucket to stay at zero until the frequency list is regenerated
+# (plan step 5); the floor records that.
+# input	language	expected	verdict
+что	uk	що	fix
+это	uk	це	fix
+если	uk	якщо	fix
+тебя	uk	тебе	fix
+ничего	uk	нічого	fix
+пожалуйста	uk	будь ласка	fix

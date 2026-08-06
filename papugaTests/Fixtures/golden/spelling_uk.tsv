@@ -1,0 +1,10 @@
+# Ukrainian typos must still get corrected.
+# input	language	expected	verdict
+привт	uk	привіт	fix
+дякуую	uk	дякую	fix
+сьогодн	uk	сьогодні	fix
+питанння	uk	питання	fix
+робти	uk	робити	fix
+клавіатра	uk	клавіатура	fix
+налаштуванння	uk	налаштування	fix
+відповдь	uk	відповідь	fix

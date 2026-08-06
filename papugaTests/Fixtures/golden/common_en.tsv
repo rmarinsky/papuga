@@ -1,0 +1,17 @@
+# Ordinary correct English. These are the words a false positive would ruin.
+# input	language	expected	verdict
+hello	en	-	nofix
+world	en	-	nofix
+faster	en	-	nofix
+because	en	-	nofix
+keyboard	en	-	nofix
+layout	en	-	nofix
+settings	en	-	nofix
+between	en	-	nofix
+another	en	-	nofix
+question	en	-	nofix
+release	en	-	nofix
+version	en	-	nofix
+support	en	-	nofix
+already	en	-	nofix
+example	en	-	nofix

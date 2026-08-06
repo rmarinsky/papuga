@@ -1,0 +1,26 @@
+{
+  "_comment": [
+    "Floors, not targets. Measured after the spelling-authority fix and before",
+    "the ranking rework and the frequency-list regeneration, so several buckets",
+    "are deliberately recorded as known-bad:",
+    "  jargon.maxFPRate 0.36        - 5/14 domain words still flagged; needs the",
+    "                                 supplement + domain learning (plan step 5).",
+    "  russian_contamination         - the uk list promotes `что`/`это`/`если`,",
+    "    minTop1 0.0, minCoverage 0.33  so they are accepted as valid Ukrainian.",
+    "                                 Fixed by regenerating the list (step 5).",
+    "  spelling_en.minTop1 0.50      - the confidence scalar collapses",
+    "                                 same-distance guesses and tie-breaks",
+    "                                 alphabetically; needs tiers (step 4).",
+    "The suite fails below these and prints a replacement block when it beats",
+    "them. Raising a floor is a deliberate, reviewable diff."
+  ],
+  "buckets" : {
+    "apostrophe" : { "minTop1" : 0, "minCoverage" : 0, "maxFPRate" : 0.0 },
+    "common_en" : { "minTop1" : 0, "minCoverage" : 0, "maxFPRate" : 0.0 },
+    "common_uk" : { "minTop1" : 0, "minCoverage" : 0, "maxFPRate" : 0.0 },
+    "jargon" : { "minTop1" : 0, "minCoverage" : 0, "maxFPRate" : 0.36 },
+    "russian_contamination" : { "minTop1" : 0.0, "minCoverage" : 0.33, "maxFPRate" : 1 },
+    "spelling_en" : { "minTop1" : 0.5, "minCoverage" : 0.83, "maxFPRate" : 1 },
+    "spelling_uk" : { "minTop1" : 0.75, "minCoverage" : 1.0, "maxFPRate" : 1 }
+  }
+}
