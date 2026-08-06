@@ -152,7 +152,11 @@ extension Defaults.Keys {
         "autoFixTwoCharacterMinimumMigrated",
         default: false
     )
-    static let autoFixUndoWindow = Key<Double>("autoFixUndoWindow", default: 1.5)
+    // `autoFixUndoWindow` was removed: nothing read it. Backspace deliberately
+    // does not undo a fix (AutoFixController.handleBackspace just clears
+    // `lastFix`), so the Settings slider it backed promised a behaviour that
+    // does not exist. Undo is the toast / the global shortcut, both of which
+    // are bounded by anchor re-validation rather than by a timer.
     static let autoFixBlocklist = Key<[String]>("autoFixBlocklist", default: [])
     static let autoFixAllowlist = Key<[String]>("autoFixAllowlist", default: [])
     static let autoFixToastEnabled = Key<Bool>("autoFixToastEnabled", default: true)

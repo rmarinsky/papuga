@@ -3,7 +3,6 @@ import Defaults
 
 struct AutoFixTab: View {
     @Default(.autoFixEnabled) private var autoFixEnabled
-    @Default(.autoFixUndoWindow) private var autoFixUndoWindow
     @Default(.autoFixBlocklist) private var autoFixBlocklist
     @Default(.autoFixToastEnabled) private var autoFixToastEnabled
     @Default(.autoFixAlgorithm) private var autoFixAlgorithm
@@ -23,15 +22,6 @@ struct AutoFixTab: View {
         Form {
             Section("Автозаміна під час набору") {
                 Toggle("Увімкнути автозаміну", isOn: $autoFixEnabled)
-
-                VStack(alignment: .leading) {
-                    HStack {
-                        Text("Вікно для скасування (Backspace)")
-                        Spacer()
-                        Text(String(format: "%.1f сек", autoFixUndoWindow)).monospacedDigit()
-                    }
-                    Slider(value: $autoFixUndoWindow, in: 0.5...3.0, step: 0.1)
-                }
 
                 Toggle("Показувати папугу-сальто біля курсора", isOn: $autoFixToastEnabled)
                 Text("Якщо клікнути по папузі — поточна заміна скасується. Протягом 10 секунд її можна застосувати знову.")
@@ -80,7 +70,7 @@ struct AutoFixTab: View {
                 }
                 .pickerStyle(.menu)
 
-                Text("Адаптивний режим не перемикає розкладку після одиночного терміна, але перемикає після фрази або повторних замін в одному напрямку.")
+                Text("За замовчуванням Papuga завжди перемикає розкладку на ту, якою зроблено заміну. Адаптивний режим не перемикає після одиночного терміна, але перемикає після фрази або повторних замін в одному напрямку.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -94,11 +84,15 @@ struct AutoFixTab: View {
 
             Section("Редактори коду") {
                 Label(
-                    "У VS Code, Cursor, JetBrains, Xcode Papuga за замовчуванням показує пропозицію замість прямої автозаміни, щоб не ламати multi-cursor.",
+                    "Papuga автозамінює в усіх застосунках однаково — окремого режиму для VS Code, Cursor, JetBrains чи Xcode немає.",
                     systemImage: "curlybraces"
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+                Text("Якщо автозаміна заважає в редакторі (наприклад, ламає multi-cursor), додай його до списку «Не застосовувати у цих застосунках» нижче.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Слова та правила") {
