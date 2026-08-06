@@ -411,4 +411,44 @@ final class MistakeObservationEngineTests: XCTestCase {
         XCTAssertEqual(result?.source, "pomylkka")
         XCTAssertEqual(result?.suggestedTarget, "pomylka")
     }
+
+    /// The aggregating overload used to ignore `limit` entirely and hand back
+    /// everything it generated (up to `ruleSafetyLookupDepth`), so
+    /// PredictionEngine ranked and persisted ~4x more candidates per group
+    /// than the UI could ever show.
+    func test_candidatesForRawSources_honoursLimit() {
+        let spellChecker = FakeSpellChecker()
+        spellChecker.misspelled = ["helo"]
+        spellChecker.guessesByWord = ["helo": [
+            "hello", "help", "held", "hero", "halo", "hell", "helot", "helm", "heel"
+        ]]
+        let analyzer = MistakeSuggestionAnalyzer(spellChecker: spellChecker)
+
+        for limit in [1, 3, 6] {
+            let candidates = analyzer.candidates(
+                forRawSources: ["helo"],
+                language: "en",
+                limit: limit
+            )
+            XCTAssertLessThanOrEqual(
+                candidates.count, limit,
+                "limit \(limit) produced \(candidates.count) candidates"
+            )
+        }
+    }
+
+    /// Truncation must not reorder: whatever survives a small limit has to be
+    /// the prefix of the wider ranking, not an arbitrary subset.
+    func test_candidatesForRawSources_limitKeepsTheTopRankedPrefix() {
+        let spellChecker = FakeSpellChecker()
+        spellChecker.misspelled = ["helo"]
+        spellChecker.guessesByWord = ["helo": ["hello", "help", "held", "hero", "halo"]]
+        let analyzer = MistakeSuggestionAnalyzer(spellChecker: spellChecker)
+
+        let full = analyzer.candidates(forRawSources: ["helo"], language: "en", limit: 6)
+        let trimmed = analyzer.candidates(forRawSources: ["helo"], language: "en", limit: 2)
+
+        XCTAssertFalse(trimmed.isEmpty)
+        XCTAssertEqual(trimmed.map(\.text), Array(full.map(\.text).prefix(trimmed.count)))
+    }
 }

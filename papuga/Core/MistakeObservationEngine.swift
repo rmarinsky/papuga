@@ -169,6 +169,13 @@ private extension MistakeSuggestionKind {
 }
 
 final class MistakeSuggestionAnalyzer {
+    /// How deep candidate generation goes *internally*, before the caller's
+    /// `limit` trims what is actually surfaced. Deeper than any display limit
+    /// on purpose: this list doubles as the lookup table for the
+    /// cross-spelling rule-safety veto, where a missing entry and an unsafe
+    /// entry must not be confused.
+    static let ruleSafetyLookupDepth = 24
+
     private let spellChecker: SpellCheckingClient
     private let mapper = CharacterMapper()
     private var mappedLayoutIDs = Set<String>()
@@ -242,12 +249,22 @@ final class MistakeSuggestionAnalyzer {
                 language: language,
                 recordedTargets: recordedTargets,
                 layoutManager: layoutManager,
-                limit: 24
+                limit: Self.ruleSafetyLookupDepth
             )
         }
         guard let representativeCandidates = batches.first else { return [] }
 
-        return representativeCandidates.map { candidate in
+        // `limit` used to be ignored here, so every caller — including
+        // PredictionEngine, the only real one — got up to `ruleSafetyLookupDepth`
+        // candidates per group, ranked them, and persisted them all to
+        // prediction-cache.json while the UI rendered six. Truncate to the
+        // requested limit before the per-candidate safety scan, so the scan
+        // only runs for candidates that can actually be surfaced.
+        //
+        // The batches themselves stay deep on purpose: they are the lookup
+        // table for the cross-spelling veto below, and a target that falls
+        // outside a narrow window would read as "unsafe" rather than "absent".
+        return representativeCandidates.prefix(limit).map { candidate in
             let targetKey = MistakeObservation.normalizedToken(candidate.text)
             let safeForEveryRawSource = batches.allSatisfy { batch in
                 batch.first {
@@ -274,7 +291,7 @@ final class MistakeSuggestionAnalyzer {
                 for: token,
                 language: language,
                 layoutManager: layoutManager,
-                limit: 24
+                limit: Self.ruleSafetyLookupDepth
             )
         } else {
             layoutCandidates = []
@@ -565,7 +582,7 @@ final class MistakeSuggestionAnalyzer {
                 result[index] = candidate
             }
         } else {
-            guard result.count < 24 else { return }
+            guard result.count < Self.ruleSafetyLookupDepth else { return }
             result.append(candidate)
         }
     }
