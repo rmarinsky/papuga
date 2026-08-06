@@ -406,11 +406,11 @@ final class PredictionEngineTests: XCTestCase {
         )
         let group = MistakeGroupData(entries: [observation])
         let candidates = [
-            MistakeSuggestionCandidate(kind: .recorded, text: "nfr", confidence: 0.9),
+            MistakeSuggestionCandidate(kind: .recorded, text: "nfr", tier: .recorded),
             MistakeSuggestionCandidate(
                 kind: .keyboardLayout,
                 text: "також",
-                confidence: 0.82,
+                tier: .validatedLayout,
                 replacementPlan: ReplacementPlan(
                     rawSource: "nfrj;",
                     correctedCore: "також",

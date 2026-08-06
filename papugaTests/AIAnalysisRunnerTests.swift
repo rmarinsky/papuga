@@ -26,7 +26,9 @@ final class AIAnalysisRunnerTests: XCTestCase {
         }
         let groups = MistakesScreenDerivation.groups(from: observations, filter: .all, query: "")
         let candidates = Dictionary(uniqueKeysWithValues: (1...3).map {
-            ("typo\($0)", [MistakeSuggestionCandidate(kind: .spelling, text: "type\($0)", confidence: 0.9)])
+            ("typo\($0)", [MistakeSuggestionCandidate(
+                kind: .spelling, text: "type\($0)", tier: .dictionaryGuess, editDistance: 1
+            )])
         })
         let plan = AIPromptBuilder.buildComparisonBatches(
             from: groups,

@@ -8,15 +8,42 @@ enum MappedSpellingStatus: Equatable {
     case misspelled
 }
 
+/// A guess plus the two signals the ranking needs. `SymSpell.lookup` computes
+/// both and `guesses` used to discard them, which left the comparator nothing
+/// to order same-distance guesses by except the alphabet.
+struct ScoredGuess: Equatable {
+    let term: String
+    let distance: Int
+    /// Raw corpus count; 0 when the term is not in the frequency list.
+    let count: Int
+
+    var logFrequency: Double { count > 0 ? log10(1 + Double(count)) : 0 }
+}
+
 protocol SpellCheckingClient {
     func isMisspelled(_ word: String, language: String) -> Bool
     func guesses(for word: String, language: String) -> [String]
+    func rankedGuesses(for word: String, language: String) -> [ScoredGuess]
     func mappedSpellingStatus(_ word: String, language: String) -> MappedSpellingStatus
 }
 
 extension SpellCheckingClient {
     func mappedSpellingStatus(_ word: String, language: String) -> MappedSpellingStatus {
         isMisspelled(word, language: language) ? .misspelled : .correct
+    }
+
+    /// Default keeps every existing conformance (and every test fake) compiling:
+    /// no frequency data, distance measured against the source.
+    func rankedGuesses(for word: String, language: String) -> [ScoredGuess] {
+        guesses(for: word, language: language).map { term in
+            ScoredGuess(
+                term: term,
+                distance: SymSpell.damerauLevenshtein(
+                    Array(word.lowercased()), Array(term.lowercased())
+                ),
+                count: 0
+            )
+        }
     }
 }
 
@@ -69,6 +96,56 @@ enum MistakeSuggestionKind: String, Equatable, Codable {
     }
 }
 
+/// What *kind of evidence* backs a candidate. Compared before any score.
+///
+/// A single confidence scalar was the direct cause of the ranking inversion:
+/// it forced incomparable evidence classes onto one axis, where a tuning
+/// coefficient decided which won. Layout flips were a flat 0.82 and spelling
+/// guesses ran to 0.86, so for any word of 11+ characters an unverified
+/// dictionary guess outranked a dictionary-*validated* layout conversion —
+/// exactly the long inflected Ukrainian forms this app exists for.
+///
+/// With tiers that inversion is structurally impossible rather than a
+/// coefficient accident. Score only breaks ties *within* a tier.
+enum CandidateTier: Int, Codable, Comparable, CaseIterable {
+    /// The user corrected this themselves.
+    case recorded = 0
+    /// Layout flip whose target the dictionary attests.
+    case validatedLayout = 1
+    /// Adjacent-key edit whose target the dictionary attests.
+    case validatedAdjacent = 2
+    /// A dictionary guess. Plausible, but nothing validated the whole word.
+    case dictionaryGuess = 3
+    /// Layout flip nothing could verify (no dictionary for that language).
+    case unvalidatedLayout = 4
+
+    static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
+
+    /// Bases are spaced so the widest in-tier swing (0.08) is smaller than the
+    /// narrowest gap between tiers (0.09). `test_confidenceNeverCrossesTiers`
+    /// pins that; break it and the inversion comes back.
+    var confidenceBase: Double {
+        switch self {
+        case .recorded: return 0.95
+        case .validatedLayout: return 0.86
+        case .validatedAdjacent: return 0.76
+        case .dictionaryGuess: return 0.62
+        case .unvalidatedLayout: return 0.45
+        }
+    }
+
+    static let maxDistancePenalty = 0.06
+    static let maxFrequencyBonus = 0.02
+
+    /// Derived for display and for the existing confidence thresholds. Never
+    /// the sort key — `MistakeSuggestionCandidate.ranksBefore` is.
+    static func confidence(tier: Self, editDistance: Int, logFrequency: Double) -> Double {
+        let penalty = min(maxDistancePenalty, 0.03 * Double(max(0, editDistance)))
+        let bonus = min(maxFrequencyBonus, max(0, logFrequency) * 0.004)
+        return min(1, max(0, tier.confidenceBase - penalty + bonus))
+    }
+}
+
 struct MistakeSuggestionCandidate: Identifiable, Equatable, Codable {
     let kind: MistakeSuggestionKind
     let text: String
@@ -79,6 +156,13 @@ struct MistakeSuggestionCandidate: Identifiable, Equatable, Codable {
     let targetLayoutID: String?
     let replacementPlan: ReplacementPlan?
     let coreRuleCreationAllowed: Bool?
+    /// Ranking metadata. Optional in the persisted form so caches written
+    /// before tiers existed still decode; `cacheVersion` forces a rebuild, but
+    /// `MistakeSuggestionKind` is also carried in older AI/history payloads.
+    let tier: CandidateTier
+    let editDistance: Int
+    /// `log10(1 + corpus count)`, 0 when the word is not in the frequency list.
+    let logFrequency: Double
 
     var id: String {
         [
@@ -99,11 +183,29 @@ struct MistakeSuggestionCandidate: Identifiable, Equatable, Codable {
         canCreateCoreRule || replacementPlan?.interpretationReason == .layoutFullToken
     }
 
+    /// The ranking order. Evidence class first, then how big an edit it was,
+    /// then how common the result is, then a deterministic length tie-break.
+    ///
+    /// Frequency finally matters here. `SymSpell.lookup` already sorted by
+    /// (distance, count) and `guesses` then flattened it to `[String]`,
+    /// throwing both away; the old comparator collapsed every same-distance
+    /// guess to an identical confidence and fell through to *alphabetical*, so
+    /// `helo` offered `halo` ahead of `help`.
+    func ranksBefore(_ other: MistakeSuggestionCandidate) -> Bool {
+        if tier != other.tier { return tier < other.tier }
+        if editDistance != other.editDistance { return editDistance < other.editDistance }
+        if logFrequency != other.logFrequency { return logFrequency > other.logFrequency }
+        if text.count != other.text.count { return text.count < other.text.count }
+        return text.localizedCaseInsensitiveCompare(other.text) == .orderedAscending
+    }
+
     func withCoreRuleCreationAllowed(_ allowed: Bool) -> MistakeSuggestionCandidate {
         MistakeSuggestionCandidate(
             kind: kind,
             text: text,
-            confidence: confidence,
+            tier: tier,
+            editDistance: editDistance,
+            logFrequency: logFrequency,
             transformationPath: transformationPath,
             localExplanation: localExplanation,
             sourceLayoutID: sourceLayoutID,
@@ -116,7 +218,9 @@ struct MistakeSuggestionCandidate: Identifiable, Equatable, Codable {
     init(
         kind: MistakeSuggestionKind,
         text: String,
-        confidence: Double,
+        tier: CandidateTier,
+        editDistance: Int = 0,
+        logFrequency: Double = 0,
         transformationPath: [MistakeSuggestionKind]? = nil,
         localExplanation: String? = nil,
         sourceLayoutID: String? = nil,
@@ -126,7 +230,14 @@ struct MistakeSuggestionCandidate: Identifiable, Equatable, Codable {
     ) {
         self.kind = kind
         self.text = text
-        self.confidence = min(max(confidence, 0), 1)
+        self.tier = tier
+        self.editDistance = max(0, editDistance)
+        self.logFrequency = max(0, logFrequency)
+        self.confidence = CandidateTier.confidence(
+            tier: tier,
+            editDistance: self.editDistance,
+            logFrequency: self.logFrequency
+        )
         self.transformationPath = transformationPath ?? [kind]
         self.localExplanation = localExplanation ?? kind.defaultExplanation
         self.sourceLayoutID = sourceLayoutID
@@ -138,6 +249,7 @@ struct MistakeSuggestionCandidate: Identifiable, Equatable, Codable {
     private enum CodingKeys: String, CodingKey {
         case kind, text, confidence, transformationPath, localExplanation
         case sourceLayoutID, targetLayoutID, replacementPlan, coreRuleCreationAllowed
+        case tier, editDistance, logFrequency
     }
 
     init(from decoder: Decoder) throws {
@@ -146,7 +258,11 @@ struct MistakeSuggestionCandidate: Identifiable, Equatable, Codable {
         self.init(
             kind: kind,
             text: try values.decode(String.self, forKey: .text),
-            confidence: try values.decode(Double.self, forKey: .confidence),
+            // Payloads written before tiers (AI batches, older history) carry
+            // only `kind`; derive the closest tier so they still rank sanely.
+            tier: try values.decodeIfPresent(CandidateTier.self, forKey: .tier) ?? kind.legacyTier,
+            editDistance: try values.decodeIfPresent(Int.self, forKey: .editDistance) ?? 0,
+            logFrequency: try values.decodeIfPresent(Double.self, forKey: .logFrequency) ?? 0,
             transformationPath: try values.decodeIfPresent([MistakeSuggestionKind].self, forKey: .transformationPath),
             localExplanation: try values.decodeIfPresent(String.self, forKey: .localExplanation),
             sourceLayoutID: try values.decodeIfPresent(String.self, forKey: .sourceLayoutID),
@@ -154,6 +270,19 @@ struct MistakeSuggestionCandidate: Identifiable, Equatable, Codable {
             replacementPlan: try values.decodeIfPresent(ReplacementPlan.self, forKey: .replacementPlan),
             coreRuleCreationAllowed: try values.decodeIfPresent(Bool.self, forKey: .coreRuleCreationAllowed)
         )
+    }
+}
+
+extension MistakeSuggestionKind {
+    /// Best-effort tier for payloads that predate tiers. Layout candidates are
+    /// assumed validated, which is what the old flat 0.82 meant.
+    var legacyTier: CandidateTier {
+        switch self {
+        case .recorded: return .recorded
+        case .keyboardLayout: return .validatedLayout
+        case .keyboardAdjacency: return .validatedAdjacent
+        case .spelling: return .dictionaryGuess
+        }
     }
 }
 
@@ -334,7 +463,7 @@ final class MistakeSuggestionAnalyzer {
                 MistakeSuggestionCandidate(
                     kind: .recorded,
                     text: target,
-                    confidence: 0.9,
+                    tier: .recorded,
                     sourceLayoutID: matchingLayout?.sourceLayoutID,
                     targetLayoutID: matchingLayout?.targetLayoutID,
                     replacementPlan: plan,
@@ -359,8 +488,8 @@ final class MistakeSuggestionAnalyzer {
             }
         }
 
-        for guess in spellChecker.guesses(for: token.core, language: language).prefix(8) {
-            let candidate = guess.trimmingCharacters(in: .whitespacesAndNewlines)
+        for guess in spellChecker.rankedGuesses(for: token.core, language: language).prefix(8) {
+            let candidate = guess.term.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !candidate.isEmpty,
                   !candidate.contains(where: \.isWhitespace),
                   candidate.count <= MistakeObservation.maxStoredCharCount else {
@@ -370,7 +499,9 @@ final class MistakeSuggestionAnalyzer {
                 MistakeSuggestionCandidate(
                     kind: .spelling,
                     text: candidate,
-                    confidence: spellingConfidence(source: token.core, candidate: candidate),
+                    tier: .dictionaryGuess,
+                    editDistance: guess.distance,
+                    logFrequency: guess.logFrequency,
                     replacementPlan: token.replacementPlan(
                         correctedCore: candidate,
                         boundary: "",
@@ -387,9 +518,7 @@ final class MistakeSuggestionAnalyzer {
             // flip of a real word). Trust the user's own recorded corrections.
             .filter { $0.kind == .recorded || WordPlausibility.isWordLike($0.text) }
             .sorted { lhs, rhs in
-                if lhs.confidence != rhs.confidence { return lhs.confidence > rhs.confidence }
-                if lhs.kind.rank != rhs.kind.rank { return lhs.kind.rank < rhs.kind.rank }
-                return lhs.text.localizedCaseInsensitiveCompare(rhs.text) == .orderedAscending
+                lhs.ranksBefore(rhs)
             }
             .prefix(limit)
             .map { $0 }
@@ -459,10 +588,16 @@ final class MistakeSuggestionAnalyzer {
                           plan.correctedCore.count <= MistakeObservation.maxStoredCharCount else {
                         continue
                     }
+                    // A layout flip is not an edit — the keystrokes are exactly
+                    // what the user pressed, only read through another layout.
+                    // Distance 0 keeps it ahead of any guess inside its tier.
                     result.append(MistakeSuggestionCandidate(
                         kind: .keyboardLayout,
                         text: plan.correctedCore,
-                        confidence: 0.82,
+                        tier: decision.isSuggestionOnly && unverifiable
+                            ? .unvalidatedLayout
+                            : .validatedLayout,
+                        logFrequency: frequency(of: plan.correctedCore, language: targetLanguage),
                         sourceLayoutID: fromID,
                         targetLayoutID: toID,
                         replacementPlan: plan
@@ -470,35 +605,23 @@ final class MistakeSuggestionAnalyzer {
                     if result.count >= limit { return result }
                 }
 
-                if !coreMapped.isEmpty, !coreIsValid {
-                    for guess in spellChecker.guesses(for: coreMapped, language: targetLanguage).prefix(3) {
-                        let candidate = guess.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !candidate.isEmpty,
-                              !candidate.contains(where: \.isWhitespace),
-                              candidate.count <= MistakeObservation.maxStoredCharCount else {
-                            continue
-                        }
-                        let spellingScore = spellingConfidence(source: coreMapped, candidate: candidate)
-                        result.append(MistakeSuggestionCandidate(
-                            kind: .spelling,
-                            text: candidate,
-                            confidence: min(0.82, spellingScore) - 0.08,
-                            transformationPath: [.keyboardLayout, .spelling],
-                            localExplanation: "Інша розкладка, потім словникове виправлення.",
-                            sourceLayoutID: fromID,
-                            targetLayoutID: toID,
-                            replacementPlan: token.replacementPlan(
-                                correctedCore: candidate,
-                                boundary: "",
-                                reason: .sameLanguageSpelling
-                            )
-                        ))
-                        if result.count >= limit { return result }
-                    }
-                }
+                // Removed: the compound "layout → spelling" source (3516573).
+                // When a mapping produced something the dictionary rejected, it
+                // fed that rejected string back into the spell checker and
+                // emitted up to 3 guesses of it — per layout pair, up to 18
+                // pairs. It resurrected candidates the layout policy had just
+                // thrown out, so it could only ever add false positives. Cases
+                // worth catching are covered by the layout candidate itself now
+                // that the dictionary is an overlay rather than an oracle.
             }
         }
         return result
+    }
+
+    /// Corpus frequency of a word, for in-tier ordering only.
+    private func frequency(of word: String, language: String) -> Double {
+        guard let hybrid = spellChecker as? HybridSpellChecker else { return 0 }
+        return hybrid.logFrequency(of: word, language: language)
     }
 
     /// Language-agnostic "fat-finger" model: for each character, try the
@@ -544,7 +667,9 @@ final class MistakeSuggestionAnalyzer {
                 result.append(MistakeSuggestionCandidate(
                     kind: .keyboardAdjacency,
                     text: candidate,
-                    confidence: 0.78,
+                    tier: .validatedAdjacent,
+                    editDistance: 1,   // exactly one substituted character
+                    logFrequency: frequency(of: candidate, language: language),
                     replacementPlan: token.replacementPlan(
                         correctedCore: candidate,
                         boundary: "",
@@ -591,8 +716,13 @@ final class MistakeSuggestionAnalyzer {
         guard !candidateKey.isEmpty, candidateKey != sourceKey else { return }
 
         if let index = result.firstIndex(where: { MistakeObservation.normalizedToken($0.text) == candidateKey }) {
-            let existing = result[index]
-            if candidate.kind.rank < existing.kind.rank || candidate.confidence > existing.confidence {
+            // Same comparator as the final sort. This used to be
+            // `rank < existing.rank || confidence > existing.confidence` — the
+            // OR let a worse-tier candidate evict a better-tier one purely on
+            // score, swapping a layout `ReplacementPlan` (which consumes the
+            // edge key) for a spelling one (which preserves it). Different
+            // replacement, different `canCreateCoreRule` answer.
+            if candidate.ranksBefore(result[index]) {
                 result[index] = candidate
             }
         } else {

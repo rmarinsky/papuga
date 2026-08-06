@@ -358,7 +358,14 @@ final class MistakeObservationEngineTests: XCTestCase {
         XCTAssertEqual(recordedCoreWithComma?.canCreateCoreRule, true)
     }
 
-    func test_suggestionAnalyzer_correctsMisspelledMappedWord() throws {
+    /// A layout mapping the dictionary rejects must not be resurrected as
+    /// spelling guesses.
+    ///
+    /// The removed compound "layout → spelling" source did exactly that: it
+    /// took the rejected mapping and emitted up to 3 guesses *of it*, per
+    /// layout pair, across up to 18 pairs. Those candidates had already failed
+    /// the layout policy, so the source could only ever add false positives.
+    func test_suggestionAnalyzer_doesNotResurrectRejectedLayoutMappings() throws {
         let oldOrder = Defaults[.layoutOrder]
         let oldDisabled = Defaults[.disabledLayouts]
         defer {
@@ -371,11 +378,13 @@ final class MistakeObservationEngineTests: XCTestCase {
         let us = "com.apple.keylayout.US"
         let ukrainian = "com.apple.keylayout.Ukrainian-PC"
         guard ids.contains(us), ids.contains(ukrainian) else {
-            throw XCTSkip("US and Ukrainian-PC input sources are required for this compound suggestion test.")
+            throw XCTSkip("US and Ukrainian-PC input sources are required for this test.")
         }
         Defaults[.layoutOrder] = [us, ukrainian]
         Defaults[.disabledLayouts] = []
 
+        // `ghbdxn` maps to `привчт`, which the dictionary rejects. The old
+        // behaviour turned that dead end into `привіт` + three more guesses.
         let spellChecker = FakeSpellChecker()
         spellChecker.misspelled = ["ghbdxn", "привчт"]
         spellChecker.guessesByWord = ["привчт": ["привіт", "привітання", "привезти", "привід"]]
@@ -386,12 +395,50 @@ final class MistakeObservationEngineTests: XCTestCase {
             limit: 6
         )
 
-        let compound = try XCTUnwrap(candidates.first { $0.text == "привіт" })
-        XCTAssertEqual(compound.transformationPath, [.keyboardLayout, .spelling])
-        XCTAssertEqual(compound.replacementPlan?.renderedReplacement, "привіт,")
-        XCTAssertFalse(compound.localExplanation.isEmpty)
-        XCTAssertLessThan(compound.confidence, 0.82)
-        XCTAssertEqual(candidates.filter { $0.transformationPath == [.keyboardLayout, .spelling] }.count, 3)
+        XCTAssertTrue(
+            candidates.allSatisfy { $0.transformationPath != [.keyboardLayout, .spelling] },
+            "the compound layout→spelling amplifier is back"
+        )
+        XCTAssertNil(
+            candidates.first { $0.text == "привіт" },
+            "a guess derived from a rejected mapping was surfaced"
+        )
+    }
+
+    /// A layout mapping the dictionary *accepts* still produces its candidate —
+    /// the guard against fixing false positives by suggesting nothing.
+    func test_suggestionAnalyzer_stillOffersValidLayoutMappings() throws {
+        let oldOrder = Defaults[.layoutOrder]
+        let oldDisabled = Defaults[.disabledLayouts]
+        defer {
+            Defaults[.layoutOrder] = oldOrder
+            Defaults[.disabledLayouts] = oldDisabled
+        }
+
+        let layoutManager = LayoutManager()
+        let ids = layoutManager.availableLayouts.map(\.id)
+        let us = "com.apple.keylayout.US"
+        let ukrainian = "com.apple.keylayout.Ukrainian-PC"
+        guard ids.contains(us), ids.contains(ukrainian) else {
+            throw XCTSkip("US and Ukrainian-PC input sources are required for this test.")
+        }
+        Defaults[.layoutOrder] = [us, ukrainian]
+        Defaults[.disabledLayouts] = []
+
+        // `ghbdsn` maps cleanly to `привіт`; only the source is misspelled.
+        let spellChecker = FakeSpellChecker()
+        spellChecker.misspelled = ["ghbdsn"]
+        let candidates = MistakeSuggestionAnalyzer(spellChecker: spellChecker).candidates(
+            for: "ghbdsn",
+            language: "en",
+            layoutManager: layoutManager,
+            limit: 6
+        )
+
+        let layout = try XCTUnwrap(candidates.first { $0.text == "привіт" })
+        XCTAssertEqual(layout.kind, .keyboardLayout)
+        XCTAssertEqual(layout.tier, .validatedLayout)
+        XCTAssertEqual(candidates.first?.text, "привіт", "the validated layout flip must rank first")
     }
 
     func test_recordManualCorrection_recordsSourceAndTarget() {

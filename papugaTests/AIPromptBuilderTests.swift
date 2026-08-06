@@ -37,7 +37,11 @@ final class AIPromptBuilderTests: XCTestCase {
         )
         let groups = MistakesScreenDerivation.groups(from: [observation], filter: .all, query: "")
         let candidates = (1...6).map {
-            MistakeSuggestionCandidate(kind: .spelling, text: "варіант\($0)", confidence: 0.9 - Double($0) / 10)
+            // Ascending edit distance keeps the candidates in a stable,
+            // descending-confidence order now that confidence is derived.
+            MistakeSuggestionCandidate(
+                kind: .spelling, text: "варіант\($0)", tier: .dictionaryGuess, editDistance: $0
+            )
         }
         let batch = AIPromptBuilder.buildComparison(
             from: groups,

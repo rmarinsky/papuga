@@ -61,8 +61,10 @@ final class PredictionEngine {
 
     // MARK: Cache (in-memory + disk)
 
-    // v7 stores six candidates with ordered compound transformation paths.
-    private static let cacheVersion = 7
+    // v8: candidates carry a CandidateTier plus edit distance and corpus
+    // frequency, and are ranked by those rather than by a single confidence
+    // scalar. v7 entries hold the old ordering, so they must be rebuilt.
+    private static let cacheVersion = 8
     private var cache: [String: WordPrediction] = [:]
     private let cacheURL: URL
     private let domainVocabURL: URL

@@ -49,6 +49,14 @@ final class HybridSpellChecker: SpellCheckingClient {
         lock.withLock { self.indexes = indexes }
     }
 
+    /// `log10(1 + count)` for a word in the frequency list, 0 when absent.
+    /// Ranking signal only — never a correctness signal.
+    func logFrequency(of word: String, language: String) -> Double {
+        guard let count = lock.withLock({ indexes[language]?.words[word.lowercased()] }),
+              count > 0 else { return 0 }
+        return log10(1 + Double(count))
+    }
+
     /// Which languages currently have a frequency index installed.
     ///
     /// `production` builds its indexes on a background queue, so anything
@@ -109,17 +117,43 @@ final class HybridSpellChecker: SpellCheckingClient {
     }
 
     func guesses(for word: String, language: String) -> [String] {
-        var merged: [String] = []
+        rankedGuesses(for: word, language: language).map(\.term)
+    }
+
+    /// Keeps SymSpell's distance and corpus count instead of flattening to
+    /// bare strings. Those two numbers are what let the ranking put `help`
+    /// ahead of `halo` for `helo`; without them every same-distance guess
+    /// scored identically and fell through to an alphabetical tie-break.
+    ///
+    /// System guesses come after SymSpell's and carry no count, so they sort
+    /// below an equally-distant corpus-attested word — but they are still
+    /// merged in, because the system dictionary knows inflected and apostrophe
+    /// forms the 50k list does not.
+    func rankedGuesses(for word: String, language: String) -> [ScoredGuess] {
+        let probe = word.lowercased()
+        var merged: [ScoredGuess] = []
         var seen = Set<String>()
+
         if let index = lock.withLock({ indexes[language] }) {
-            for suggestion in index.lookup(word.lowercased(), maxEditDistance: maxEditDistance, max: 6)
+            for suggestion in index.lookup(probe, maxEditDistance: maxEditDistance, max: 6)
             where seen.insert(suggestion.term).inserted {
-                merged.append(suggestion.term)
+                merged.append(ScoredGuess(
+                    term: suggestion.term,
+                    distance: suggestion.distance,
+                    count: suggestion.count
+                ))
             }
         }
+
+        let indexWords = lock.withLock { indexes[language]?.words }
         for guess in system.guesses(for: word, language: language)
         where seen.insert(guess.lowercased()).inserted {
-            merged.append(guess)
+            let distance = SymSpell.damerauLevenshtein(Array(probe), Array(guess.lowercased()))
+            merged.append(ScoredGuess(
+                term: guess,
+                distance: distance,
+                count: indexWords?[guess.lowercased()] ?? 0
+            ))
         }
         return merged
     }
