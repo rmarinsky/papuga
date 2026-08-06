@@ -105,23 +105,54 @@ struct LayoutIncidentTracker: Equatable {
         return isAtSafetyCap ? .reachedCap : .accepted
     }
 
+    var contradictionRatio: Double {
+        guard !tokens.isEmpty else { return 0 }
+        return Double(contradictionCount) / Double(tokens.count)
+    }
+
+    /// Share of contradictions a captured sentence can absorb and still be
+    /// worth offering. One real word inside a long wrong-layout run is common:
+    /// `ghbdsn cdsn hello ,ed` is still overwhelmingly a layout mistake.
+    static let contradictionToleranceRatio = 0.2
+
+    /// - Parameter tolerateContradictions: when true, a small share of
+    ///   contradicting tokens degrades the verdict to `.propose` instead of
+    ///   discarding the whole incident.
+    ///
+    ///   `contradictionCount == 0` throws away up to 29 correctly-detected
+    ///   words because of one real word in the middle of the run. Tolerating a
+    ///   few can only ever produce a *proposal* — auto-replacement still
+    ///   requires a clean incident, because silently mutating a sentence that
+    ///   contains a word the user meant is the worst failure this app has.
     func decision(
         scoreOriginal: Double,
         scoreCandidate: Double,
-        threshold: Double
+        threshold: Double,
+        tolerateContradictions: Bool = false
     ) -> LayoutIncidentDecision {
-        guard contradictionCount == 0 else { return .discard }
         let margin = scoreCandidate - scoreOriginal
-        if strongTokenCount >= 3,
-           supportRatio >= 0.75,
-           margin >= threshold {
-            return .replace
+
+        if contradictionCount == 0 {
+            if strongTokenCount >= 3,
+               supportRatio >= 0.75,
+               margin >= threshold {
+                return .replace
+            }
+            if strongTokenCount >= 2,
+               supportRatio >= 0.60 {
+                return .propose
+            }
+            return .discard
         }
-        if strongTokenCount >= 2,
-           supportRatio >= 0.60 {
-            return .propose
+
+        guard tolerateContradictions,
+              contradictionRatio <= Self.contradictionToleranceRatio,
+              strongTokenCount >= 3,
+              supportRatio >= 0.75
+        else {
+            return .discard
         }
-        return .discard
+        return .propose
     }
 
     mutating func reset() {

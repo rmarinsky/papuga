@@ -169,6 +169,19 @@ extension Defaults.Keys {
     /// `autoFixThreshold`. The old 0.12 also contradicted
     /// docs/autofix-analysis-and-guardrails.md, which documents 0.22.
     static let autoFixProposalWindow = Key<Double>("autoFixProposalWindow", default: 0.22)
+    /// Experimental, default off. When a captured wrong-layout sentence
+    /// contains a contradicting token (a word that is already correct), the
+    /// whole incident is discarded — up to 29 correctly-detected words thrown
+    /// away because of one real word in the middle. With this on, a small
+    /// share of contradictions degrades the verdict to a *proposal* instead;
+    /// auto-replacement still requires a clean incident.
+    ///
+    /// Off by default because the tolerance ratio has not been tuned against
+    /// real decision history yet — see the replay harness note in the plan.
+    static let autoFixTolerateIncidentContradictions = Key<Bool>(
+        "autoFixTolerateIncidentContradictions",
+        default: false
+    )
     static let autoFixAppPolicyOverrides = Key<[String: String]>("autoFixAppPolicyOverrides", default: [:])
     static let autoFixLayoutSwitchPolicy = Key<String>(
         "autoFixLayoutSwitchPolicy",

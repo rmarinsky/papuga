@@ -1319,7 +1319,8 @@ final class AutoFixController {
         let decision = incident.decision(
             scoreOriginal: scoreOriginal,
             scoreCandidate: scoreCandidate,
-            threshold: context.threshold
+            threshold: context.threshold,
+            tolerateContradictions: Defaults[.autoFixTolerateIncidentContradictions]
         )
 
         guard decision != .discard,
