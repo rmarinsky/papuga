@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "packID": "global-core",
-  "version": "2026.06.14",
+  "version": "2026.08.13",
   "sourceRevisions": {
-    "manual": "2026.06.14",
+    "manual": "2026.08.13",
     "cspell-dicts": "planned"
   },
   "entries": [
@@ -341,6 +341,18 @@
       "languages": ["en", "uk"],
       "source": "curated",
       "confidence": 0.96,
+      "version": 1
+    },
+    {
+      "id": "local.uk.opa",
+      "canonical": "опа",
+      "aliases": [],
+      "category": "localTerm",
+      "matchModes": ["exact", "caseInsensitive"],
+      "actions": ["boostCandidate"],
+      "languages": ["uk"],
+      "source": "curated",
+      "confidence": 1.0,
       "version": 1
     }
   ]
