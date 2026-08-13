@@ -46,11 +46,17 @@ final class EndToEndAutoFixTests: XCTestCase {
         let toLang = AutoFixDecision.languageHintForLayoutID(tc.toLayoutID)
         let scoreOriginal = scorer.score(tc.typedInWrongLayout, expecting: fromLang)
         let scoreCandidate = scorer.score(candidate, expecting: toLang)
+        let adjustment = ProtectedLexiconPredictionScorer.adjustment(
+            original: tc.typedInWrongLayout,
+            candidate: candidate,
+            scoreCandidate: scoreCandidate,
+            threshold: 0.4
+        )
 
         let shouldFix = AutoFixDecision.shouldReplace(
             scoreOriginal: scoreOriginal,
-            scoreCandidate: scoreCandidate,
-            threshold: 0.4
+            scoreCandidate: adjustment.adjustedCandidateScore,
+            threshold: adjustment.adjustedThreshold
         )
 
         XCTAssertEqual(
@@ -115,6 +121,10 @@ final class EndToEndAutoFixTests: XCTestCase {
     }
 
     private static let positiveUkrainianCases: [AutoFixCase] = [
+        AutoFixCase(typedInWrongLayout: "jgf", expectedCorrected: "опа",
+                    fromLayoutID: "com.apple.keylayout.US",
+                    toLayoutID: "com.apple.keylayout.Ukrainian-PC",
+                    expectedFix: true),
         AutoFixCase(typedInWrongLayout: ".hsq", expectedCorrected: "юрій",
                     fromLayoutID: "com.apple.keylayout.US",
                     toLayoutID: "com.apple.keylayout.Ukrainian-PC",
