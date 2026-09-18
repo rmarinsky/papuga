@@ -6,13 +6,11 @@ enum HistorySection: String, Identifiable, CaseIterable {
     case typingTest
     case history
     case clipboard
-    case mistakes
     case dictionary
     case settingsGeneral
     case settingsLanguages
     case settingsRules
     case settingsShortcuts
-    case settingsAI
     case settingsAccount
 
     var id: String { rawValue }
@@ -23,13 +21,11 @@ enum HistorySection: String, Identifiable, CaseIterable {
         case .typingTest: return "Тест набору"
         case .history: return "Рішення Papuga"
         case .clipboard: return "Копіопасти"
-        case .mistakes: return "Помилки введення"
         case .dictionary: return "Словник"
         case .settingsGeneral: return "Загальні"
         case .settingsLanguages: return "Мови"
         case .settingsRules: return "Правила"
         case .settingsShortcuts: return "Клавіші"
-        case .settingsAI: return "AI"
         case .settingsAccount: return "About"
         }
     }
@@ -40,13 +36,11 @@ enum HistorySection: String, Identifiable, CaseIterable {
         case .typingTest: return "keyboard"
         case .history: return "function"
         case .clipboard: return "doc.on.clipboard"
-        case .mistakes: return "text.magnifyingglass"
         case .dictionary: return "book.closed"
         case .settingsGeneral: return "gear"
         case .settingsLanguages: return "globe"
         case .settingsRules: return "wand.and.stars"
         case .settingsShortcuts: return "command"
-        case .settingsAI: return "sparkles"
         case .settingsAccount: return "info.circle"
         }
     }

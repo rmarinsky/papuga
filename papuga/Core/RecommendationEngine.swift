@@ -133,7 +133,6 @@ enum RecommendationEngine {
 
     static func compute(
         from history: [ReplacementHistoryEntry],
-        mistakes: [MistakeObservation] = [],
         allowlist: [String],
         blocklist: [String],
         customRules: [CustomAutoReplaceRule],
@@ -186,55 +185,6 @@ enum RecommendationEngine {
             }
         }
 
-        for entry in mistakes where entry.status == .open {
-            let src = entry.sourceCore ?? BufferedToken.normalizedCore(from: entry.source)
-            guard !src.isEmpty, !src.contains(where: { $0.isWhitespace }) else { continue }
-
-            switch entry.issueType {
-            case .manualCorrection:
-                guard let suggestedTarget = entry.suggestedTarget,
-                      let target = nonEmptyCore(suggestedTarget),
-                      !target.isEmpty,
-                      !target.contains(where: { $0.isWhitespace }) else { continue }
-                guard !entry.sourceTruncated, !entry.targetTruncated else { continue }
-                guard src.count >= 2, target.count >= 2 else { continue }
-                let canCreateCoreRule = CoreRuleSafety.canCreateWithoutLayoutInterpretation(
-                    rawSource: entry.source,
-                    targetCore: target,
-                    isLayoutCandidate: false
-                )
-                let pairKey = "\(src.lowercased())→\(target.lowercased())"
-                if var existing = manualSwitchByPair[pairKey] {
-                    existing.count += 1
-                    existing.canCreateCoreRule = existing.canCreateCoreRule && canCreateCoreRule
-                    manualSwitchByPair[pairKey] = existing
-                } else {
-                    manualSwitchByPair[pairKey] = (src, target, 1, canCreateCoreRule)
-                }
-            case .spelling:
-                guard let suggestedTarget = entry.suggestedTarget,
-                      let target = nonEmptyCore(suggestedTarget),
-                      !target.isEmpty,
-                      !target.contains(where: { $0.isWhitespace }) else { continue }
-                guard !entry.sourceTruncated, !entry.targetTruncated else { continue }
-                guard src.count >= 3, target.count >= 3 else { continue }
-                let canCreateCoreRule = CoreRuleSafety.canCreateWithoutLayoutInterpretation(
-                    rawSource: entry.source,
-                    targetCore: target,
-                    isLayoutCandidate: false
-                )
-                let pairKey = "\(src.lowercased())→\(target.lowercased())"
-                if var existing = manualSwitchByPair[pairKey] {
-                    existing.count += 1
-                    existing.canCreateCoreRule = existing.canCreateCoreRule && canCreateCoreRule
-                    manualSwitchByPair[pairKey] = existing
-                } else {
-                    manualSwitchByPair[pairKey] = (src, target, 1, canCreateCoreRule)
-                }
-            case .grammar, .layoutCandidate:
-                break
-            }
-        }
 
         for (wordLower, count) in undoneByWord where count >= fibonacciThresholds.first! {
             if allowlistLower.contains(wordLower) { continue }
@@ -278,10 +228,6 @@ enum RecommendationEngine {
         }
     }
 
-    private static func nonEmptyCore(_ text: String) -> String? {
-        let result = BufferedToken.normalizedCore(from: text)
-        return result.isEmpty ? nil : result
-    }
 
     private static func normalizedCore(_ text: String) -> String {
         BufferedToken.normalizedCore(from: text).lowercased()

@@ -1,13 +1,22 @@
 import SwiftUI
 
+struct PapugaFlipAnimation: Equatable {
+    static let emoji = "🦜"
+    private(set) var degrees: Double = 0
+
+    mutating func trigger() {
+        degrees -= 360
+    }
+}
+
 struct MenuBarIconView: View {
-    @State private var angle: Double = 0
+    @State private var flip = PapugaFlipAnimation()
 
     var body: some View {
-        Text("🦜")
+        Text(PapugaFlipAnimation.emoji)
             .font(.system(size: 15))
             .frame(width: 18, height: 18)
-            .rotationEffect(.degrees(angle))
+            .rotationEffect(.degrees(flip.degrees))
             .onReceive(NotificationCenter.default.publisher(for: .textReplacementDidComplete).receive(on: RunLoop.main)) { _ in
                 startSpinAnimation()
             }
@@ -15,9 +24,8 @@ struct MenuBarIconView: View {
     }
 
     private func startSpinAnimation() {
-        angle = 0
         withAnimation(.linear(duration: 0.4)) {
-            angle = -360
+            flip.trigger()
         }
     }
 }

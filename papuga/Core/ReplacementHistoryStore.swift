@@ -132,7 +132,7 @@ final class ReplacementHistoryStore {
                 try handle.write(contentsOf: line)
             }
         } catch {
-            logger.warning("ReplacementHistoryStore append failed: \(error.localizedDescription, privacy: .public)")
+            logger.warning("ReplacementHistoryStore append failed: \(error.localizedDescription, privacy: .private)")
         }
     }
 
@@ -152,7 +152,7 @@ final class ReplacementHistoryStore {
             try data.write(to: fileURL, options: [.atomic])
             logger.notice("ReplacementHistoryStore rewritten with \(entries.count, privacy: .public) entries")
         } catch {
-            logger.warning("ReplacementHistoryStore rewrite failed: \(error.localizedDescription, privacy: .public)")
+            logger.warning("ReplacementHistoryStore rewrite failed: \(error.localizedDescription, privacy: .private)")
         }
     }
 
@@ -236,7 +236,7 @@ final class ReplacementHistoryStore {
             }
             logger.notice("ReplacementHistoryStore pruned: kept \(keptLines.count, privacy: .public) entries")
         } catch {
-            logger.warning("ReplacementHistoryStore prune failed: \(error.localizedDescription, privacy: .public)")
+            logger.warning("ReplacementHistoryStore prune failed: \(error.localizedDescription, privacy: .private)")
         }
     }
 }

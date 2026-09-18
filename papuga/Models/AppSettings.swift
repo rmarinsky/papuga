@@ -137,7 +137,12 @@ extension Defaults.Keys {
 
     static let autoFixEnabled = Key<Bool>("autoFixEnabled", default: true)
     static let autoFixAlgorithm = Key<String>("autoFixAlgorithm", default: LanguageScorerAlgorithm.appleNL.rawValue)
-    static let autoFixThreshold = Key<Double>("autoFixThreshold", default: 0.3)
+    /// Must stay in sync with `AutoFixSensitivityPreset.balanced`. The Settings
+    /// picker labels the current state by finding the nearest preset, so a
+    /// default that matches none of them made a fresh install display
+    /// "Збалансовано" while actually running a lower (more eager) threshold
+    /// than every preset on offer, `Обмежено` included.
+    static let autoFixThreshold = Key<Double>("autoFixThreshold", default: 0.35)
     /// Minimum gap between the top two candidate layouts' scores before we trust the winner. When
     /// two layouts (e.g. Ukrainian vs Russian) score within this margin the direction is ambiguous,
     /// so we surface a proposal instead of silently auto-applying a guess. 0 = always pick the top.
@@ -147,7 +152,11 @@ extension Defaults.Keys {
         "autoFixTwoCharacterMinimumMigrated",
         default: false
     )
-    static let autoFixUndoWindow = Key<Double>("autoFixUndoWindow", default: 1.5)
+    // `autoFixUndoWindow` was removed: nothing read it. Backspace deliberately
+    // does not undo a fix (AutoFixController.handleBackspace just clears
+    // `lastFix`), so the Settings slider it backed promised a behaviour that
+    // does not exist. Undo is the toast / the global shortcut, both of which
+    // are bounded by anchor re-validation rather than by a timer.
     static let autoFixBlocklist = Key<[String]>("autoFixBlocklist", default: [])
     static let autoFixAllowlist = Key<[String]>("autoFixAllowlist", default: [])
     static let autoFixToastEnabled = Key<Bool>("autoFixToastEnabled", default: true)
@@ -156,7 +165,23 @@ extension Defaults.Keys {
     static let autoFixSpellingTypoGuardMinWordLength = Key<Int>("autoFixSpellingTypoGuardMinWordLength", default: 4)
     static let autoFixSpellingTypoGuardMaxEditDistance = Key<Int>("autoFixSpellingTypoGuardMaxEditDistance", default: 1)
     static let autoFixProposalEnabled = Key<Bool>("autoFixProposalEnabled", default: true)
-    static let autoFixProposalWindow = Key<Double>("autoFixProposalWindow", default: 0.12)
+    /// Must stay in sync with `AutoFixSensitivityPreset.balanced` — see
+    /// `autoFixThreshold`. The old 0.12 also contradicted
+    /// docs/autofix-analysis-and-guardrails.md, which documents 0.22.
+    static let autoFixProposalWindow = Key<Double>("autoFixProposalWindow", default: 0.22)
+    /// Experimental, default off. When a captured wrong-layout sentence
+    /// contains a contradicting token (a word that is already correct), the
+    /// whole incident is discarded — up to 29 correctly-detected words thrown
+    /// away because of one real word in the middle. With this on, a small
+    /// share of contradictions degrades the verdict to a *proposal* instead;
+    /// auto-replacement still requires a clean incident.
+    ///
+    /// Off by default because the tolerance ratio has not been tuned against
+    /// real decision history yet — see the replay harness note in the plan.
+    static let autoFixTolerateIncidentContradictions = Key<Bool>(
+        "autoFixTolerateIncidentContradictions",
+        default: false
+    )
     static let autoFixAppPolicyOverrides = Key<[String: String]>("autoFixAppPolicyOverrides", default: [:])
     static let autoFixLayoutSwitchPolicy = Key<String>(
         "autoFixLayoutSwitchPolicy",
@@ -179,17 +204,6 @@ extension Defaults.Keys {
     )
     static let dismissedRecommendations = Key<[String]>("dismissedRecommendations", default: [])
 
-    static let mistakeObservationEnabled = Key<Bool>("mistakeObservationEnabled", default: true)
-    static let grammarObservationBetaEnabled = Key<Bool>("grammarObservationBetaEnabled", default: true)
-    static let mistakeObservationRetention = Key<String>(
-        "mistakeObservationRetention",
-        default: MistakeObservationRetention.oneMonth.rawValue
-    )
-    /// Chosen grouping format for the "Усі помилки" browser (MistakesGroupingMode raw value).
-    static let mistakesGroupingMode = Key<String>(
-        "mistakesGroupingMode",
-        default: MistakesGroupingMode.byApp.rawValue
-    )
 }
 
 enum AutoFixSettingsMigration {

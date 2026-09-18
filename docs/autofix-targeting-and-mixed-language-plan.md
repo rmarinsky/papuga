@@ -24,7 +24,7 @@ Relevant files:
 - `papuga/Core/AppContextProvider.swift`
 - `papuga/Core/LanguageScoring/*`
 - `papugaTests/AutoFixEditingGuardTests.swift`
-- `papugaTests/MultiLanguageEndToEndTests.swift`
+- `papugaTests/MultiLanguageScoringIntegrationTests.swift`
 
 Observed from code:
 

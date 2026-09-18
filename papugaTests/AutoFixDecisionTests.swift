@@ -3,6 +3,29 @@ import XCTest
 @testable import papuga
 
 final class AutoFixDecisionTests: XCTestCase {
+    func test_mappedSpellingStatusFailsClosedUntilCandidateIsKnownCorrect() {
+        XCTAssertTrue(AutoFixDecision.shouldSuppressLayoutReplacement(mappedSpellingStatus: .unavailable))
+        XCTAssertTrue(AutoFixDecision.shouldSuppressLayoutReplacement(mappedSpellingStatus: .misspelled))
+        XCTAssertFalse(AutoFixDecision.shouldSuppressLayoutReplacement(mappedSpellingStatus: .correct))
+    }
+
+    func test_compoundLayoutSpellingSuggestionRequiresMappedTypo() {
+        XCTAssertEqual(
+            AutoFixDecision.compoundLayoutSpellingSuggestion(
+                mapped: "привчт",
+                targetLanguage: "uk",
+                isMisspelled: { _, _ in true },
+                guesses: { _, _ in ["привіт", "привітання"] }
+            ),
+            "привіт"
+        )
+        XCTAssertNil(AutoFixDecision.compoundLayoutSpellingSuggestion(
+            mapped: "привіт",
+            targetLanguage: "uk",
+            isMisspelled: { _, _ in false },
+            guesses: { _, _ in ["привітання"] }
+        ))
+    }
     func test_twoCharacterMinimumMigrationUpdatesOldBalancedDefaultOnce() {
         let previousMinimum = Defaults[.autoFixMinWordLength]
         let previousMigrationState = Defaults[.autoFixTwoCharacterMinimumMigrated]
@@ -59,6 +82,12 @@ final class AutoFixDecisionTests: XCTestCase {
         XCTAssertTrue(AutoFixDecision.shouldReplace(scoreOriginal: 0.0, scoreCandidate: 0.4, threshold: 0.4))
         XCTAssertFalse(AutoFixDecision.shouldReplace(scoreOriginal: 0.5, scoreCandidate: 0.6, threshold: 0.4))
         XCTAssertFalse(AutoFixDecision.shouldReplace(scoreOriginal: 0.6, scoreCandidate: 0.5, threshold: 0.0))
+    }
+
+    func test_shouldBypassLayoutIncidentGrace_onlyForDisplayedHundredPercentConfidence() {
+        XCTAssertTrue(AutoFixDecision.shouldBypassLayoutIncidentGrace(scoreCandidate: 1))
+        XCTAssertTrue(AutoFixDecision.shouldBypassLayoutIncidentGrace(scoreCandidate: 0.995))
+        XCTAssertFalse(AutoFixDecision.shouldBypassLayoutIncidentGrace(scoreCandidate: 0.994))
     }
 
     func test_shouldSuggestPhraseLayoutMistake_for_cyrillic_to_english_phrase() {
@@ -135,11 +164,46 @@ final class AutoFixDecisionTests: XCTestCase {
         XCTAssertTrue(AutoFixDecision.isInAllowlist("Лето", allowlist: allowlist))
         XCTAssertTrue(AutoFixDecision.isInAllowlist("myvar", allowlist: allowlist))
         XCTAssertFalse(AutoFixDecision.isInAllowlist("bar", allowlist: allowlist))
-        XCTAssertFalse(AutoFixDecision.isInAllowlist("foo ", allowlist: allowlist))
     }
 
     func test_isInAllowlist_empty_list() {
         XCTAssertFalse(AutoFixDecision.isInAllowlist("anything", allowlist: []))
+    }
+
+    func test_isInAllowlist_ignores_empty_and_punctuation_only_words() {
+        XCTAssertFalse(AutoFixDecision.isInAllowlist("", allowlist: ["foo"]))
+        // Both sides normalize to "", which must not be treated as a match.
+        XCTAssertFalse(AutoFixDecision.isInAllowlist("...", allowlist: ["!!!"]))
+    }
+
+    /// The writer (`IgnoreWordService.add`) stores the normalized core, so the
+    /// reader has to normalize too. `.hsq` is the documented layout case —
+    /// on Ukrainian-PC `.` is `ю`, so `.hsq` maps to `юрій`. Choosing "Ніколи
+    /// не замінювати" stored `hsq`; the live path then asked with the raw
+    /// `.hsq` and never matched, so the word kept being replaced.
+    func test_isInAllowlist_matches_when_the_typed_word_carries_edge_punctuation() {
+        let stored = [IgnoreWordService.normalizedWord(".hsq")]
+        XCTAssertEqual(stored, ["hsq"])
+
+        XCTAssertTrue(AutoFixDecision.isInAllowlist(".hsq", allowlist: stored))
+        XCTAssertTrue(AutoFixDecision.isInAllowlist("hsq,", allowlist: stored))
+        XCTAssertTrue(AutoFixDecision.isInAllowlist("(hsq)", allowlist: stored))
+        XCTAssertTrue(AutoFixDecision.isInAllowlist("«HSQ»", allowlist: stored))
+        XCTAssertFalse(AutoFixDecision.isInAllowlist("hsqx", allowlist: stored))
+    }
+
+    /// Legacy entries written before CorrectionKnowledgePunctuationMigration
+    /// still carry their edges, so the stored side is normalized as well.
+    func test_isInAllowlist_matches_legacy_unnormalized_entries() {
+        XCTAssertTrue(AutoFixDecision.isInAllowlist("hsq", allowlist: [".hsq"]))
+        XCTAssertTrue(AutoFixDecision.isInAllowlist(".hsq", allowlist: [".hsq"]))
+    }
+
+    /// Internal punctuation is not an edge, so distinct identifiers stay distinct.
+    func test_isInAllowlist_preserves_internal_punctuation() {
+        XCTAssertTrue(AutoFixDecision.isInAllowlist("C++", allowlist: ["C++"]))
+        XCTAssertFalse(AutoFixDecision.isInAllowlist("C", allowlist: ["C++"]))
+        XCTAssertTrue(AutoFixDecision.isInAllowlist("п'ять", allowlist: ["п'ять"]))
     }
 
     func test_isCorrectlySpelled_recognises_real_words_in_each_language() {

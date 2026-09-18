@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Carbon.HIToolbox
 import CoreGraphics
 import Foundation
 
@@ -16,10 +17,11 @@ struct TextReplacementAnchor: Equatable {
     let targetPID: pid_t
     let bundleID: String
     let focusedElementIdentity: FocusedElementSignature.StableIdentity
-    let sourceRange: AXTextRange
+    let sourceRange: AXTextRange?
     let boundaryUTF16Length: Int
-    let caretAfterBoundary: Int
+    let caretAfterBoundary: Int?
     let expectedSource: String
+    let allowsKeyboardFallback: Bool
 
     static func sourceRange(
         caretAfterBoundary: Int,
@@ -40,6 +42,11 @@ struct TextReplacementResult: Equatable {
     let recoveryAnchor: TextReplacementAnchor?
 }
 
+struct KeyboardFallbackPlan: Equatable {
+    let deleteCount: Int
+    let replacement: String
+}
+
 struct FocusedElementSignature: Equatable {
     let pid: pid_t
     let role: String?
@@ -48,6 +55,27 @@ struct FocusedElementSignature: Equatable {
     let elementIdentifier: String?
     let frameHash: Int?
     let selectedRangeLocation: Int?
+    let elementIdentity: AXUIElement?
+
+    init(
+        pid: pid_t,
+        role: String?,
+        subrole: String?,
+        windowTitleHash: Int?,
+        elementIdentifier: String?,
+        frameHash: Int?,
+        selectedRangeLocation: Int?,
+        elementIdentity: AXUIElement? = nil
+    ) {
+        self.pid = pid
+        self.role = role
+        self.subrole = subrole
+        self.windowTitleHash = windowTitleHash
+        self.elementIdentifier = elementIdentifier
+        self.frameHash = frameHash
+        self.selectedRangeLocation = selectedRangeLocation
+        self.elementIdentity = elementIdentity
+    }
 
     var stableIdentity: StableIdentity {
         StableIdentity(
@@ -58,6 +86,53 @@ struct FocusedElementSignature: Equatable {
             elementIdentifier: elementIdentifier,
             frameHash: frameHash
         )
+    }
+
+    func matchesTypingTarget(
+        _ other: FocusedElementSignature,
+        expectedCaretAdvance: Int
+    ) -> Bool {
+        guard pid == other.pid,
+              role == other.role,
+              subrole == other.subrole
+        else {
+            return false
+        }
+
+        if let elementIdentifier,
+           let otherIdentifier = other.elementIdentifier,
+           elementIdentifier != otherIdentifier {
+            return false
+        }
+
+        // Deliberate early return: when both signatures expose a caret, caret
+        // arithmetic alone decides, *before* windowTitleHash / frameHash /
+        // stableIdentity are consulted. This reads like a missing identity
+        // check, and it is not — those fields are unstable in exactly the
+        // editors that do expose a caret. Browser tabs retitle while you type,
+        // documents gain an "edited" marker, and chat composers grow and
+        // scroll, all of which change the identity mid-word and would drop a
+        // correction the user was mid-way through earning.
+        //
+        // The residual risk is a same-role sibling field whose caret happens to
+        // land on start + expectedCaretAdvance. `captureReplacementAnchor`
+        // catches that by reading the text back before mutating, so this
+        // shortcut is only load-bearing where the readback also fails.
+        // Pinned by AutoFixTargetValidatorTests
+        // .allowsDynamicGeometryWithoutIdentifierWhenCaretMatches.
+        if let selectedRangeLocation,
+           let otherLocation = other.selectedRangeLocation {
+            return otherLocation == selectedRangeLocation + expectedCaretAdvance
+        }
+
+        if let elementIdentity,
+           let otherIdentity = other.elementIdentity,
+           elementIdentity != otherIdentity,
+           (frameHash == nil || frameHash != other.frameHash) {
+            return false
+        }
+
+        return stableIdentity == other.stableIdentity
     }
 
     struct StableIdentity: Equatable {
@@ -136,16 +211,27 @@ final class AutoFixTargetValidator {
         return session
     }
 
-    func validateCurrentTarget(expectedBundleID: String?) -> AutoFixTargetValidation {
+    func validateCurrentTarget(
+        expectedBundleID: String?,
+        source: String,
+        boundary: String
+    ) -> AutoFixTargetValidation {
         guard let session else {
             return .unverifiable("missing_session")
         }
-        return validateCurrentTarget(for: session, expectedBundleID: expectedBundleID)
+        return validateCurrentTarget(
+            for: session,
+            expectedBundleID: expectedBundleID,
+            source: source,
+            boundary: boundary
+        )
     }
 
     func validateCurrentTarget(
         for session: AutoFixTargetSession,
-        expectedBundleID: String? = nil
+        expectedBundleID: String? = nil,
+        source: String,
+        boundary: String
     ) -> AutoFixTargetValidation {
         let activeBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         let expected = expectedBundleID?.nilIfEmpty ?? session.bundleID?.nilIfEmpty
@@ -162,7 +248,12 @@ final class AutoFixTargetValidator {
             return .unverifiable("missing_current_focused_element")
         }
 
-        guard originalSignature.stableIdentity == currentSignature.stableIdentity else {
+        let expectedCaretAdvance = max(0, source.utf16.count - session.firstCharacter.utf16.count)
+            + boundary.utf16.count
+        guard originalSignature.matchesTypingTarget(
+            currentSignature,
+            expectedCaretAdvance: expectedCaretAdvance
+        ) else {
             return .changed("focused_element_changed")
         }
 
@@ -200,28 +291,43 @@ final class AutoFixTargetValidator {
         source: String,
         boundary: String
     ) -> TextReplacementAnchor? {
-        guard validateCurrentTarget(for: session, expectedBundleID: expectedBundleID) == .verified,
+        guard validateCurrentTarget(
+            for: session,
+            expectedBundleID: expectedBundleID,
+            source: source,
+            boundary: boundary
+        ) == .verified,
               let focused = Self.focusedElement(),
               let signature = Self.focusedElementSignature(for: focused),
-              signature.pid == session.focusedElementSignature?.pid,
-              let selection = Self.selectedTextRange(for: focused),
-              selection.length == 0,
-              let sourceRange = TextReplacementAnchor.sourceRange(
-                caretAfterBoundary: selection.location,
-                source: source,
-                boundary: boundary
-              ),
-              Self.string(for: sourceRange, in: focused) == source,
-              Self.string(
-                for: AXTextRange(
-                    location: sourceRange.location + sourceRange.length,
-                    length: boundary.utf16.count
-                ),
-                in: focused
-              ) == boundary
+              signature.pid == session.focusedElementSignature?.pid
         else {
             return nil
         }
+
+        let selection = Self.selectedTextRange(for: focused)
+        let sourceRange: AXTextRange? = selection.flatMap { selection in
+            guard selection.length == 0 else { return nil }
+            return TextReplacementAnchor.sourceRange(
+                caretAfterBoundary: selection.location,
+                source: source,
+                boundary: boundary
+            )
+        }
+        let hasReadableAnchor = sourceRange.map { sourceRange in
+            Self.waitForReadableAnchor(
+                source: source,
+                boundary: boundary,
+                sourceRange: sourceRange,
+                attempts: 5,
+                retryDelay: { Thread.sleep(forTimeInterval: 0.005) },
+                readString: { Self.string(for: $0, in: focused) }
+            )
+        } ?? false
+        guard hasReadableAnchor || Self.canUseKeyboardFallback(
+            boundary: boundary,
+            selection: selection,
+            sourceRange: sourceRange
+        ) else { return nil }
 
         return TextReplacementAnchor(
             targetPID: signature.pid,
@@ -229,18 +335,36 @@ final class AutoFixTargetValidator {
             focusedElementIdentity: signature.stableIdentity,
             sourceRange: sourceRange,
             boundaryUTF16Length: boundary.utf16.count,
-            caretAfterBoundary: selection.location,
-            expectedSource: source
+            caretAfterBoundary: selection?.location,
+            expectedSource: source,
+            allowsKeyboardFallback: !hasReadableAnchor
         )
     }
 
-    /// Replaces exactly the anchored source range. The boundary after the source is never selected,
-    /// deleted, or recreated, so rich editors keep their paragraph/list semantics intact.
+    /// Uses the exact anchored range when available. Web editors without AX text readback may use
+    /// the verified keyboard fallback, but only for an ordinary space boundary.
     func replaceAnchoredText(_ anchor: TextReplacementAnchor, with replacement: String) -> TextReplacementResult? {
-        guard let focused = validatedElement(for: anchor),
-              Self.isAttributeSettable(kAXSelectedTextRangeAttribute as CFString, on: focused),
+        guard let sourceRange = anchor.sourceRange,
+              let caretAfterBoundary = anchor.caretAfterBoundary,
+              let focused = validatedElement(for: anchor)
+        else {
+            guard anchor.allowsKeyboardFallback,
+                  validatedTarget(for: anchor) != nil,
+                  let plan = Self.keyboardFallbackPlan(
+                    source: anchor.expectedSource,
+                    boundary: " ",
+                    replacement: replacement
+                  ),
+                  Self.postKeyboardFallback(plan)
+            else {
+                return nil
+            }
+            return TextReplacementResult(recoveryAnchor: nil)
+        }
+
+        guard Self.isAttributeSettable(kAXSelectedTextRangeAttribute as CFString, on: focused),
               Self.isAttributeSettable(kAXSelectedTextAttribute as CFString, on: focused),
-              Self.setSelectedTextRange(anchor.sourceRange, on: focused)
+              Self.setSelectedTextRange(sourceRange, on: focused)
         else {
             return nil
         }
@@ -253,7 +377,7 @@ final class AutoFixTargetValidator {
 
         let replacementLength = replacement.utf16.count
         let replacementRange = AXTextRange(
-            location: anchor.sourceRange.location,
+            location: sourceRange.location,
             length: replacementLength
         )
         var replacementCommitted = axWriteSucceeded && Self.waitForCommittedReplacement(
@@ -268,8 +392,8 @@ final class AutoFixTargetValidator {
         // the write. The exact source range is already validated, so replace that selection with
         // tagged Unicode events and confirm the resulting text before reporting success.
         if !replacementCommitted,
-           Self.string(for: anchor.sourceRange, in: focused) == anchor.expectedSource,
-           Self.setSelectedTextRange(anchor.sourceRange, on: focused),
+           Self.string(for: sourceRange, in: focused) == anchor.expectedSource,
+           Self.setSelectedTextRange(sourceRange, on: focused),
            Self.postUnicodeReplacement(replacement) {
             replacementCommitted = Self.waitForCommittedReplacement(
                 expected: replacement,
@@ -282,13 +406,13 @@ final class AutoFixTargetValidator {
 
         guard replacementCommitted else {
             _ = Self.setSelectedTextRange(
-                AXTextRange(location: anchor.caretAfterBoundary, length: 0),
+                AXTextRange(location: caretAfterBoundary, length: 0),
                 on: focused
             )
             return nil
         }
 
-        let resultingCaret = anchor.sourceRange.location + replacementLength + anchor.boundaryUTF16Length
+        let resultingCaret = sourceRange.location + replacementLength + anchor.boundaryUTF16Length
         _ = Self.setSelectedTextRange(
             AXTextRange(location: resultingCaret, length: 0),
             on: focused
@@ -306,12 +430,62 @@ final class AutoFixTargetValidator {
                 targetPID: anchor.targetPID,
                 bundleID: anchor.bundleID,
                 focusedElementIdentity: anchor.focusedElementIdentity,
-                sourceRange: AXTextRange(location: anchor.sourceRange.location, length: replacementLength),
+                sourceRange: AXTextRange(location: sourceRange.location, length: replacementLength),
                 boundaryUTF16Length: anchor.boundaryUTF16Length,
                 caretAfterBoundary: resultingSelection.location,
-                expectedSource: replacement
+                expectedSource: replacement,
+                allowsKeyboardFallback: false
             )
         )
+    }
+
+    /// Largest token this path will blind-delete.
+    ///
+    /// The fallback fires Delete keystrokes without being able to read the
+    /// field back, so the count is asserted, not verified. A single typed token
+    /// between whitespace boundaries is short; anything long means the anchor's
+    /// `expectedSource` no longer describes reality, and the safe answer is to
+    /// do nothing rather than eat an unknown amount of the user's text.
+    nonisolated static let maxUnverifiedDeleteCharacters = 48
+
+    nonisolated static func keyboardFallbackPlan(
+        source: String,
+        boundary: String,
+        replacement: String
+    ) -> KeyboardFallbackPlan? {
+        guard boundary == " " else { return nil }
+        // Deleting nothing then typing a replacement would duplicate text.
+        guard !source.isEmpty, !replacement.isEmpty else { return nil }
+        guard source.count <= maxUnverifiedDeleteCharacters else { return nil }
+        return KeyboardFallbackPlan(
+            // Grapheme count, deliberately — unlike every AX range in this file,
+            // which is UTF-16. One Delete keypress removes one user-perceived
+            // character, so an emoji (2 UTF-16 units) still takes one press.
+            // Counting UTF-16 here would over-delete.
+            deleteCount: source.count + 1,
+            replacement: replacement + boundary
+        )
+    }
+
+    /// `selection == nil` means the editor exposes no AX text range at all —
+    /// Chrome and similar web editors. That case is allowed on purpose (see
+    /// e93324d); refusing it would remove AutoFix from web fields entirely.
+    ///
+    /// It is the weakest guarantee in the app: the replacement is posted blind
+    /// and, because `replaceAnchoredText` returns no recovery anchor for it,
+    /// **no undo is offered** — precisely where the mutation is least verified.
+    /// The delete count is bounded in `keyboardFallbackPlan` so the blast
+    /// radius is at least fixed.
+    nonisolated static func canUseKeyboardFallback(
+        boundary: String,
+        selection: AXTextRange?,
+        sourceRange: AXTextRange?
+    ) -> Bool {
+        guard boundary == " " else { return false }
+        // A non-collapsed selection means the user has text selected; deleting
+        // backwards from there would destroy it.
+        guard let selection else { return true }
+        return selection.length == 0 && sourceRange != nil
     }
 
     nonisolated static func replacementWasCommitted(
@@ -339,6 +513,26 @@ final class AutoFixTargetValidator {
             }
         }
         return false
+    }
+
+    nonisolated static func waitForReadableAnchor(
+        source: String,
+        boundary: String,
+        sourceRange: AXTextRange,
+        attempts: Int,
+        retryDelay: () -> Void,
+        readString: (AXTextRange) -> String?
+    ) -> Bool {
+        waitForCommittedReplacement(
+            expected: source + boundary,
+            at: AXTextRange(
+                location: sourceRange.location,
+                length: sourceRange.length + boundary.utf16.count
+            ),
+            attempts: attempts,
+            retryDelay: retryDelay,
+            readString: readString
+        )
     }
 
     private static func postUnicodeReplacement(_ replacement: String) -> Bool {
@@ -373,23 +567,79 @@ final class AutoFixTargetValidator {
         return true
     }
 
+    private static func postKeyboardFallback(_ plan: KeyboardFallbackPlan) -> Bool {
+        let source = CGEventSource(stateID: .hidSystemState)
+        guard let deleteDown = CGEvent(
+            keyboardEventSource: source,
+            virtualKey: CGKeyCode(kVK_Delete),
+            keyDown: true
+        ), let deleteUp = CGEvent(
+            keyboardEventSource: source,
+            virtualKey: CGKeyCode(kVK_Delete),
+            keyDown: false
+        ), let replacementDown = CGEvent(
+            keyboardEventSource: source,
+            virtualKey: 0,
+            keyDown: true
+        ), let replacementUp = CGEvent(
+            keyboardEventSource: source,
+            virtualKey: 0,
+            keyDown: false
+        ) else {
+            return false
+        }
+
+        let utf16 = Array(plan.replacement.utf16)
+        utf16.withUnsafeBufferPointer { buffer in
+            replacementDown.keyboardSetUnicodeString(
+                stringLength: buffer.count,
+                unicodeString: buffer.baseAddress
+            )
+            replacementUp.keyboardSetUnicodeString(
+                stringLength: buffer.count,
+                unicodeString: buffer.baseAddress
+            )
+        }
+        [deleteDown, deleteUp, replacementDown, replacementUp].forEach(PapugaSyntheticEvent.tag)
+        for _ in 0..<plan.deleteCount {
+            deleteDown.post(tap: .cgAnnotatedSessionEventTap)
+            deleteUp.post(tap: .cgAnnotatedSessionEventTap)
+        }
+        replacementDown.post(tap: .cgAnnotatedSessionEventTap)
+        replacementUp.post(tap: .cgAnnotatedSessionEventTap)
+        return true
+    }
+
     func isReplacementAnchorValid(_ anchor: TextReplacementAnchor) -> Bool {
         validatedElement(for: anchor) != nil
+            || (anchor.allowsKeyboardFallback && validatedTarget(for: anchor) != nil)
     }
 
     private func validatedElement(for anchor: TextReplacementAnchor) -> AXUIElement? {
+        guard let sourceRange = anchor.sourceRange,
+              let focused = validatedTarget(for: anchor),
+              Self.string(for: sourceRange, in: focused) == anchor.expectedSource
+        else {
+            return nil
+        }
+        return focused
+    }
+
+    private func validatedTarget(for anchor: TextReplacementAnchor) -> AXUIElement? {
         guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == anchor.bundleID,
               let focused = Self.focusedElement(),
               let signature = Self.focusedElementSignature(for: focused),
               signature.pid == anchor.targetPID,
-              signature.stableIdentity == anchor.focusedElementIdentity,
-              Self.selectedTextRange(for: focused) == AXTextRange(
-                location: anchor.caretAfterBoundary,
-                length: 0
-              ),
-              Self.string(for: anchor.sourceRange, in: focused) == anchor.expectedSource
+              signature.stableIdentity == anchor.focusedElementIdentity
         else {
             return nil
+        }
+
+        let selection = Self.selectedTextRange(for: focused)
+        if let caretAfterBoundary = anchor.caretAfterBoundary {
+            guard selection == AXTextRange(location: caretAfterBoundary, length: 0) else { return nil }
+        } else {
+            guard selection == nil else { return nil }
         }
         return focused
     }
@@ -435,7 +685,8 @@ final class AutoFixTargetValidator {
             windowTitleHash: windowTitleHash(for: focused),
             elementIdentifier: stringAttribute("AXIdentifier" as CFString, from: focused),
             frameHash: frameHash(for: focused),
-            selectedRangeLocation: selectedRangeLocation(for: focused)
+            selectedRangeLocation: selectedRangeLocation(for: focused),
+            elementIdentity: focused
         )
     }
 
@@ -462,15 +713,33 @@ final class AutoFixTargetValidator {
         var cfRange = range.cfRange
         guard let rangeValue = AXValueCreate(.cfRange, &cfRange) else { return nil }
         var result: CFTypeRef?
-        guard AXUIElementCopyParameterizedAttributeValue(
+        if AXUIElementCopyParameterizedAttributeValue(
             element,
             kAXStringForRangeParameterizedAttribute as CFString,
             rangeValue,
             &result
-        ) == .success else {
+        ) == .success,
+           let string = result as? String {
+            return string
+        }
+
+        guard let value = stringAttribute(kAXValueAttribute as CFString, from: element) else {
             return nil
         }
-        return result as? String
+        return substring(for: range, in: value)
+    }
+
+    nonisolated static func substring(for range: AXTextRange, in text: String) -> String? {
+        let utf16 = text.utf16
+        guard range.location >= 0,
+              range.length >= 0,
+              range.location <= utf16.count,
+              range.length <= utf16.count - range.location else {
+            return nil
+        }
+        let start = utf16.index(utf16.startIndex, offsetBy: range.location)
+        let end = utf16.index(start, offsetBy: range.length)
+        return String(decoding: utf16[start..<end], as: UTF16.self)
     }
 
     private static func isAttributeSettable(_ attribute: CFString, on element: AXUIElement) -> Bool {

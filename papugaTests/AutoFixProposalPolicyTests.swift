@@ -97,7 +97,8 @@ final class AutoFixProposalPolicyTests: XCTestCase {
                 sourceRange: AXTextRange(location: 0, length: 6),
                 boundaryUTF16Length: 1,
                 caretAfterBoundary: 7,
-                expectedSource: "важлво"
+                expectedSource: "важлво",
+                allowsKeyboardFallback: false
             ),
             kind: kind
         )

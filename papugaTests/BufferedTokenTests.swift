@@ -133,10 +133,47 @@ final class BufferedTokenTests: XCTestCase {
     func test_customRuleMatchesCoreAcrossPunctuationVariants() {
         let rule = CustomAutoReplaceRule(source: "можі", target: "може")
 
+        XCTAssertTrue(rule.matches("можі,"))
         XCTAssertTrue(rule.matches(BufferedToken(rawText: "можі", keyCodes: [])))
         XCTAssertTrue(rule.matches(BufferedToken(rawText: "можі,", keyCodes: [])))
         XCTAssertTrue(rule.matches(BufferedToken(rawText: "“можі?”", keyCodes: [])))
 
+    }
+
+    func test_fullTokenRuleConsumesLayoutKeyThatLooksLikePunctuation() {
+        let rule = CustomAutoReplaceRule(
+            source: "nfrj;",
+            target: "також",
+            matchesFullToken: true
+        )
+
+        XCTAssertTrue(rule.matches("nfrj;"))
+        XCTAssertFalse(rule.matches("nfrj"))
+        XCTAssertFalse(rule.matches("nfrj;,"))
+    }
+
+    func test_coreAndFullTokenRulesHaveDistinctMatchScopes() {
+        let core = CustomAutoReplaceRule(source: "nfrj", target: "core")
+        let exact = CustomAutoReplaceRule(
+            source: "nfrj;",
+            target: "також",
+            matchesFullToken: true
+        )
+
+        XCTAssertFalse(core.hasSameMatchScope(as: exact))
+        XCTAssertTrue(exact.hasSameMatchScope(as: exact))
+    }
+
+    func test_legacyRuleWithoutMatchScopeStillDecodesAsCoreRule() throws {
+        let encoded = try JSONEncoder().encode(CustomAutoReplaceRule(source: "можі", target: "може"))
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "matchesFullToken")
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        let rule = try JSONDecoder().decode(CustomAutoReplaceRule.self, from: legacyData)
+
+        XCTAssertNil(rule.matchesFullToken)
+        XCTAssertTrue(rule.matches("можі,"))
     }
 
     func test_allowlistProtectsBareAndPunctuatedVariantsThroughOneCoreEntry() {

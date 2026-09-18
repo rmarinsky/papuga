@@ -7,11 +7,23 @@ final class ClipboardManager {
     private let logger = AppLogger.clipboard
 
     func save() -> SavedPasteboardState {
-        AppLogger.pre(logger, "save()")
+        save(excluding: [])!
+    }
+
+    func save(excluding excludedTypes: Set<NSPasteboard.PasteboardType>) -> SavedPasteboardState? {
+        AppLogger.pre(logger, "save(excludingTypes=\(excludedTypes.count))")
         let changeCount = pasteboard.changeCount
+        let pasteboardItems = pasteboard.pasteboardItems ?? []
+        guard !pasteboardItems.contains(where: { item in
+            item.types.contains(where: excludedTypes.contains)
+        }) else {
+            AppLogger.post(logger, "Clipboard state skipped because it contains an excluded type")
+            return nil
+        }
+
         var items: [SavedPasteboardState.Item] = []
 
-        for item in pasteboard.pasteboardItems ?? [] {
+        for item in pasteboardItems {
             var dataMap: [NSPasteboard.PasteboardType: Data] = [:]
             let types = item.types
             for type in types {

@@ -7,7 +7,70 @@ struct SpellingTypoGuardAssessment: Equatable {
     let editDistance: Int?
 }
 
+/// What to do with a layout candidate once the dictionary has had its say.
+/// The previous boolean collapsed three genuinely different situations into
+/// "suppress", which is why an unsupported target language and a word the
+/// dictionary actively rejects were treated identically.
+enum LayoutReplacementGate: Equatable {
+    /// The target is dictionary-attested. Continue to scoring.
+    case allow
+    /// Plausible, but nothing can verify it — suggest, never silently mutate.
+    case requireProposal
+    /// A dictionary says the target is not a word. Fail closed.
+    case suppress
+}
+
 enum AutoFixDecision {
+    /// Preserves the fail-closed intent this gate was added with — a target the
+    /// dictionary rejects is still never auto-replaced — while no longer
+    /// treating "we have no dictionary for this language" as the same thing.
+    ///
+    /// `.unavailable` used to mean silence: layout auto-fix was entirely dead
+    /// for any target language without a bundled index (ru, pl, de, …) and for
+    /// every language during the async index load at launch. A word-like
+    /// candidate in that state is now offered as a proposal, which is the
+    /// honest answer — Papuga thinks this is the fix but cannot prove it.
+    static func layoutReplacementGate(
+        mappedSpellingStatus: MappedSpellingStatus,
+        candidateIsWordLike: Bool
+    ) -> LayoutReplacementGate {
+        switch mappedSpellingStatus {
+        case .correct:
+            return .allow
+        case .misspelled:
+            return .suppress
+        case .unavailable:
+            return candidateIsWordLike ? .requireProposal : .suppress
+        }
+    }
+
+    static func shouldSuppressLayoutReplacement(
+        mappedSpellingStatus: MappedSpellingStatus,
+        candidateIsWordLike: Bool = false
+    ) -> Bool {
+        layoutReplacementGate(
+            mappedSpellingStatus: mappedSpellingStatus,
+            candidateIsWordLike: candidateIsWordLike
+        ) == .suppress
+    }
+
+    static func compoundLayoutSpellingSuggestion(
+        mapped: String,
+        targetLanguage: String,
+        isMisspelled: (String, String) -> Bool,
+        guesses: (String, String) -> [String]
+    ) -> String? {
+        guard isMisspelled(mapped, targetLanguage) else { return nil }
+        return guesses(mapped, targetLanguage).prefix(3).compactMap { suggestion in
+            let trimmed = suggestion.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  !trimmed.contains(where: \.isWhitespace),
+                  trimmed.caseInsensitiveCompare(mapped) != .orderedSame,
+                  WordPlausibility.isWordLike(trimmed) else { return nil }
+            return trimmed
+        }.first
+    }
+
     static func shouldSkipWord(_ word: String, minLength: Int = 2) -> SkipReason? {
         if word.count < minLength { return .tooShort }
         // `.` and `/` are NOT blanket-forbidden: on Ukrainian-PC `.` is `ю`, so a
@@ -27,6 +90,10 @@ enum AutoFixDecision {
         threshold: Double
     ) -> Bool {
         return scoreCandidate - scoreOriginal >= threshold
+    }
+
+    static func shouldBypassLayoutIncidentGrace(scoreCandidate: Double, hasVerifiedLayoutWord: Bool = false) -> Bool {
+        hasVerifiedLayoutWord || scoreCandidate >= 0.995
     }
 
     static func spellingConfidence(
@@ -149,9 +216,22 @@ enum AutoFixDecision {
         case containsForbiddenChars
     }
 
+    /// `IgnoreWordService.add` stores the *normalized core* of the word (edge
+    /// punctuation stripped), and `CorrectionKnowledgePunctuationMigration`
+    /// rewrote existing entries into that form. So the lookup has to normalize
+    /// too: the live path asks with the raw buffer text, which still carries
+    /// its edges. Comparing raw against a normalized store meant "Ніколи не
+    /// замінювати" on `.hsq` stored `hsq` and then never matched `.hsq` again.
+    ///
+    /// Both sides are normalized so legacy entries written before the
+    /// migration still match, and so callers that already pass `token.core`
+    /// are unaffected because normalization is idempotent.
     static func isInAllowlist(_ word: String, allowlist: [String]) -> Bool {
-        let normalized = word.lowercased()
-        return allowlist.contains { $0.lowercased() == normalized }
+        let normalized = BufferedToken.normalizedCore(from: word).lowercased()
+        guard !normalized.isEmpty else { return false }
+        return allowlist.contains {
+            BufferedToken.normalizedCore(from: $0).lowercased() == normalized
+        }
     }
 
     /// True when the word is in the system spell-check dictionary for the

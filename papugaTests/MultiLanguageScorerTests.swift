@@ -3,9 +3,7 @@ import XCTest
 
 /// Verifies that the chosen LanguageScorer correctly favours the expected language
 /// for short, real-world phrases across the most common European languages.
-/// Each test checks all three algorithm flavours (`appleNL`, `ngram`, `cld3`).
-/// `ngram` and `cld3` currently delegate to AppleNL; tests will start showing
-/// divergence the moment a real n-gram model lands.
+/// Only AppleNL is implemented. Factory fallback behavior is covered by LanguageScorerTests.
 final class MultiLanguageScorerTests: XCTestCase {
     private struct ScorerCase {
         let label: String
@@ -60,11 +58,4 @@ final class MultiLanguageScorerTests: XCTestCase {
         runCases(algorithm: .appleNL)
     }
 
-    func test_all_languages_with_ngram() {
-        runCases(algorithm: .ngram)
-    }
-
-    func test_all_languages_with_cld3() {
-        runCases(algorithm: .cld3)
-    }
 }

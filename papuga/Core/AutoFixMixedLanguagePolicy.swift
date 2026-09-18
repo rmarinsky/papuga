@@ -159,10 +159,16 @@ enum AutoFixMixedLanguagePolicy {
         targetLanguage: String,
         scoreOriginal: Double,
         scoreCandidate: Double,
-        threshold: Double
+        threshold: Double,
+        verifiedLayoutWord: Bool = false
     ) -> MixedLanguageDecision {
         let kind = AutoFixTokenClassifier.classify(original)
-        if kind != .ordinary, containsLatinLetter(original) {
+        let isNaturalWordShape = !original.contains("_") && (
+            original.contains("-") ||
+            (original.first?.isUppercase == true && original.dropFirst().allSatisfy { !$0.isUppercase })
+        )
+        let verifiedNaturalWord = verifiedLayoutWord && kind == .identifier && isNaturalWordShape
+        if kind != .ordinary, !verifiedNaturalWord, containsLatinLetter(original) {
             return .skipAsIntentional(kind)
         }
 

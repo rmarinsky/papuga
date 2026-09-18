@@ -29,6 +29,7 @@ final class LayoutIncidentTrackerTests: XCTestCase {
             tracker.decision(scoreOriginal: 1, scoreCandidate: 0, threshold: 0.35),
             .propose
         )
+        XCTAssertTrue(tracker.isReadyForImmediateFinalization)
     }
 
     func test_validSourceContradictionPreventsIncidentAction() {
@@ -123,15 +124,16 @@ final class LayoutIncidentTrackerTests: XCTestCase {
         var timer = LayoutIncidentTimerState()
         timer.armSingleWord(at: 10)
 
-        XCTAssertTrue(timer.consumeFastContinuation(at: 10.5))
+        XCTAssertTrue(timer.consumeFastContinuation(at: 10.29))
         XCTAssertNil(timer.takeDueAction(at: 11))
 
         timer.armSingleWord(at: 20)
-        XCTAssertEqual(timer.takeDueAction(at: 20.75), .applySingleWord)
+        XCTAssertNil(timer.takeDueAction(at: 20.29))
+        XCTAssertEqual(timer.takeDueAction(at: 20.3), .applySingleWord)
 
         timer.armIncidentIdle(at: 30)
-        XCTAssertNil(timer.takeDueAction(at: 31.19))
-        XCTAssertEqual(timer.takeDueAction(at: 31.2), .finalizeIncident)
+        XCTAssertNil(timer.takeDueAction(at: 30.59))
+        XCTAssertEqual(timer.takeDueAction(at: 30.6), .finalizeIncident)
     }
 
     func test_returnAndTabAreHardIncidentBoundaries() {

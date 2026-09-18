@@ -182,6 +182,13 @@ final class SymSpell {
             }
             if rowMin > max { return -1 }
         }
-        return d[n * width + m]
+        // The per-row `rowMin` prune bounds the cheapest cell in a row, not the
+        // final cell, so the last cell can still exceed `max` (e.g. "abc" vs
+        // "abzz" with max 1 returns 2). `lookup` re-checks, but callers that
+        // trust the `>= 0` contract alone did not — callers'
+        // "close fix" test counted 2-edit candidates and so kept suppressing
+        // domain-vocabulary learning.
+        let distance = d[n * width + m]
+        return distance > max ? -1 : distance
     }
 }

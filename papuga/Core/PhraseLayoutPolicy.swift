@@ -22,6 +22,13 @@ enum PhraseLayoutPolicy {
         }
 
         let spellcheck = isKnownCorrect ?? AutoFixDecision.isCorrectlySpelled
+        let originalToken = BufferedToken(rawText: originalCore, keyCodes: [])
+        let correctedToken = BufferedToken(rawText: correctedCore, keyCodes: [])
+        if originalToken.core.isEmpty,
+           !correctedToken.core.isEmpty,
+           spellcheck(correctedCore, targetLanguage) {
+            return .layoutCandidate(targetLayoutID: targetLayoutID)
+        }
         if spellcheck(originalCore, sourceLanguage) {
             return .keep
         }

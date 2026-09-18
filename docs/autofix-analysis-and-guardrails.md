@@ -26,8 +26,8 @@ New helper:
 
 Behavior:
 
-- If Backspace/Delete happens while Papuga's buffer is empty, the next token is treated as an edit fragment and AutoFix skips it.
-- If cursor navigation happens through arrow/home/end/page keys, the next token is skipped.
+- If Backspace/Delete happens while Papuga's buffer is empty, the next token is treated as an edit fragment and AutoFix skips it; later tokens resume normally.
+- If cursor navigation happens through arrow/home/end/page keys, only the next token is skipped.
 - Escape and ordinary backspace inside the current typed buffer do not suppress AutoFix.
 - The guard is controlled by `autoFixConservativeEditingGuard`, default `true`.
 
@@ -40,6 +40,10 @@ Analytics skip reason:
 - `editing_context`
 
 This lets us distinguish a real missed AutoFix from a deliberate guardrail skip.
+
+Web editors may recreate their accessibility proxy while typing. Target validation therefore uses
+the logical field identity plus expected caret movement, and falls back from `AXStringForRange` to
+an exact UTF-16 slice of the full `AXValue` when the editor does not expose the parameterized API.
 
 ### Mistake observations instead of forced replacement
 
@@ -98,35 +102,18 @@ full-text history row.
 
 ### Whole-sentence layout incidents
 
-A suspicious first word waits for a 750 ms grace period. A following printable key turns it into a
-single in-memory incident instead of applying or proposing individual words. Papuga captures at
-most 30 words or 300 UTF-16 code units and finalizes on sentence punctuation plus a boundary,
-Return/Tab, or a 1.2-second pause after a completed word.
+A suspicious first word normally waits for a 300 ms grace period. A safe, unambiguous replacement
+whose candidate score is displayed as 100% bypasses that grace period and applies immediately.
+A following printable key turns other candidates into a single in-memory incident instead of
+applying or proposing individual words. Papuga captures at most 30 words or 300 UTF-16 code units
+and finalizes on sentence punctuation plus a boundary, Return/Tab, or a 600 ms pause after a
+completed word.
 
 Automatic replacement requires at least three strong tokens, 75% support, no contradictions, and
 a phrase margin above the active threshold. Two strong tokens with 60% support can produce one
 whole-incident proposal even when the raw language coefficient is low. The final mutation uses one
 anchored source range, preserves the trailing boundary, and produces one undo/reapply action.
 Individual tokens inside the incident contribute only anonymous aggregate counts.
-
-## Implemented mistake pipeline
-
-New files:
-
-- `papuga/Models/MistakeObservation.swift`
-- `papuga/Core/MistakeObservationStore.swift`
-- `papuga/Core/MistakeObservationEngine.swift`
-- `papuga/Views/History/MistakesView.swift`
-
-Behavior:
-
-- Master opt-in is off by default.
-- Observations are local-only JSONL.
-- Retention is configurable: 7, 30, or 90 days.
-- Spelling observations use `NSSpellChecker`.
-- Manual correction inference detects repeated `source -> target` corrections after delete/retype.
-- Repeated observations feed `RecommendationEngine`.
-- `Помилки` sidebar section lets the user create a rule, add to allowlist, or ignore.
 
 ## What still needs more design before implementation
 
@@ -154,13 +141,10 @@ Recommended next step:
 - Increase threshold automatically in apps with repeated undos.
 - Lower confidence for short tokens and mixed punctuation.
 - Add a cooldown after undo so the same word is not proposed again in the same session.
-- Use observations to propose rules instead of mutating ambiguous text.
 
 ## Tests added
 
 - `AutoFixEditingGuardTests`
-- `ManualCorrectionTrackerTests`
-- `MistakeObservationEngineTests`
-- `RecommendationEngineMistakeTests`
+- `RecommendationEngineTests`
 
 The key regression now covered: a token after external edit context is skipped instead of being treated as a normal whole word.

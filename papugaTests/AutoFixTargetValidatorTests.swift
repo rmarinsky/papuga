@@ -147,6 +147,103 @@ final class AutoFixTargetValidatorTests: XCTestCase {
         XCTAssertEqual(delays, 2)
     }
 
+    func test_anchorReadback_waitsForDelayedWebEditorText() {
+        let sourceRange = AXTextRange(location: 4, length: 6)
+        var reads = 0
+        var delays = 0
+
+        XCTAssertTrue(AutoFixTargetValidator.waitForReadableAnchor(
+            source: "ghbdsn",
+            boundary: " ",
+            sourceRange: sourceRange,
+            attempts: 3,
+            retryDelay: { delays += 1 },
+            readString: { range in
+                XCTAssertEqual(range, AXTextRange(location: 4, length: 7))
+                reads += 1
+                return reads == 1 ? "ghbdsn" : "ghbdsn "
+            }
+        ))
+        XCTAssertEqual(reads, 2)
+        XCTAssertEqual(delays, 1)
+    }
+
+    func test_keyboardFallbackPlan_replacesVerifiedSpaceTerminatedBuffer() throws {
+        let plan = try XCTUnwrap(AutoFixTargetValidator.keyboardFallbackPlan(
+            source: "ghbdsn",
+            boundary: " ",
+            replacement: "привіт"
+        ))
+
+        XCTAssertEqual(plan.deleteCount, 7)
+        XCTAssertEqual(plan.replacement, "привіт ")
+        XCTAssertNil(AutoFixTargetValidator.keyboardFallbackPlan(
+            source: "ghbdsn",
+            boundary: "\r",
+            replacement: "привіт"
+        ))
+    }
+
+    /// This path deletes without being able to read the field back, so the
+    /// count is asserted rather than verified. A long `expectedSource` means
+    /// the anchor no longer describes reality; do nothing rather than eat an
+    /// unknown amount of the user's text.
+    func test_keyboardFallbackPlan_refusesToBlindDeleteAnImplausiblyLongToken() {
+        let cap = AutoFixTargetValidator.maxUnverifiedDeleteCharacters
+        XCTAssertNotNil(AutoFixTargetValidator.keyboardFallbackPlan(
+            source: String(repeating: "a", count: cap),
+            boundary: " ",
+            replacement: "ok"
+        ))
+        XCTAssertNil(AutoFixTargetValidator.keyboardFallbackPlan(
+            source: String(repeating: "a", count: cap + 1),
+            boundary: " ",
+            replacement: "ok"
+        ))
+    }
+
+    /// Deleting nothing and then typing would duplicate text rather than
+    /// replace it.
+    func test_keyboardFallbackPlan_refusesEmptySourceOrReplacement() {
+        XCTAssertNil(AutoFixTargetValidator.keyboardFallbackPlan(
+            source: "", boundary: " ", replacement: "привіт"
+        ))
+        XCTAssertNil(AutoFixTargetValidator.keyboardFallbackPlan(
+            source: "ghbdsn", boundary: " ", replacement: ""
+        ))
+    }
+
+    /// Backspace removes one user-perceived character, so the count is
+    /// grapheme-based even though every AX range in that file is UTF-16.
+    /// Counting UTF-16 here would over-delete on emoji and combining marks.
+    func test_keyboardFallbackPlan_countsGraphemesNotUTF16Units() throws {
+        let plan = try XCTUnwrap(AutoFixTargetValidator.keyboardFallbackPlan(
+            source: "ab🇺🇦é",           // 4 graphemes, more UTF-16 units
+            boundary: " ",
+            replacement: "ok"
+        ))
+        XCTAssertEqual(plan.deleteCount, 5, "should be 4 graphemes + the boundary")
+        XCTAssertGreaterThan("ab🇺🇦é".utf16.count, 4, "test string must actually differ")
+    }
+
+    func test_keyboardFallbackPolicy_acceptsMissingWebEditorSelectionOnlyForSpace() {
+        XCTAssertTrue(AutoFixTargetValidator.canUseKeyboardFallback(
+            boundary: " ",
+            selection: nil,
+            sourceRange: nil
+        ))
+        XCTAssertFalse(AutoFixTargetValidator.canUseKeyboardFallback(
+            boundary: "\r",
+            selection: nil,
+            sourceRange: nil
+        ))
+        XCTAssertFalse(AutoFixTargetValidator.canUseKeyboardFallback(
+            boundary: " ",
+            selection: AXTextRange(location: 10, length: 2),
+            sourceRange: nil
+        ))
+    }
+
     func test_stable_identity_ignores_caret_location() {
         let first = FocusedElementSignature(
             pid: 100,
@@ -193,5 +290,196 @@ final class AutoFixTargetValidatorTests: XCTestCase {
         )
 
         XCTAssertNotEqual(first.stableIdentity, second.stableIdentity)
+    }
+
+    func test_typingTargetIdentity_ignoresDynamicWindowTitleAndFrameForStableIdentifier() {
+        let first = FocusedElementSignature(
+            pid: 100,
+            role: "AXTextField",
+            subrole: nil,
+            windowTitleHash: 42,
+            elementIdentifier: "search",
+            frameHash: 7,
+            selectedRangeLocation: 1
+        )
+
+        let second = FocusedElementSignature(
+            pid: 100,
+            role: "AXTextField",
+            subrole: nil,
+            windowTitleHash: 99,
+            elementIdentifier: "search",
+            frameHash: 8,
+            selectedRangeLocation: 20
+        )
+
+        XCTAssertTrue(first.matchesTypingTarget(second, expectedCaretAdvance: 19))
+    }
+
+    func test_typingTargetIdentity_rejectsDifferentIdentifiers() {
+        let first = FocusedElementSignature(
+            pid: 100,
+            role: "AXTextField",
+            subrole: nil,
+            windowTitleHash: 42,
+            elementIdentifier: "search",
+            frameHash: 7,
+            selectedRangeLocation: 1
+        )
+
+        let second = FocusedElementSignature(
+            pid: 100,
+            role: "AXTextField",
+            subrole: nil,
+            windowTitleHash: 42,
+            elementIdentifier: "other-field",
+            frameHash: 7,
+            selectedRangeLocation: 1
+        )
+
+        XCTAssertFalse(first.matchesTypingTarget(second, expectedCaretAdvance: 0))
+    }
+
+    func test_typingTargetIdentity_rejectsUnexpectedCaretForSameIdentifier() {
+        let first = FocusedElementSignature(
+            pid: 100,
+            role: "AXTextField",
+            subrole: nil,
+            windowTitleHash: 42,
+            elementIdentifier: "search",
+            frameHash: 7,
+            selectedRangeLocation: 1
+        )
+
+        let second = FocusedElementSignature(
+            pid: 100,
+            role: "AXTextField",
+            subrole: nil,
+            windowTitleHash: 99,
+            elementIdentifier: "search",
+            frameHash: 8,
+            selectedRangeLocation: 50
+        )
+
+        XCTAssertFalse(first.matchesTypingTarget(second, expectedCaretAdvance: 19))
+    }
+
+    func test_typingTargetIdentity_allowsDynamicGeometryWithoutIdentifierWhenCaretMatches() {
+        let first = FocusedElementSignature(
+            pid: 100,
+            role: "AXTextField",
+            subrole: nil,
+            windowTitleHash: 42,
+            elementIdentifier: nil,
+            frameHash: 7,
+            selectedRangeLocation: 1
+        )
+
+        let second = FocusedElementSignature(
+            pid: 100,
+            role: "AXTextField",
+            subrole: nil,
+            windowTitleHash: 99,
+            elementIdentifier: nil,
+            frameHash: 8,
+            selectedRangeLocation: 20
+        )
+
+        XCTAssertTrue(first.matchesTypingTarget(second, expectedCaretAdvance: 19))
+    }
+
+    func test_typingTargetIdentity_rejectsDynamicGeometryWhenCaretIsUnavailable() {
+        let first = FocusedElementSignature(
+            pid: 100,
+            role: "AXTextField",
+            subrole: nil,
+            windowTitleHash: 42,
+            elementIdentifier: "search",
+            frameHash: 7,
+            selectedRangeLocation: nil
+        )
+
+        let second = FocusedElementSignature(
+            pid: 100,
+            role: "AXTextField",
+            subrole: nil,
+            windowTitleHash: 99,
+            elementIdentifier: "search",
+            frameHash: 8,
+            selectedRangeLocation: nil
+        )
+
+        XCTAssertFalse(first.matchesTypingTarget(second, expectedCaretAdvance: 19))
+    }
+
+    func test_typingTargetIdentity_acceptsRecreatedAXProxyAtSameFrame() {
+        let first = FocusedElementSignature(
+            pid: 100,
+            role: "AXTextField",
+            subrole: nil,
+            windowTitleHash: 42,
+            elementIdentifier: "search",
+            frameHash: 7,
+            selectedRangeLocation: 1,
+            elementIdentity: AXUIElementCreateApplication(100)
+        )
+
+        let second = FocusedElementSignature(
+            pid: 100,
+            role: "AXTextField",
+            subrole: nil,
+            windowTitleHash: 99,
+            elementIdentifier: "search",
+            frameHash: 7,
+            selectedRangeLocation: 20,
+            elementIdentity: AXUIElementCreateApplication(101)
+        )
+
+        XCTAssertTrue(first.matchesTypingTarget(second, expectedCaretAdvance: 19))
+    }
+
+    func test_typingTargetIdentity_acceptsRecreatedAXProxyAtDifferentFrameWhenCaretMatches() {
+        let first = FocusedElementSignature(
+            pid: 100,
+            role: "AXTextField",
+            subrole: nil,
+            windowTitleHash: 42,
+            elementIdentifier: "search",
+            frameHash: 7,
+            selectedRangeLocation: 1,
+            elementIdentity: AXUIElementCreateApplication(100)
+        )
+
+        let second = FocusedElementSignature(
+            pid: 100,
+            role: "AXTextField",
+            subrole: nil,
+            windowTitleHash: 99,
+            elementIdentifier: "search",
+            frameHash: 8,
+            selectedRangeLocation: 20,
+            elementIdentity: AXUIElementCreateApplication(101)
+        )
+
+        XCTAssertTrue(first.matchesTypingTarget(second, expectedCaretAdvance: 19))
+    }
+
+    func test_utf16Substring_readsExactRangeFromFullAXValue() {
+        XCTAssertEqual(
+            AutoFixTargetValidator.substring(
+                for: AXTextRange(location: 8, length: 9),
+                in: "prefix: іудусещкі "
+            ),
+            "іудусещкі"
+        )
+    }
+
+    func test_utf16Substring_rejectsOutOfBoundsRange() {
+        XCTAssertNil(
+            AutoFixTargetValidator.substring(
+                for: AXTextRange(location: 20, length: 1),
+                in: "short"
+            )
+        )
     }
 }
