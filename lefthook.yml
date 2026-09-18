@@ -1,0 +1,12 @@
+pre-commit:
+  parallel: true
+  commands:
+    secret-files:
+      run: scripts/check-secret-files.sh {staged_files}
+    staged-secrets:
+      run: ripsecrets --strict-ignore {staged_files}
+
+pre-push:
+  commands:
+    outbound-secrets:
+      run: scripts/check-secrets-range.sh origin/main

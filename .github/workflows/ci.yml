@@ -17,6 +17,14 @@ jobs:
       SWIFTPM_PACKAGES_PATH: ${{ github.workspace }}/.ci/SourcePackages
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install secret scanners
+        run: brew install ripsecrets gitleaks
+
+      - name: Scan outbound commits for secrets
+        run: scripts/check-secrets-range.sh origin/${{ github.base_ref || 'main' }}
 
       - name: Validate CI workflow contract
         run: bash scripts/check-ci-workflow.sh
