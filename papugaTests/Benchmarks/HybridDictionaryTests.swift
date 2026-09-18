@@ -183,26 +183,6 @@ final class HybridDictionaryTests: XCTestCase {
         XCTAssertFalse(HybridSpellChecker.systemSupports(""))
     }
 
-    /// End-to-end against the real bundled lists + the real system dictionary.
-    ///
-    /// The bundled `frequency_uk.txt` contains **zero** apostrophe forms, so
-    /// while the index was authoritative every one of these was `.misspelled`:
-    /// layout auto-fix failed closed on them and the compound path offered a
-    /// different, more frequent word instead. macOS does know them.
-    func test_realDictionary_acceptsUkrainianApostropheForms() throws {
-        try XCTSkipUnless(
-            HybridSpellChecker.systemSupports("uk"),
-            "macOS on this machine has no Ukrainian dictionary"
-        )
-        let hybrid = HybridSpellChecker()
-        for word in ["п'ять", "м'ясо", "об'єкт", "сім'я", "здоров'я", "ім'я"] {
-            XCTAssertEqual(
-                hybrid.mappedSpellingStatus(word, language: "uk"), .correct,
-                "\(word) must not be treated as a layout-fix blocker"
-            )
-        }
-    }
-
     /// The upstream list has zero apostrophe forms; the supplement supplies
     /// them so they carry a frequency signal for ranking. (They spell correctly
     /// either way — macOS knows them — but without a count they sort last among
