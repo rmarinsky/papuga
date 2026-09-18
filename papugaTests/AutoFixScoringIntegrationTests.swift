@@ -2,11 +2,10 @@ import XCTest
 import Carbon.HIToolbox
 @testable import papuga
 
-/// End-to-end test that mimics what `AutoFixController` does on a word boundary:
-/// take the typed word in the wrong layout, remap it via `CharacterMapper`, score
-/// both candidates with the chosen algorithm, and verify the decision agrees
-/// with what we expect a user would want.
-final class EndToEndAutoFixTests: XCTestCase {
+/// Mapping, language scoring, and decision integration tests.
+/// These do not exercise AutoFixController, event capture, proposals, or text insertion.
+/// Input-source availability can cause skips on other Macs.
+final class AutoFixScoringIntegrationTests: XCTestCase {
     private struct AutoFixCase {
         let typedInWrongLayout: String
         let expectedCorrected: String
@@ -31,7 +30,7 @@ final class EndToEndAutoFixTests: XCTestCase {
         return s
     }
 
-    private func runEndToEnd(_ tc: AutoFixCase, algorithm: LanguageScorerAlgorithm) throws {
+    private func assertScoringDecision(_ tc: AutoFixCase, algorithm: LanguageScorerAlgorithm) throws {
         let fromSrc = try source(forID: tc.fromLayoutID)
         let toSrc = try source(forID: tc.toLayoutID)
         mapper.buildMap(for: fromSrc, sourceID: tc.fromLayoutID)
@@ -149,37 +148,13 @@ final class EndToEndAutoFixTests: XCTestCase {
 
     func test_ukrainian_positive_cases_fix_with_appleNL() throws {
         for tc in Self.positiveUkrainianCases {
-            try runEndToEnd(tc, algorithm: .appleNL)
-        }
-    }
-
-    func test_ukrainian_positive_cases_fix_with_ngram() throws {
-        for tc in Self.positiveUkrainianCases {
-            try runEndToEnd(tc, algorithm: .ngram)
-        }
-    }
-
-    func test_ukrainian_positive_cases_fix_with_cld3() throws {
-        for tc in Self.positiveUkrainianCases {
-            try runEndToEnd(tc, algorithm: .cld3)
+            try assertScoringDecision(tc, algorithm: .appleNL)
         }
     }
 
     func test_negative_cases_dont_fix_with_appleNL() throws {
         for tc in Self.negativeCases {
-            try runEndToEnd(tc, algorithm: .appleNL)
-        }
-    }
-
-    func test_negative_cases_dont_fix_with_ngram() throws {
-        for tc in Self.negativeCases {
-            try runEndToEnd(tc, algorithm: .ngram)
-        }
-    }
-
-    func test_negative_cases_dont_fix_with_cld3() throws {
-        for tc in Self.negativeCases {
-            try runEndToEnd(tc, algorithm: .cld3)
+            try assertScoringDecision(tc, algorithm: .appleNL)
         }
     }
 

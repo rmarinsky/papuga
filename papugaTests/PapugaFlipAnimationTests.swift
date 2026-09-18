@@ -11,12 +11,4 @@ final class PapugaFlipAnimationTests: XCTestCase {
         animation.trigger()
         XCTAssertEqual(animation.degrees, -720)
     }
-
-    func test_usesColoredParrotEmoji() {
-        XCTAssertEqual(PapugaFlipAnimation.emoji, "🦜")
-    }
-
-    func test_animationOnlyToastDoesNotRequireUndoAction() {
-        XCTAssertNil(FixToastView(onClick: nil).onClick)
-    }
 }

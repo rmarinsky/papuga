@@ -83,6 +83,20 @@ xcodebuild -project papuga.xcodeproj -scheme papuga -configuration Debug build
 ./scripts/dev-install.sh
 ```
 
+## Перевірка пропозицій заміни
+
+`AutoFixScoringIntegrationTests` і `MultiLanguageScoringIntegrationTests` перевіряють конвертацію та оцінку мови, але не захоплення клавіш, вікно пропозиції чи вставку тексту.
+
+Реальна системна перевірка через TextEdit:
+
+```bash
+bash scripts/papuga-autofix-proposal-system-test.sh word
+bash scripts/papuga-autofix-proposal-system-test.sh phrase
+bash scripts/papuga-autofix-proposal-system-test.sh english
+```
+
+Потрібні запущена лише DEV-версія, дозволи Accessibility/Input Monitoring, увімкнені автозаміна й пропозиції, політика TextEdit `suggestOnly`, розкладки US та Ukrainian-PC. Під час перевірки не вводьте текст і не перемикайте фокус. Скрипт використовує окремий тимчасовий документ, фізичні коди клавіш і перевіряє точний результат після Enter. Для `english` перевіряє відсутність пропозиції та змін тексту. Налаштування й буфер обміну скрипт не переписує; початкову розкладку відновлює. Це інтерактивна перевірка, вона не запускається в CI й не доводить роботу в інших застосунках.
+
 ## Релізи та автооновлення
 
 Автооновлення працює через Sparkle і читає appcast з `https://rmarinsky.github.io/papuga/appcast.xml`.

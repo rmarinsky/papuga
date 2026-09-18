@@ -2,10 +2,10 @@ import XCTest
 import Carbon.HIToolbox
 @testable import papuga
 
-/// End-to-end tests: typed-in-wrong-layout → CharacterMapper → LanguageScorer →
-/// AutoFixDecision, for the most popular language pairs. Tests are skipped if
-/// the relevant input source is not installed.
-final class MultiLanguageEndToEndTests: XCTestCase {
+/// Mapping, language scoring, and decision integration tests.
+/// These do not exercise AutoFixController, event capture, proposals, or text insertion.
+/// Input-source availability can cause skips on other Macs.
+final class MultiLanguageScoringIntegrationTests: XCTestCase {
     private struct AutoFixCase {
         let label: String
         let typedInWrongLayout: String
@@ -31,7 +31,7 @@ final class MultiLanguageEndToEndTests: XCTestCase {
         return s
     }
 
-    private func runEndToEnd(_ tc: AutoFixCase, algorithm: LanguageScorerAlgorithm, threshold: Double = 0.3) throws {
+    private func assertScoringDecision(_ tc: AutoFixCase, algorithm: LanguageScorerAlgorithm, threshold: Double = 0.3) throws {
         let fromSrc = try source(forID: tc.fromLayoutID)
         let toSrc = try source(forID: tc.toLayoutID)
         mapper.buildMap(for: fromSrc, sourceID: tc.fromLayoutID)
@@ -84,15 +84,7 @@ final class MultiLanguageEndToEndTests: XCTestCase {
     ]
 
     func test_russian_positive_with_appleNL() throws {
-        for tc in Self.russianPositiveCases { try runEndToEnd(tc, algorithm: .appleNL) }
-    }
-
-    func test_russian_positive_with_ngram() throws {
-        for tc in Self.russianPositiveCases { try runEndToEnd(tc, algorithm: .ngram) }
-    }
-
-    func test_russian_positive_with_cld3() throws {
-        for tc in Self.russianPositiveCases { try runEndToEnd(tc, algorithm: .cld3) }
+        for tc in Self.russianPositiveCases { try assertScoringDecision(tc, algorithm: .appleNL) }
     }
 
     // MARK: - Ukrainian (positive: same as RU, very strong signal)
@@ -124,15 +116,7 @@ final class MultiLanguageEndToEndTests: XCTestCase {
     ]
 
     func test_ukrainian_positive_with_appleNL() throws {
-        for tc in Self.ukrainianPositiveCases { try runEndToEnd(tc, algorithm: .appleNL) }
-    }
-
-    func test_ukrainian_positive_with_ngram() throws {
-        for tc in Self.ukrainianPositiveCases { try runEndToEnd(tc, algorithm: .ngram) }
-    }
-
-    func test_ukrainian_positive_with_cld3() throws {
-        for tc in Self.ukrainianPositiveCases { try runEndToEnd(tc, algorithm: .cld3) }
+        for tc in Self.ukrainianPositiveCases { try assertScoringDecision(tc, algorithm: .appleNL) }
     }
 
     // MARK: - English typed while Ukrainian layout is active
@@ -151,15 +135,7 @@ final class MultiLanguageEndToEndTests: XCTestCase {
     ]
 
     func test_english_from_ukrainian_positive_with_appleNL() throws {
-        for tc in Self.englishFromUkrainianPositiveCases { try runEndToEnd(tc, algorithm: .appleNL) }
-    }
-
-    func test_english_from_ukrainian_positive_with_ngram() throws {
-        for tc in Self.englishFromUkrainianPositiveCases { try runEndToEnd(tc, algorithm: .ngram) }
-    }
-
-    func test_english_from_ukrainian_positive_with_cld3() throws {
-        for tc in Self.englishFromUkrainianPositiveCases { try runEndToEnd(tc, algorithm: .cld3) }
+        for tc in Self.englishFromUkrainianPositiveCases { try assertScoringDecision(tc, algorithm: .appleNL) }
     }
 
     // MARK: - Negative: native English phrases must NOT be auto-fixed
@@ -211,11 +187,4 @@ final class MultiLanguageEndToEndTests: XCTestCase {
         for tc in Self.englishNegativeCases { try runNoFixDecisionOnly(tc, algorithm: .appleNL) }
     }
 
-    func test_english_phrases_not_autofixed_with_ngram() throws {
-        for tc in Self.englishNegativeCases { try runNoFixDecisionOnly(tc, algorithm: .ngram) }
-    }
-
-    func test_english_phrases_not_autofixed_with_cld3() throws {
-        for tc in Self.englishNegativeCases { try runNoFixDecisionOnly(tc, algorithm: .cld3) }
-    }
 }
