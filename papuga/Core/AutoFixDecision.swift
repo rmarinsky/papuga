@@ -92,8 +92,8 @@ enum AutoFixDecision {
         return scoreCandidate - scoreOriginal >= threshold
     }
 
-    static func shouldBypassLayoutIncidentGrace(scoreCandidate: Double) -> Bool {
-        scoreCandidate >= 0.995
+    static func shouldBypassLayoutIncidentGrace(scoreCandidate: Double, hasVerifiedLayoutWord: Bool = false) -> Bool {
+        hasVerifiedLayoutWord || scoreCandidate >= 0.995
     }
 
     static func spellingConfidence(

@@ -16,6 +16,7 @@ struct ScoredGuess: Equatable {
 }
 
 protocol SpellCheckingClient {
+    func logFrequency(of word: String, language: String) -> Double
     func isMisspelled(_ word: String, language: String) -> Bool
     func guesses(for word: String, language: String) -> [String]
     func rankedGuesses(for word: String, language: String) -> [ScoredGuess]
@@ -23,6 +24,8 @@ protocol SpellCheckingClient {
 }
 
 extension SpellCheckingClient {
+    func logFrequency(of word: String, language: String) -> Double { 0 }
+
     func mappedSpellingStatus(_ word: String, language: String) -> MappedSpellingStatus {
         isMisspelled(word, language: language) ? .misspelled : .correct
     }

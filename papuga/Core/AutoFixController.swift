@@ -494,80 +494,28 @@ final class AutoFixController {
             return
         }
 
-        if let protectedMatch = ProtectedLexiconStore.shared.match(word),
-           protectedMatch.protectsSource {
-            logSkip(.mixedLanguageIntentional, word: word, bundleID: bundleID, extra: [
-                "token_kind": .string(String(describing: AutoFixTokenClassifier.classify(word))),
-                "lexicon_entry_id": .string(protectedMatch.entry.id),
-                "lexicon_source": .string(protectedMatch.entry.source),
-                "from_lang": .string(currentLang)
-            ])
-            resetLayoutIncident()
-            return
-        }
-
-        let skipReason = AutoFixDecision.shouldSkipWord(word, minLength: Defaults[.autoFixMinWordLength])
-        if let skip = skipReason {
-            switch skip {
-            case .tooShort:
-                break
-            case .containsDigits, .containsForbiddenChars:
-                logSkip(.containsDigits, word: word, bundleID: bundleID)
-                resetLayoutIncident()
-                return
-            }
-        }
-        let candidateTargetIDs = layoutManager.candidateTargets(excluding: currentID)
-        guard !candidateTargetIDs.isEmpty else {
-            logSkip(.noTargetLayout, word: word, bundleID: bundleID)
-            resetLayoutIncident()
-            return
-        }
-        guard let currentSrc = layoutManager.sourceForID(currentID) else {
-            logSkip(.missingMaps, word: word, bundleID: bundleID)
-            resetLayoutIncident()
-            return
-        }
-        characterMapper.buildMap(for: currentSrc, sourceID: currentID)
-
         let algorithm = configuredAlgorithm
-        let scorer = resolvedScorer(for: algorithm)
         let threshold = Defaults[.autoFixThreshold]
-        let scoreOriginal = scorer.score(word, expecting: currentLang)
-
-        // Evaluate EVERY configured layout, not just the next one in the cycle, and let the language
-        // scorer decide which target is correct. This fixes wrong-direction conversions when 3+
-        // layouts are configured (e.g. US + Ukrainian + Russian), where "next in cycle" is often
-        // the wrong language.
-        var evaluatedCandidates: [AutoFixTargetCandidate] = []
-        for candidateTargetID in candidateTargetIDs {
-            guard let candidateSrc = layoutManager.sourceForID(candidateTargetID) else { continue }
-            characterMapper.buildMap(for: candidateSrc, sourceID: candidateTargetID)
-            let mapped = characterMapper.convert(text: word, fromSourceID: currentID, toSourceID: candidateTargetID)
-            guard mapped != word else { continue }
-            let mappedLang = languageHintForLayoutID(candidateTargetID)
-            let mappedScore = scorer.score(mapped, expecting: mappedLang)
-            evaluatedCandidates.append(AutoFixTargetCandidate(
-                targetID: candidateTargetID,
-                targetLang: mappedLang,
-                candidate: mapped,
-                scoreCandidate: mappedScore
-            ))
+        let evaluator = AutoFixWordEvaluator(mapper: characterMapper, spellChecker: spellChecker,
+            scorer: resolvedScorer(for: algorithm))
+        let evaluation = evaluator.evaluate(word,
+            source: layoutManager.availableLayouts.first { $0.id == currentID },
+            targets: layoutManager.candidateTargets(excluding: currentID).compactMap { id in
+                layoutManager.availableLayouts.first { $0.id == id }
+            },
+            configuration: .init(minimumLength: Defaults[.autoFixMinWordLength], threshold: threshold,
+                candidateSeparation: Defaults[.autoFixCandidateSeparation],
+                spellingTypoGuardEnabled: Defaults[.autoFixSpellingTypoGuardEnabled],
+                spellingTypoGuardMinimumLength: Defaults[.autoFixSpellingTypoGuardMinWordLength],
+                spellingTypoGuardMaximumDistance: Defaults[.autoFixSpellingTypoGuardMaxEditDistance]))
+        let scoreOriginal = evaluation.scoreOriginal
+        updateDecisionCandidates(scoreOriginal: scoreOriginal, candidates: evaluation.candidates, threshold: threshold)
+        if case .keep(let reason) = evaluation.disposition {
+            logSkip(reason, word: word, bundleID: bundleID, layoutID: currentID)
+            resetLayoutIncident()
+            return
         }
-
-        updateDecisionCandidates(
-            scoreOriginal: scoreOriginal,
-            candidates: evaluatedCandidates,
-            threshold: threshold
-        )
-
-        guard let selection = AutoFixCandidateGenerator.select(
-            candidates: evaluatedCandidates,
-            scoreOriginal: scoreOriginal,
-            threshold: threshold,
-            separation: Defaults[.autoFixCandidateSeparation]
-        ) else {
-            logSkip(.identicalCandidate, word: word, bundleID: bundleID, layoutID: currentID)
+        guard let selection = evaluation.selection else {
             resetLayoutIncident()
             return
         }
@@ -579,7 +527,7 @@ final class AutoFixController {
         let isAmbiguousTarget = selection.isAmbiguous
         selectDecisionCandidate(selection.best)
 
-        if skipReason == .tooShort {
+        if evaluation.disposition == .shortWord {
             logSkip(.tooShort, word: word, bundleID: bundleID, layoutID: currentID)
             _ = handleLayoutIncidentToken(
                 original: word,
@@ -608,8 +556,7 @@ final class AutoFixController {
         // original is a real word in the current layout's language, the user
         // intended to type it; never replace.
         let hasLexicalCore = !BufferedToken(rawText: word, keyCodes: []).core.isEmpty
-        if hasLexicalCore,
-           !spellChecker.isMisspelled(word, language: currentLang) {
+        if evaluation.disposition == .sourceWord {
             logSkip(.originalIsRealWord, word: word, bundleID: bundleID, layoutID: currentID, extra: [
                 "from_lang": .string(currentLang)
             ])
@@ -636,92 +583,29 @@ final class AutoFixController {
             return
         }
 
-        let mappedSpellingStatus = spellChecker.mappedSpellingStatus(candidate, language: targetLang)
-        let layoutGate = AutoFixDecision.layoutReplacementGate(
-            mappedSpellingStatus: mappedSpellingStatus,
-            candidateIsWordLike: WordPlausibility.isWordLike(candidate)
-        )
-        switch layoutGate {
-        case .allow:
-            break
-
-        case .requireProposal:
-            // No dictionary can vouch for this target — an unsupported target
-            // language, or the launch window before the index lands. Papuga
-            // used to go silent here, which killed layout auto-fix outright for
-            // ru/pl/de. Offer it instead of asserting it.
-            guard appPolicy.allowsProposal, Defaults[.autoFixProposalEnabled] else {
-                logSkip(.belowThreshold, word: word, bundleID: bundleID, extra: [
-                    "candidate": .string(candidate),
-                    "to_lang": .string(targetLang),
-                    "mapped_spelling": .string("unavailable")
-                ])
-                resetLayoutIncident()
-                return
+        if evaluation.disposition == .suggestLayout {
+            if appPolicy.allowsProposal {
+                maybeShowProposal(original: word, candidate: candidate, boundary: boundary,
+                    fromLayoutID: currentID, targetLayoutID: targetID,
+                    scoreOriginal: scoreOriginal, scoreCandidate: scoreCandidate, threshold: threshold,
+                    algorithm: algorithm, currentLang: currentLang, targetLang: targetLang,
+                    bundleID: bundleID, targetSession: targetSession, force: true)
             }
-            maybeShowProposal(
-                original: word,
-                candidate: candidate,
-                boundary: boundary,
-                fromLayoutID: currentID,
-                targetLayoutID: targetID,
-                scoreOriginal: scoreOriginal,
-                scoreCandidate: scoreCandidate,
-                threshold: threshold,
-                algorithm: algorithm,
-                currentLang: currentLang,
-                targetLang: targetLang,
-                bundleID: bundleID,
-                targetSession: targetSession,
-                force: true
-            )
             resetLayoutIncident()
             return
-
-        case .suppress:
-            if mappedSpellingStatus == .misspelled,
-               let compound = AutoFixDecision.compoundLayoutSpellingSuggestion(
-                   mapped: candidate,
-                   targetLanguage: targetLang,
-                   isMisspelled: { _, _ in true },
-                   guesses: { [spellChecker] word, language in
-                       spellChecker.guesses(for: word, language: language)
-                   }
-               ),
-               appPolicy.allowsProposal,
-               Defaults[.autoFixProposalEnabled] {
-                showCompoundProposal(
-                    original: word,
-                    suggestion: compound,
-                    boundary: boundary,
-                    fromLayoutID: currentID,
-                    targetLayoutID: targetID,
-                    currentLang: currentLang,
-                    targetLang: targetLang,
-                    algorithm: algorithm,
-                    bundleID: bundleID,
-                    targetSession: targetSession
-                )
+        }
+        if case .suggestCompound(let suggestion) = evaluation.disposition {
+            if appPolicy.allowsProposal, Defaults[.autoFixProposalEnabled] {
+                showCompoundProposal(original: word, suggestion: suggestion, boundary: boundary,
+                    fromLayoutID: currentID, targetLayoutID: targetID, currentLang: currentLang,
+                    targetLang: targetLang, algorithm: algorithm, bundleID: bundleID,
+                    targetSession: targetSession)
             }
             resetLayoutIncident()
             return
         }
 
-        if Defaults[.autoFixSpellingTypoGuardEnabled] {
-            let typoAssessment = AutoFixDecision.spellingTypoGuardAssessment(
-                original: word,
-                candidate: candidate,
-                language: currentLang,
-                minWordLength: Defaults[.autoFixSpellingTypoGuardMinWordLength],
-                maxEditDistance: Defaults[.autoFixSpellingTypoGuardMaxEditDistance],
-                isKnownCorrect: { [spellChecker] word, language in
-                    !spellChecker.isMisspelled(word, language: language)
-                },
-                suggestions: { [spellChecker] word, language in
-                    spellChecker.guesses(for: word, language: language)
-                }
-            )
-
+        if case .suggestSpelling(let typoAssessment) = evaluation.disposition {
             if typoAssessment.shouldSuppressAutoReplace {
                 var extra: [String: AnalyticsValue] = [
                     "candidate": .string(candidate),
@@ -782,8 +666,8 @@ final class AutoFixController {
             scoreCandidate: scoreCandidate,
             threshold: threshold
         )
-        let effectiveScoreCandidate = predictionAdjustment.adjustedCandidateScore
-        let effectiveThreshold = predictionAdjustment.adjustedThreshold
+        let effectiveScoreCandidate = evaluation.effectiveScore
+        let effectiveThreshold = evaluation.threshold
         updateEffectiveDecisionScore(
             effectiveCandidateScore: effectiveScoreCandidate,
             threshold: effectiveThreshold
@@ -794,30 +678,7 @@ final class AutoFixController {
             "Eval word=\(word) -> \(candidate); scores: \(scoreOriginal) vs \(effectiveScoreCandidate); threshold=\(effectiveThreshold)"
         )
 
-        let mixedDecision = AutoFixMixedLanguagePolicy.decision(
-            original: word,
-            candidate: candidate,
-            currentLanguage: currentLang,
-            targetLanguage: targetLang,
-            scoreOriginal: scoreOriginal,
-            scoreCandidate: effectiveScoreCandidate,
-            threshold: effectiveThreshold
-        )
-        if case .skipAsIntentional(let kind) = mixedDecision {
-            logSkip(.mixedLanguageIntentional, word: word, bundleID: bundleID, extra: [
-                "token_kind": .string(String(describing: kind)),
-                "from_lang": .string(currentLang),
-                "to_lang": .string(targetLang)
-            ])
-            resetLayoutIncident()
-            return
-        }
-
-        guard AutoFixDecision.shouldReplace(
-            scoreOriginal: scoreOriginal,
-            scoreCandidate: effectiveScoreCandidate,
-            threshold: effectiveThreshold
-        ) else {
+        guard evaluation.disposition == .replace || selection.isAmbiguous else {
             var extra: [String: AnalyticsValue] = [
                 "score_original": .double(scoreOriginal),
                 "score_candidate": .double(effectiveScoreCandidate),
@@ -912,6 +773,7 @@ final class AutoFixController {
             scoreOriginal: scoreOriginal,
             scoreCandidate: effectiveScoreCandidate,
             rawScoreCandidate: scoreCandidate,
+            hasVerifiedLayoutWord: evaluation.replacement != nil,
             threshold: effectiveThreshold,
             algorithm: algorithm,
             currentLang: currentLang,
@@ -1057,6 +919,7 @@ final class AutoFixController {
         // not evidence about how safe it is to skip the grace period. Only the
         // instant-apply bypass reads this.
         rawScoreCandidate: Double,
+        hasVerifiedLayoutWord: Bool = false,
         threshold: Double,
         algorithm: LanguageScorerAlgorithm,
         currentLang: String,
@@ -1110,6 +973,7 @@ final class AutoFixController {
                         scoreOriginal: scoreOriginal,
                         scoreCandidate: scoreCandidate,
                         rawScoreCandidate: rawScoreCandidate,
+                        hasVerifiedLayoutWord: hasVerifiedLayoutWord,
                         threshold: threshold,
                         algorithm: algorithm,
                         currentLang: currentLang,
@@ -1140,11 +1004,13 @@ final class AutoFixController {
             }
         }
 
-        guard evidence == .strong else { return false }
         if case .replace = singleAction,
-           AutoFixDecision.shouldBypassLayoutIncidentGrace(scoreCandidate: rawScoreCandidate) {
+           AutoFixDecision.shouldBypassLayoutIncidentGrace(scoreCandidate: rawScoreCandidate,
+               hasVerifiedLayoutWord: hasVerifiedLayoutWord) {
             return false
         }
+
+        guard evidence == .strong else { return false }
         guard layoutIncident.append(token) != .wouldExceedCap else {
             resetLayoutIncident()
             return false
