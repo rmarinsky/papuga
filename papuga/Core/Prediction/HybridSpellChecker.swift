@@ -32,6 +32,7 @@ final class HybridSpellChecker: SpellCheckingClient {
     private let learnedKnown: [String: Set<String>]
     private let maxEditDistance: Int
     private let lock = NSLock()
+    private var systemReliability: [String: Bool] = [:]
 
     init(
         system: SpellCheckingClient = SystemSpellCheckingClient(),
@@ -74,21 +75,17 @@ final class HybridSpellChecker: SpellCheckingClient {
             || lock.withLock { indexes[language]?.words[key] != nil }
     }
 
-    /// Promote-only, exactly like `mappedSpellingStatus`: the overlays can
-    /// declare a word known, but only the system dictionary can declare one
-    /// wrong. This is the original invariant — "can only ever become more
-    /// lenient than the system checker, so enabling it can only remove false
-    /// positives, never add new ones" — which 65c6e8d replaced with an
-    /// outright `index.words[key] == nil`, making absence from a 50k list
-    /// proof of misspelling.
-    ///
-    /// The index consult is what lets the bundled supplement suppress domain
-    /// false positives (`пофіксити`, `фідбек`, `дедлайн`) — the flood the
-    /// whole SymSpell layer was added to fix.
+    /// Explicit and learned vocabulary always promotes a word. A calibrated
+    /// system dictionary remains authoritative for words outside that vocabulary.
+    /// Some macOS environments advertise a dictionary while accepting nonsense;
+    /// fail closed only when that calibration probe proves the system unreliable.
     func isMisspelled(_ word: String, language: String) -> Bool {
         let key = word.lowercased()
         if learnedKnown[language]?.contains(key) == true { return false }
         if lock.withLock({ indexes[language] })?.words[key] != nil { return false }
+        guard Self.systemSupports(language), systemDictionaryIsReliable(language: language) else {
+            return true
+        }
         return system.isMisspelled(word, language: language)
     }
 
@@ -117,8 +114,19 @@ final class HybridSpellChecker: SpellCheckingClient {
         let key = word.lowercased()
         if learnedKnown[language]?.contains(key) == true { return .correct }
         if lock.withLock({ indexes[language] })?.words[key] != nil { return .correct }
-        guard Self.systemSupports(language) else { return .unavailable }
+        guard Self.systemSupports(language), systemDictionaryIsReliable(language: language) else {
+            return .unavailable
+        }
         return system.isMisspelled(word, language: language) ? .misspelled : .correct
+    }
+
+    private func systemDictionaryIsReliable(language: String) -> Bool {
+        if let cached = lock.withLock({ systemReliability[language] }) { return cached }
+        let base = String(language.prefix(while: { $0 != "_" && $0 != "-" })).lowercased()
+        let calibrationToken = base == "uk" || base == "ru" ? "жцщфґк" : "qxzvjk"
+        let reliable = system.isMisspelled(calibrationToken, language: language)
+        lock.withLock { systemReliability[language] = reliable }
+        return reliable
     }
 
     /// `NSSpellChecker.availableLanguages` is a stable, cheap-to-snapshot list,

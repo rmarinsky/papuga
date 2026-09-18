@@ -12,6 +12,20 @@ private final class AllCorrectSpellChecker: SpellCheckingClient {
     func guesses(for word: String, language: String) -> [String] { [] }
 }
 
+private final class SelectiveSpellChecker: SpellCheckingClient {
+    private let accepted: Set<String>
+
+    init(accepted: Set<String>) {
+        self.accepted = accepted
+    }
+
+    func isMisspelled(_ word: String, language: String) -> Bool {
+        !accepted.contains(word.lowercased())
+    }
+
+    func guesses(for word: String, language: String) -> [String] { [] }
+}
+
 final class HybridDictionaryTests: XCTestCase {
 
     /// Sizes reflect the filtered lists (see Resources/FrequencyWords/NOTICE.md):
@@ -81,23 +95,30 @@ final class HybridDictionaryTests: XCTestCase {
         XCTAssertTrue(guesses.contains("systemguess"))   // system guess still merged in
     }
 
-    /// The core invariant: the frequency index may only ever **promote** a word
-    /// to `.correct`. It is 50k conversational surface forms — a good "this is
-    /// a word" signal and a hopeless "this is not a word" signal (it contains
-    /// no Ukrainian apostrophe forms at all). When it was treated as
-    /// authoritative, every correct-but-uncommon word became `.misspelled` and
-    /// layout auto-fix failed closed on it.
-    func test_hybrid_indexPromotesButNeverDemotes() {
+    /// Some macOS runners report a dictionary but accept every token. That is
+    /// not spelling evidence: fall back to explicit bundled or learned words.
+    func test_hybrid_unreliableSystemFallsBackToExplicitVocabulary() {
         let indexes = DictionaryBuilder.build(
             base: ["uk": [("привіт", 100)]],
             learned: [:]
         )
         let hybrid = HybridSpellChecker(system: AllCorrectSpellChecker(), indexes: indexes)
 
-        // In the index → correct, regardless of the system checker.
+        XCTAssertFalse(hybrid.isMisspelled("привіт", language: "uk"))
         XCTAssertEqual(hybrid.mappedSpellingStatus("привіт", language: "uk"), .correct)
-        // Absent from the index but the system accepts it → still correct.
-        XCTAssertEqual(hybrid.mappedSpellingStatus("привчт", language: "uk"), .correct)
+        XCTAssertTrue(hybrid.isMisspelled("привчт", language: "uk"))
+        XCTAssertEqual(hybrid.mappedSpellingStatus("привчт", language: "uk"), .unavailable)
+    }
+
+    func test_hybrid_reliableSystemStillAcceptsUncommonWordsOutsideIndex() {
+        let indexes = DictionaryBuilder.build(base: ["uk": [("привіт", 100)]], learned: [:])
+        let hybrid = HybridSpellChecker(
+            system: SelectiveSpellChecker(accepted: ["рідковживане"]),
+            indexes: indexes
+        )
+
+        XCTAssertFalse(hybrid.isMisspelled("рідковживане", language: "uk"))
+        XCTAssertEqual(hybrid.mappedSpellingStatus("рідковживане", language: "uk"), .correct)
     }
 
     func test_hybrid_systemRejectionStillFailsClosed() {
