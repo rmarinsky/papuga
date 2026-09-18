@@ -57,6 +57,21 @@ final class AutoFixTypingCorpusTests: XCTestCase {
         XCTAssertEqual(result.replacement?.targetID, ukrainian.id)
     }
 
+    func test_learnedAbbreviationIsNotReplacedByFrequentUkrainianWord() throws {
+        let from = try source("com.apple.keylayout.US")
+        let to = try source("com.apple.keylayout.Ukrainian-PC")
+        let checker = HybridSpellChecker(indexes: DictionaryBuilder.build(base: [
+            "uk": DictionaryBuilder.loadBundledBase(language: "uk"),
+            "en": DictionaryBuilder.loadBundledBase(language: "en")
+        ], learned: [:]), learnedKnown: ["en": ["yt", "vtys", "wt"]])
+        let evaluator = AutoFixWordEvaluator(mapper: CharacterMapper(), spellChecker: checker, scorer: AppleNLScorer())
+        for word in ["yt", "vtys", "wt"] {
+            let result = evaluator.evaluate(word, source: from, targets: [to], configuration: .init())
+            XCTAssertEqual(result.disposition, .sourceWord, word)
+            XCTAssertNil(result.replacement, word)
+        }
+    }
+
     func test_punctuationIsPreserved() throws { try check("punctuation") }
     func test_englishTyposDoNotBecomeUkrainian() throws { try check("typo") }
     func test_commonWords() throws { try check("common") }

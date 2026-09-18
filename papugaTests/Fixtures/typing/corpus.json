@@ -1854,5 +1854,389 @@
     "expectedText": "well-known, ",
     "expectedLayout": "com.apple.keylayout.US",
     "observationDelayMS": 400
+  },
+  {
+    "id": "short.report.1",
+    "category": "short",
+    "keys": "vj' ",
+    "expectedText": "моє ",
+    "expectedLayout": "com.apple.keylayout.Ukrainian-PC",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "short.report.2",
+    "category": "short",
+    "keys": "yt ",
+    "expectedText": "не ",
+    "expectedLayout": "com.apple.keylayout.Ukrainian-PC",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "short.report.3",
+    "category": "short",
+    "keys": "zr ",
+    "expectedText": "як ",
+    "expectedLayout": "com.apple.keylayout.Ukrainian-PC",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "short.report.4",
+    "category": "short",
+    "keys": "vtys ",
+    "expectedText": "мені ",
+    "expectedLayout": "com.apple.keylayout.Ukrainian-PC",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "short.report.5",
+    "category": "short",
+    "keys": "wt ",
+    "expectedText": "це ",
+    "expectedLayout": "com.apple.keylayout.Ukrainian-PC",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "short.report.6",
+    "category": "short",
+    "keys": "nb ",
+    "expectedText": "ти ",
+    "expectedLayout": "com.apple.keylayout.Ukrainian-PC",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "short.report.7",
+    "category": "short",
+    "keys": "vb ",
+    "expectedText": "ми ",
+    "expectedLayout": "com.apple.keylayout.Ukrainian-PC",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "short.report.10",
+    "category": "short",
+    "keys": "pf ",
+    "expectedText": "за ",
+    "expectedLayout": "com.apple.keylayout.Ukrainian-PC",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "short.report.11",
+    "category": "short",
+    "keys": "lj ",
+    "expectedText": "до ",
+    "expectedLayout": "com.apple.keylayout.Ukrainian-PC",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "short.report.12",
+    "category": "short",
+    "keys": "yf ",
+    "expectedText": "на ",
+    "expectedLayout": "com.apple.keylayout.Ukrainian-PC",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.short.1",
+    "category": "negative",
+    "keys": "no ",
+    "expectedText": "no ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.short.2",
+    "category": "negative",
+    "keys": "to ",
+    "expectedText": "to ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.short.3",
+    "category": "negative",
+    "keys": "is ",
+    "expectedText": "is ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.short.4",
+    "category": "negative",
+    "keys": "in ",
+    "expectedText": "in ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.short.5",
+    "category": "negative",
+    "keys": "on ",
+    "expectedText": "on ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.short.6",
+    "category": "negative",
+    "keys": "at ",
+    "expectedText": "at ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.short.7",
+    "category": "negative",
+    "keys": "as ",
+    "expectedText": "as ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.short.8",
+    "category": "negative",
+    "keys": "an ",
+    "expectedText": "an ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.short.9",
+    "category": "negative",
+    "keys": "of ",
+    "expectedText": "of ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.short.10",
+    "category": "negative",
+    "keys": "by ",
+    "expectedText": "by ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.short.11",
+    "category": "negative",
+    "keys": "be ",
+    "expectedText": "be ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.short.12",
+    "category": "negative",
+    "keys": "do ",
+    "expectedText": "do ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.short.13",
+    "category": "negative",
+    "keys": "go ",
+    "expectedText": "go ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.short.14",
+    "category": "negative",
+    "keys": "we ",
+    "expectedText": "we ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.short.15",
+    "category": "negative",
+    "keys": "he ",
+    "expectedText": "he ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.short.16",
+    "category": "negative",
+    "keys": "me ",
+    "expectedText": "me ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.short.17",
+    "category": "negative",
+    "keys": "us ",
+    "expectedText": "us ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.short.18",
+    "category": "negative",
+    "keys": "it ",
+    "expectedText": "it ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.short.19",
+    "category": "negative",
+    "keys": "so ",
+    "expectedText": "so ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.short.20",
+    "category": "negative",
+    "keys": "up ",
+    "expectedText": "up ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.short.21",
+    "category": "negative",
+    "keys": "if ",
+    "expectedText": "if ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.short.22",
+    "category": "negative",
+    "keys": "or ",
+    "expectedText": "or ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.short.23",
+    "category": "negative",
+    "keys": "my ",
+    "expectedText": "my ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.short.24",
+    "category": "negative",
+    "keys": "am ",
+    "expectedText": "am ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.abbreviation.1",
+    "category": "negative",
+    "keys": "s ",
+    "expectedText": "s ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.abbreviation.2",
+    "category": "negative",
+    "keys": "a ",
+    "expectedText": "a ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.abbreviation.3",
+    "category": "negative",
+    "keys": "I ",
+    "expectedText": "I ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.abbreviation.4",
+    "category": "negative",
+    "keys": "by ",
+    "expectedText": "by ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.abbreviation.5",
+    "category": "negative",
+    "keys": "my ",
+    "expectedText": "my ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.abbreviation.6",
+    "category": "negative",
+    "keys": "why ",
+    "expectedText": "why ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.abbreviation.7",
+    "category": "negative",
+    "keys": "dry ",
+    "expectedText": "dry ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.abbreviation.8",
+    "category": "negative",
+    "keys": "try ",
+    "expectedText": "try ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.abbreviation.9",
+    "category": "negative",
+    "keys": "cry ",
+    "expectedText": "cry ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.abbreviation.10",
+    "category": "negative",
+    "keys": "shy ",
+    "expectedText": "shy ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.abbreviation.11",
+    "category": "negative",
+    "keys": "fly ",
+    "expectedText": "fly ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.abbreviation.12",
+    "category": "negative",
+    "keys": "gym ",
+    "expectedText": "gym ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "negative.abbreviation.13",
+    "category": "negative",
+    "keys": "rhythm ",
+    "expectedText": "rhythm ",
+    "expectedLayout": "com.apple.keylayout.US",
+    "observationDelayMS": 100
+  },
+  {
+    "id": "continuous.short-report",
+    "category": "continuous",
+    "keys": "yt vtys wt ",
+    "expectedText": "не мені це ",
+    "expectedLayout": "com.apple.keylayout.Ukrainian-PC",
+    "observationDelayMS": 100
   }
 ]

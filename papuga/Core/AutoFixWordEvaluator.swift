@@ -124,11 +124,22 @@ struct AutoFixWordEvaluator {
         } else {
             sourceWord = word
         }
-        if hasCore && Self.isLexicalToken(sourceWord) && !spellChecker.isMisspelled(sourceWord, language: currentLanguage) {
+        let lexicalCandidate = best.replacementPlan?.correctedCore ?? best.candidate
+        // NSSpellChecker accepts consonant-only abbreviations such as yt, wt and vtys.
+        // Only prefer a frequent cross-script word when the short lowercase source has
+        // no English vowel and neither bundled nor learned vocabulary attests it.
+        let isUnattestedAbbreviation = currentLanguage == "en"
+            && (2...4).contains(sourceWord.count)
+            && sourceWord.allSatisfy { ("a"..."z").contains(String($0)) }
+            && !sourceWord.contains(where: { "aeiou".contains($0) })
+            && !spellChecker.isExplicitlyKnown(sourceWord, language: currentLanguage)
+            && spellChecker.logFrequency(of: lexicalCandidate, language: best.targetLang) >= 3
+            && AutoFixDecision.isCrossScriptConversion(original: sourceWord, candidate: lexicalCandidate)
+        if hasCore && Self.isLexicalToken(sourceWord) && !isUnattestedAbbreviation
+            && !spellChecker.isMisspelled(sourceWord, language: currentLanguage) {
             return result(.sourceWord)
         }
 
-        let lexicalCandidate = best.replacementPlan?.correctedCore ?? best.candidate
         let spellingStatus = spellChecker.mappedSpellingStatus(lexicalCandidate, language: best.targetLang)
         if best.isInterpretationAmbiguous { return result(.suggestLayout) }
         switch AutoFixDecision.layoutReplacementGate(mappedSpellingStatus: spellingStatus,
@@ -148,7 +159,7 @@ struct AutoFixWordEvaluator {
         // Exact cross-script dictionary evidence remains useful even when AppleNL cannot
         // identify the language of a short, isolated word.
         let verifiedLayoutWord = spellingStatus == .correct
-            && lexicalCandidate.count >= 3
+            && lexicalCandidate.count >= 2
             && WordPlausibility.isWordLike(lexicalCandidate)
             && AutoFixDecision.isCrossScriptConversion(original: word, candidate: best.candidate)
         // Only a plausible source-language token can be an ordinary spelling typo.

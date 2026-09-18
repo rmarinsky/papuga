@@ -67,6 +67,13 @@ final class HybridSpellChecker: SpellCheckingClient {
         Set(lock.withLock { indexes.keys })
     }
 
+    /// Explicit vocabulary evidence, independent of permissive system abbreviation checks.
+    func isExplicitlyKnown(_ word: String, language: String) -> Bool {
+        let key = word.lowercased()
+        return learnedKnown[language]?.contains(key) == true
+            || lock.withLock { indexes[language]?.words[key] != nil }
+    }
+
     /// Promote-only, exactly like `mappedSpellingStatus`: the overlays can
     /// declare a word known, but only the system dictionary can declare one
     /// wrong. This is the original invariant — "can only ever become more
