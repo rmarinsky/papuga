@@ -94,7 +94,7 @@ struct DictionaryTab: View {
             subtitle: "Papuga підмінятиме ліве слово на праве — будь-де, поки ти друкуєш."
         ) {
             if customRules.isEmpty {
-                emptyHint("Ще немає правил. Створи перше або прийми пораду в «Історії замін» чи «Помилках введення».")
+                emptyHint("Ще немає правил. Створи перше або прийми пораду в «Історії замін».")
             } else {
                 VStack(spacing: 0) {
                     ForEach(Array(customRules.enumerated()), id: \.element.id) { index, rule in

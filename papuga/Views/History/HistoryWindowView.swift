@@ -6,7 +6,6 @@ struct HistoryWindowView: View {
     @State private var selection: HistorySection
     @State private var hoveredSection: HistorySection?
     @State private var historyStore = ReplacementHistoryStore.shared
-    @State private var mistakeStore = MistakeObservationStore.shared
     @State private var cachedRecommendations: [Recommendation] = []
 
     @Environment(LayoutManager.self) private var layoutManager
@@ -26,7 +25,7 @@ struct HistoryWindowView: View {
     }
 
     private var recommendationCacheKey: String {
-        "\(historyStore.entries.count)|\(mistakeStore.entries.count)|\(autoFixAllowlist.joined())|\(autoFixBlocklist.joined())|\(customAutoReplaceRules.count)|\(dismissedRecommendations.joined())"
+        "\(historyStore.entries.count)|\(autoFixAllowlist.joined())|\(autoFixBlocklist.joined())|\(customAutoReplaceRules.count)|\(dismissedRecommendations.joined())"
     }
 
     var body: some View {
@@ -42,7 +41,6 @@ struct HistoryWindowView: View {
         .task(id: recommendationCacheKey) {
             cachedRecommendations = RecommendationEngine.compute(
                 from: historyStore.entries,
-                mistakes: mistakeStore.entries,
                 allowlist: autoFixAllowlist,
                 blocklist: autoFixBlocklist,
                 customRules: customAutoReplaceRules,
@@ -68,7 +66,6 @@ struct HistoryWindowView: View {
             Color.clear.frame(height: 18)
             sidebarRow(.overview)
             sidebarRow(.history)
-            sidebarRow(.mistakes, badge: openMistakeCount)
             sidebarRow(.dictionary)
             sidebarRow(.clipboard)
 
@@ -79,7 +76,6 @@ struct HistoryWindowView: View {
             sidebarRow(.settingsLanguages)
             sidebarRow(.settingsRules)
             sidebarRow(.settingsShortcuts)
-            sidebarRow(.settingsAI)
             sidebarRow(.settingsAccount)
 
             Color.clear.frame(height: 18)
@@ -246,8 +242,6 @@ struct HistoryWindowView: View {
             ReplacementsHistorySectionView()
         case .clipboard:
             ClipboardHistorySectionView()
-        case .mistakes:
-            MistakesView()
         case .dictionary:
             settingsDetail {
                 DictionaryTab()
@@ -268,10 +262,6 @@ struct HistoryWindowView: View {
             settingsDetail {
                 HotkeysTab()
             }
-        case .settingsAI:
-            settingsDetail {
-                AISettingsTab()
-            }
         case .settingsAccount:
             settingsDetail {
                 AboutTab()
@@ -287,9 +277,5 @@ struct HistoryWindowView: View {
                 .contentMargins(.top, 8, for: .scrollContent)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    }
-
-    private var openMistakeCount: Int {
-        mistakeStore.entries.filter { $0.status == .open }.count
     }
 }

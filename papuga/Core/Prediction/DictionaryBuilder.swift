@@ -44,7 +44,7 @@ enum DictionaryBuilder {
     static func learnedFrequencies(from words: [(token: String, language: String)]) -> [String: [(String, Int)]] {
         var byLang: [String: [String: Int]] = [:]
         for (raw, language) in words {
-            let token = MistakeObservation.normalizedToken(raw)
+            let token = BufferedToken.normalizedCore(from: raw).lowercased()
             guard token.count >= 2, !token.contains(where: \.isWhitespace) else { continue }
             byLang[language, default: [:]][token, default: 0] += 1
         }

@@ -10,7 +10,7 @@ enum LearnedVocabulary {
         allowlist: [String] = Defaults[.autoFixAllowlist],
         rules: [CustomAutoReplaceRule] = Defaults[.customAutoReplaceRules]
     ) -> Set<String> {
-        Set((allowlist + rules.map(\.target)).map(MistakeObservation.normalizedToken))
+        Set((allowlist + rules.map(\.target)).map { BufferedToken.normalizedCore(from: $0).lowercased() })
             .subtracting([""])
     }
 
@@ -20,7 +20,7 @@ enum LearnedVocabulary {
     ) -> Set<String> {
         var set = knownGoodWords(allowlist: allowlist, rules: rules)
         for rule in rules {
-            set.insert(MistakeObservation.normalizedToken(rule.source))
+            set.insert(BufferedToken.normalizedCore(from: rule.source).lowercased())
         }
         set.remove("")
         return set

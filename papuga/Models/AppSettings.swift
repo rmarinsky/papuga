@@ -204,17 +204,6 @@ extension Defaults.Keys {
     )
     static let dismissedRecommendations = Key<[String]>("dismissedRecommendations", default: [])
 
-    static let mistakeObservationEnabled = Key<Bool>("mistakeObservationEnabled", default: true)
-    static let grammarObservationBetaEnabled = Key<Bool>("grammarObservationBetaEnabled", default: true)
-    static let mistakeObservationRetention = Key<String>(
-        "mistakeObservationRetention",
-        default: MistakeObservationRetention.oneMonth.rawValue
-    )
-    /// Chosen grouping format for the "Усі помилки" browser (MistakesGroupingMode raw value).
-    static let mistakesGroupingMode = Key<String>(
-        "mistakesGroupingMode",
-        default: MistakesGroupingMode.byApp.rawValue
-    )
 }
 
 enum AutoFixSettingsMigration {

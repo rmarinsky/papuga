@@ -59,11 +59,9 @@ final class AutoFixController {
     private var isCapturingLayoutIncident = false
     private var layoutIncidentTimerState = LayoutIncidentTimerState()
     private var layoutIncidentTimerTask: Task<Void, Never>?
-    private let mistakeEngine: MistakeObservationEngine
     private let spellChecker: SpellCheckingClient
     private let decisionHistory: AutoFixDecisionRecording
     private var activeDecisionDraft: AutoFixDecisionDraft?
-    private let manualCorrectionTracker = ManualCorrectionTracker()
     private let targetValidator = AutoFixTargetValidator()
     private var appActivationObserver: NSObjectProtocol?
     private var consecutiveReplacementDirection: AutoFixReplacementDirection?
@@ -74,20 +72,18 @@ final class AutoFixController {
     /// Reused for synthetic delete/type keystroke bursts instead of allocating a CGEventSource per
     /// fix/undo. Only used on the main actor.
     /// Cached copy of the Defaults-backed rule list. Avoids a JSON decode on every word boundary;
-    /// kept in sync via a Defaults observer so AISuggestionApplier writes are also captured.
+    /// kept in sync through a Defaults observer.
     private var cachedCustomRules: [CustomAutoReplaceRule] = Defaults[.customAutoReplaceRules]
     private var customRulesObservation: Defaults.Observation?
 
     init(
         layoutManager: LayoutManager,
         characterMapper: CharacterMapper,
-        mistakeEngine: MistakeObservationEngine = .shared,
         spellChecker: SpellCheckingClient = HybridSpellChecker.production,
         decisionHistory: AutoFixDecisionRecording = AutoFixDecisionHistoryStore.shared
     ) {
         self.layoutManager = layoutManager
         self.characterMapper = characterMapper
-        self.mistakeEngine = mistakeEngine
         self.spellChecker = spellChecker
         self.decisionHistory = decisionHistory
     }
@@ -167,7 +163,6 @@ final class AutoFixController {
         }
         editingGuard.reset()
         resetLayoutIncident()
-        manualCorrectionTracker.resetEditingState()
         targetValidator.reset()
         consecutiveReplacementDirection = nil
     }
@@ -325,7 +320,6 @@ final class AutoFixController {
         // key as an undo gesture would therefore delete the untouched Space/Return/Tab boundary
         // before Papuga can validate anything. Undo remains available through the range-safe chip.
         lastFix = nil
-        manualCorrectionTracker.noteBackspace(bufferWasEmpty: bufferWasEmpty, timestamp: timestamp)
         editingGuard.noteBackspace(bufferWasEmpty: bufferWasEmpty, enabled: Defaults[.autoFixConservativeEditingGuard])
         resetLayoutIncident()
         buffer.popLast()
@@ -452,14 +446,6 @@ final class AutoFixController {
         }
         let canMutateDirectly = targetValidation.canMutate && appPolicy.allowsAutomaticMutation
 
-        if let correction = manualCorrectionTracker.noteCompletedWord(
-            word,
-            language: currentLang,
-            bundleID: bundleID.isEmpty ? nil : bundleID,
-            timestamp: ProcessInfo.processInfo.systemUptime
-        ) {
-            mistakeEngine.recordManualCorrection(correction)
-        }
 
         if editingGuard.shouldSuppress(enabled: Defaults[.autoFixConservativeEditingGuard]) {
             logSkip(.editingContext, word: word, bundleID: bundleID, extra: [
@@ -534,13 +520,11 @@ final class AutoFixController {
         let candidateTargetIDs = layoutManager.candidateTargets(excluding: currentID)
         guard !candidateTargetIDs.isEmpty else {
             logSkip(.noTargetLayout, word: word, bundleID: bundleID)
-            observeMistakeCandidate(word: word, language: currentLang, bundleID: bundleID)
             resetLayoutIncident()
             return
         }
         guard let currentSrc = layoutManager.sourceForID(currentID) else {
             logSkip(.missingMaps, word: word, bundleID: bundleID)
-            observeMistakeCandidate(word: word, language: currentLang, bundleID: bundleID)
             resetLayoutIncident()
             return
         }
@@ -584,7 +568,6 @@ final class AutoFixController {
             separation: Defaults[.autoFixCandidateSeparation]
         ) else {
             logSkip(.identicalCandidate, word: word, bundleID: bundleID, layoutID: currentID)
-            observeMistakeCandidate(word: word, language: currentLang, bundleID: bundleID)
             resetLayoutIncident()
             return
         }
@@ -667,7 +650,6 @@ final class AutoFixController {
             // language, or the launch window before the index lands. Papuga
             // used to go silent here, which killed layout auto-fix outright for
             // ru/pl/de. Offer it instead of asserting it.
-            observeMistakeCandidate(word: word, language: currentLang, bundleID: bundleID)
             guard appPolicy.allowsProposal, Defaults[.autoFixProposalEnabled] else {
                 logSkip(.belowThreshold, word: word, bundleID: bundleID, extra: [
                     "candidate": .string(candidate),
@@ -697,7 +679,6 @@ final class AutoFixController {
             return
 
         case .suppress:
-            observeMistakeCandidate(word: word, language: currentLang, bundleID: bundleID)
             if mappedSpellingStatus == .misspelled,
                let compound = AutoFixDecision.compoundLayoutSpellingSuggestion(
                    mapped: candidate,
@@ -754,7 +735,6 @@ final class AutoFixController {
                     extra["edit_distance"] = .int(editDistance)
                 }
                 logSkip(.likelySpellingTypo, word: word, bundleID: bundleID, extra: extra)
-                observeMistakeCandidate(word: word, language: currentLang, bundleID: bundleID)
                 let interruptedIncident = isCapturingLayoutIncident || pendingSingleDecision != nil
                 if interruptedIncident {
                     markDecisionAggregateOnly(matching: word)
@@ -851,7 +831,6 @@ final class AutoFixController {
                 extra["lexicon_reasons"] = .string(predictionAdjustment.reasons.joined(separator: ","))
             }
             logSkip(.belowThreshold, word: word, bundleID: bundleID, layoutID: currentID, extra: extra)
-            observeMistakeCandidate(word: word, language: currentLang, bundleID: bundleID)
             let shouldOfferSingleProposal = appPolicy.allowsProposal && (
                 AutoFixProposalPolicy.shouldSuggest(
                     scoreOriginal: scoreOriginal,
@@ -2391,19 +2370,6 @@ final class AutoFixController {
         ))
     }
 
-    private func observeMistakeCandidate(word: String, language: String, bundleID: String) {
-        mistakeEngine.observeCompletedWord(
-            CompletedWordObservation(
-                word: word,
-                language: language,
-                bundleID: bundleID.isEmpty ? nil : bundleID,
-                timestamp: Date(),
-                allowlist: Defaults[.autoFixAllowlist],
-                blocklist: Defaults[.autoFixBlocklist],
-                minWordLength: Defaults[.autoFixMinWordLength]
-            )
-        )
-    }
 
     private func performAnchoredReplacement(
         original: String,

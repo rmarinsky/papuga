@@ -115,25 +115,6 @@ whole-incident proposal even when the raw language coefficient is low. The final
 anchored source range, preserves the trailing boundary, and produces one undo/reapply action.
 Individual tokens inside the incident contribute only anonymous aggregate counts.
 
-## Implemented mistake pipeline
-
-New files:
-
-- `papuga/Models/MistakeObservation.swift`
-- `papuga/Core/MistakeObservationStore.swift`
-- `papuga/Core/MistakeObservationEngine.swift`
-- `papuga/Views/History/MistakesView.swift`
-
-Behavior:
-
-- Master opt-in is off by default.
-- Observations are local-only JSONL.
-- Retention is configurable: 7, 30, or 90 days.
-- Spelling observations use `NSSpellChecker`.
-- Manual correction inference detects repeated `source -> target` corrections after delete/retype.
-- Repeated observations feed `RecommendationEngine`.
-- `Помилки` sidebar section lets the user create a rule, add to allowlist, or ignore.
-
 ## What still needs more design before implementation
 
 ### Grammarly-style grammar context
@@ -160,13 +141,10 @@ Recommended next step:
 - Increase threshold automatically in apps with repeated undos.
 - Lower confidence for short tokens and mixed punctuation.
 - Add a cooldown after undo so the same word is not proposed again in the same session.
-- Use observations to propose rules instead of mutating ambiguous text.
 
 ## Tests added
 
 - `AutoFixEditingGuardTests`
-- `ManualCorrectionTrackerTests`
-- `MistakeObservationEngineTests`
-- `RecommendationEngineMistakeTests`
+- `RecommendationEngineTests`
 
 The key regression now covered: a token after external edit context is skipped instead of being treated as a normal whole word.

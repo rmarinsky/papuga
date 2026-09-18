@@ -164,29 +164,6 @@ final class BufferedTokenTests: XCTestCase {
         XCTAssertTrue(exact.hasSameMatchScope(as: exact))
     }
 
-    func test_fullTokenRuleMarksOnlyObservationsWithItsExactRawSource() {
-        let core = MistakeObservation(issueType: .spelling, source: "nfrj", language: "en", confidence: 0.7)
-        let full = MistakeObservation(issueType: .spelling, source: "nfrj;", language: "en", confidence: 0.7)
-        let uppercase = MistakeObservation(issueType: .spelling, source: "NFRJ;", language: "en", confidence: 0.7)
-
-        XCTAssertEqual(
-            HistoryWordActionPolicy.observationIDs(
-                [core.id, full.id, uppercase.id],
-                matchingRawSource: "nfrj;",
-                in: [core, full, uppercase]
-            ),
-            [full.id, uppercase.id]
-        )
-        XCTAssertEqual(
-            HistoryWordActionPolicy.observationIDs(
-                [core.id, full.id, uppercase.id],
-                matchingRawSource: nil,
-                in: [core, full, uppercase]
-            ),
-            [core.id, full.id, uppercase.id]
-        )
-    }
-
     func test_legacyRuleWithoutMatchScopeStillDecodesAsCoreRule() throws {
         let encoded = try JSONEncoder().encode(CustomAutoReplaceRule(source: "можі", target: "може"))
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])

@@ -225,7 +225,7 @@ enum AutoFixDecision {
     ///
     /// Both sides are normalized so legacy entries written before the
     /// migration still match, and so callers that already pass `token.core`
-    /// (MistakeObservationEngine) are unaffected — normalization is idempotent.
+    /// are unaffected because normalization is idempotent.
     static func isInAllowlist(_ word: String, allowlist: [String]) -> Bool {
         let normalized = BufferedToken.normalizedCore(from: word).lowercased()
         guard !normalized.isEmpty else { return false }
