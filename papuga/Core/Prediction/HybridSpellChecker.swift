@@ -42,8 +42,14 @@ final class HybridSpellChecker: SpellCheckingClient {
     ) {
         self.system = system
         self.indexes = indexes
-        self.learnedKnown = learnedKnown.mapValues { Set($0.map { $0.lowercased() }) }
+        self.learnedKnown = learnedKnown.mapValues { Set($0.map(Self.vocabularyKey)) }
         self.maxEditDistance = maxEditDistance
+    }
+
+    private static func vocabularyKey(_ word: String) -> String {
+        word.lowercased()
+            .replacingOccurrences(of: "ʼ", with: "'")
+            .replacingOccurrences(of: "’", with: "'")
     }
 
     func installIndexes(_ indexes: [String: SymSpell]) {
@@ -53,7 +59,7 @@ final class HybridSpellChecker: SpellCheckingClient {
     /// `log10(1 + count)` for a word in the frequency list, 0 when absent.
     /// Ranking signal only — never a correctness signal.
     func logFrequency(of word: String, language: String) -> Double {
-        guard let count = lock.withLock({ indexes[language]?.words[word.lowercased()] }),
+        guard let count = lock.withLock({ indexes[language]?.words[Self.vocabularyKey(word)] }),
               count > 0 else { return 0 }
         return log10(1 + Double(count))
     }
@@ -70,7 +76,7 @@ final class HybridSpellChecker: SpellCheckingClient {
 
     /// Explicit vocabulary evidence, independent of permissive system abbreviation checks.
     func isExplicitlyKnown(_ word: String, language: String) -> Bool {
-        let key = word.lowercased()
+        let key = Self.vocabularyKey(word)
         return learnedKnown[language]?.contains(key) == true
             || lock.withLock { indexes[language]?.words[key] != nil }
     }
@@ -80,7 +86,7 @@ final class HybridSpellChecker: SpellCheckingClient {
     /// Some macOS environments advertise a dictionary while accepting nonsense;
     /// fail closed only when that calibration probe proves the system unreliable.
     func isMisspelled(_ word: String, language: String) -> Bool {
-        let key = word.lowercased()
+        let key = Self.vocabularyKey(word)
         if learnedKnown[language]?.contains(key) == true { return false }
         if lock.withLock({ indexes[language] })?.words[key] != nil { return false }
         guard Self.systemSupports(language), systemDictionaryIsReliable(language: language) else {
@@ -111,7 +117,7 @@ final class HybridSpellChecker: SpellCheckingClient {
     /// to automatic detection and returns nonsense, so that case must stay
     /// distinguishable from a real verdict.
     func mappedSpellingStatus(_ word: String, language: String) -> MappedSpellingStatus {
-        let key = word.lowercased()
+        let key = Self.vocabularyKey(word)
         if learnedKnown[language]?.contains(key) == true { return .correct }
         if lock.withLock({ indexes[language] })?.words[key] != nil { return .correct }
         guard Self.systemSupports(language), systemDictionaryIsReliable(language: language) else {
@@ -158,7 +164,7 @@ final class HybridSpellChecker: SpellCheckingClient {
     /// merged in, because the system dictionary knows inflected and apostrophe
     /// forms the 50k list does not.
     func rankedGuesses(for word: String, language: String) -> [ScoredGuess] {
-        let probe = word.lowercased()
+        let probe = Self.vocabularyKey(word)
         var merged: [ScoredGuess] = []
         var seen = Set<String>()
 
@@ -175,12 +181,12 @@ final class HybridSpellChecker: SpellCheckingClient {
 
         let indexWords = lock.withLock { indexes[language]?.words }
         for guess in system.guesses(for: word, language: language)
-        where seen.insert(guess.lowercased()).inserted {
-            let distance = SymSpell.damerauLevenshtein(Array(probe), Array(guess.lowercased()))
+        where seen.insert(Self.vocabularyKey(guess)).inserted {
+            let distance = SymSpell.damerauLevenshtein(Array(probe), Array(Self.vocabularyKey(guess)))
             merged.append(ScoredGuess(
                 term: guess,
                 distance: distance,
-                count: indexWords?[guess.lowercased()] ?? 0
+                count: indexWords?[Self.vocabularyKey(guess)] ?? 0
             ))
         }
         return merged

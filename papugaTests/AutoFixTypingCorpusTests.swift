@@ -72,6 +72,19 @@ final class AutoFixTypingCorpusTests: XCTestCase {
         }
     }
 
+    func test_positiveCorpusTargetsAreExplicitlyAttested() throws {
+        let path = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/typing/corpus.json")
+        let cases = try JSONDecoder().decode([Case].self, from: Data(contentsOf: path))
+            .filter { $0.category != "continuous" && $0.expectedLayout == "com.apple.keylayout.Ukrainian-PC" }
+
+        for tc in cases {
+            let rendered = String(tc.expectedText.dropLast())
+            let core = BufferedToken(rawText: rendered, keyCodes: []).core
+            XCTAssertTrue(Self.checker.isExplicitlyKnown(core, language: "uk"), "\(tc.id): \(core)")
+        }
+    }
+
     func test_punctuationIsPreserved() throws { try check("punctuation") }
     func test_englishTyposDoNotBecomeUkrainian() throws { try check("typo") }
     func test_commonWords() throws { try check("common") }

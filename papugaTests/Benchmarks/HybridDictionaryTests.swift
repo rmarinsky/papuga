@@ -84,6 +84,15 @@ final class HybridDictionaryTests: XCTestCase {
         XCTAssertTrue(hybrid.isMisspelled("кнокп", language: "uk"))
     }
 
+    func test_hybrid_normalizesUkrainianApostropheVariantsForExplicitVocabulary() {
+        let indexes = DictionaryBuilder.build(base: ["uk": [("п'ять", 16)]], learned: [:])
+        let hybrid = HybridSpellChecker(system: AllWrongSpellChecker(), indexes: indexes)
+
+        XCTAssertTrue(hybrid.isExplicitlyKnown("п'ять", language: "uk"))
+        XCTAssertTrue(hybrid.isExplicitlyKnown("пʼять", language: "uk"))
+        XCTAssertTrue(hybrid.isExplicitlyKnown("п’ять", language: "uk"))
+    }
+
     func test_hybrid_guesses_putSymSpellCorrectionsFirst() {
         let indexes = DictionaryBuilder.build(
             base: ["uk": [("привіт", 100)]],
