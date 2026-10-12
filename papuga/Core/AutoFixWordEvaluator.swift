@@ -166,7 +166,9 @@ struct AutoFixWordEvaluator {
         let verifiedLayoutWord = spellingStatus == .correct
             && lexicalCandidate.count >= 2
             && WordPlausibility.isWordLike(lexicalCandidate)
-            && AutoFixDecision.isCrossScriptConversion(original: word, candidate: best.candidate)
+            && (AutoFixDecision.isCrossScriptConversion(original: word, candidate: best.candidate)
+                || (spellChecker.mappedSpellingStatus(sourceWord, language: currentLanguage) == .misspelled
+                    && mapper.convert(text: best.candidate, fromSourceID: best.targetID, toSourceID: source.id) == word))
         // Only a plausible source-language token can be an ordinary spelling typo.
         // Stripping physical layout keys (e.g. lzre. -> lzre -> lure) invents a different word.
         if config.spellingTypoGuardEnabled && Self.isLexicalToken(word)

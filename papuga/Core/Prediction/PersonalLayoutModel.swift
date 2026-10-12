@@ -37,7 +37,7 @@ final class PersonalLayoutModel {
             }
         }
         for entry in relevant.reversed() where entry.kind == .manualSwitch {
-            guard entry.verificationSucceeded != false,
+            guard entry.verificationSucceeded == true,
                   !entry.originalTruncated, !entry.convertedTruncated,
                   entry.original != entry.converted,
                   let sourceID = entry.sourceLayoutID, let targetID = entry.targetLayoutID,
