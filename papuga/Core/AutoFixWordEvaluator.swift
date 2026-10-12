@@ -117,7 +117,16 @@ struct AutoFixWordEvaluator {
             scoreOriginal: originalScore, threshold: threshold, separation: config.candidateSeparation)
         if let ranked = selection, !attested.isEmpty {
             let meanings = Set(attested.map { $0.targetLang + ":" + $0.candidate })
-            selection = .init(best: ranked.best, runnerUp: ranked.runnerUp, isAmbiguous: meanings.count > 1)
+            let preferred = attested.filter {
+                PersonalLayoutModel.shared.hasContextPreference(original: word,
+                    candidate: $0.replacementPlan?.correctedCore ?? $0.candidate,
+                    sourceID: source.id, targetID: $0.targetID, previousWord: previousWord)
+            }
+            if meanings.count > 1, preferred.count == 1, let learned = preferred.first {
+                selection = .init(best: learned, runnerUp: attested.first { $0.targetID != learned.targetID }, isAmbiguous: false)
+            } else {
+                selection = .init(best: ranked.best, runnerUp: ranked.runnerUp, isAmbiguous: meanings.count > 1)
+            }
         }
         guard let best = selection?.best else { return result(.keep(.identicalCandidate)) }
         effectiveScore = best.scoreCandidate

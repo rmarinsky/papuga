@@ -39,6 +39,36 @@ final class AutoFixTypingCorpusTests: XCTestCase {
         XCTAssertNil(evaluator.evaluate("hello", source: from, targets: [to], configuration: .init()).replacement)
     }
 
+    func test_verifiedContextResolvesLayoutAmbiguityAndUndoRetractsIt() throws {
+        let model = PersonalLayoutModel.shared
+        model.replaceHistory([])
+        defer { model.replaceHistory([]) }
+        let from = try source("com.apple.keylayout.US")
+        let uk = try source("com.apple.keylayout.Ukrainian-PC")
+        let ru = try source("com.apple.keylayout.Russian")
+        let checker = HybridSpellChecker(indexes: DictionaryBuilder.build(base: [
+            "uk": [("сір", 1000)], "ru": [("сыр", 1000)]
+        ], learned: [:]))
+        let evaluator = AutoFixWordEvaluator(mapper: CharacterMapper(), spellChecker: checker,
+                                             scorer: LanguageScorerFactory.make(.appleNL))
+        func evaluate(_ context: String?) -> AutoFixWordEvaluation {
+            evaluator.evaluate("csh", source: from, targets: [ru, uk], configuration: .init(), previousWord: context)
+        }
+        XCTAssertEqual(evaluate("ghbdsn").disposition, .suggestLayout)
+        var history = (0..<3).map { day in
+            ReplacementHistoryEntry(timestamp: Date(timeIntervalSince1970: Double(day * 86400)),
+                kind: .manualSwitch, original: "ghbdsn csh ", converted: "привіт сір ",
+                sourceLayoutID: from.id, targetLayoutID: uk.id, verificationSucceeded: true)
+        }
+        model.replaceHistory(history)
+        XCTAssertEqual(evaluate("ghbdsn").replacement?.targetID, uk.id)
+        XCTAssertEqual(evaluate(nil).disposition, .suggestLayout)
+        history.append(ReplacementHistoryEntry(timestamp: Date(timeIntervalSince1970: 300000),
+            kind: .autoFixUndone, original: "csh", converted: "сір", sourceLayoutID: from.id))
+        model.replaceHistory(history)
+        XCTAssertEqual(evaluate("ghbdsn").disposition, .suggestLayout)
+    }
+
     private struct Case: Decodable {
         let id: String
         let category: String
