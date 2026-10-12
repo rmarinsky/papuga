@@ -148,3 +148,36 @@ Recommended next step:
 - `RecommendationEngineTests`
 
 The key regression now covered: a token after external edit context is skipped instead of being treated as a normal whole word.
+
+
+## Local layout evidence (2026-10-12)
+
+The normal autocorrect scorer now combines bundled Ukrainian/English word frequencies
+with a compact character-trigram model. Other languages use macOS language scoring;
+all candidates still require the existing spelling and editing safety gates. The saved
+`appleNL` setting remains compatible and selects this local scorer. No cloud requests,
+new activation switch, or model download is required. Scores are ranking signals, not
+calibrated probabilities of correctness.
+
+Layout language comes from macOS input-source metadata. Conversion uses the actual
+source and target Unicode keyboard tables, including Option modifiers and dead-key
+sequences. Unknown or non-Unicode input methods are not treated as English. This does
+not provide general IME composition support. Exact dictionary evidence can support
+same-script conversion only with a reversible mapping and a misspelled source.
+
+Personal learning uses at most 2,000 retained manual/undo records. Only manual records
+with successful focused-field insertion readback can teach word pairs and preceding-word
+context. Legacy, copy-only, unverified, truncated, unchanged, and non-layout conversions
+cannot teach. Repeated attempts within 60 seconds in one app count as one episode.
+Three separated verified episodes in the same context can resolve a unique target among
+otherwise dictionary-valid alternatives; conflicting preferences remain suggestions.
+Undo retracts older pair evidence, and clearing history removes learned evidence.
+Validated pairs and input sources are cached; normal updates do not reconvert retained
+phrases. The temporary full-field readback is bounded to 65,536 UTF-16 units and is not
+persisted. Editors without usable readback can still convert but cannot teach from it.
+
+Verification uses unit and in-process integration tests with real macOS layout tables.
+Test hosts do not start keyboard services or show application windows. XCUI and live
+editor typing checks were intentionally not run. Cross-app insertion reliability is
+therefore not established by these checks. Existing toast, history, and Undo flows remain
+the feedback path; this change does not add sentence-level grammar generation.

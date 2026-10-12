@@ -40,7 +40,9 @@ final class AutoFixScoringIntegrationTests: XCTestCase {
         XCTAssertEqual(candidate.lowercased(), tc.expectedCorrected.lowercased(),
                        "Char mapping wrong for '\(tc.typedInWrongLayout)'")
 
-        let scorer = LanguageScorerFactory.make(algorithm)
+        // These fixtures document the raw AppleNL backend. The persisted appleNL
+        // setting now selects the local engine, covered by AutoFixTypingCorpusTests.
+        let scorer: LanguageScorer = algorithm == .appleNL ? AppleNLScorer() : LanguageScorerFactory.make(algorithm)
         let fromLang = AutoFixDecision.languageHintForLayoutID(tc.fromLayoutID)
         let toLang = AutoFixDecision.languageHintForLayoutID(tc.toLayoutID)
         let scoreOriginal = scorer.score(tc.typedInWrongLayout, expecting: fromLang)
@@ -73,7 +75,9 @@ final class AutoFixScoringIntegrationTests: XCTestCase {
         algorithm: LanguageScorerAlgorithm,
         threshold: Double = 0.3
     ) -> Bool {
-        let scorer = LanguageScorerFactory.make(algorithm)
+        // These fixtures document the raw AppleNL backend. The persisted appleNL
+        // setting now selects the local engine, covered by AutoFixTypingCorpusTests.
+        let scorer: LanguageScorer = algorithm == .appleNL ? AppleNLScorer() : LanguageScorerFactory.make(algorithm)
         let fromLang = AutoFixDecision.languageHintForLayoutID(fromLayoutID)
         let toLang = AutoFixDecision.languageHintForLayoutID(toLayoutID)
         let scoreOriginal = scorer.score(original, expecting: fromLang)

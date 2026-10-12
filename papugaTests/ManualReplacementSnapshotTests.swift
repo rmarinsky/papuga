@@ -14,6 +14,14 @@ final class ManualReplacementSnapshotTests: XCTestCase {
             original: "abc", replacement: "привіт", after: "hi привіт tail", caret: 3))
     }
 
+    func test_partialIdentifierAndContractionCannotTeachAWholeWord() {
+        for suffix in ["1", "_name", "’s", "-name"] {
+            XCTAssertFalse(ManualReplacementSnapshot.confirms(before: "abc" + suffix,
+                range: NSRange(location: 0, length: 3), original: "abc", replacement: "привіт",
+                after: "привіт" + suffix, caret: 6))
+        }
+    }
+
     func test_rejectsPartialWordsAndInvalidRanges() {
         XCTAssertFalse(ManualReplacementSnapshot.confirms(before: "abcdef", range: NSRange(location: 0, length: 3),
             original: "abc", replacement: "привіт", after: "привітdef", caret: 6))

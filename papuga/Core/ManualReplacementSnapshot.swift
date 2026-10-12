@@ -36,11 +36,15 @@ struct ManualReplacementSnapshot {
               let selected = Range(range, in: before), String(before[selected]) == original,
               original != replacement, caret == range.location + replacement.utf16.count else { return false }
         if selected.lowerBound > before.startIndex,
-           before[before.index(before: selected.lowerBound)].isLetter,
-           original.first?.isLetter == true { return false }
-        if selected.upperBound < before.endIndex, before[selected.upperBound].isLetter,
-           original.last?.isLetter == true { return false }
+           isWordContinuation(before[before.index(before: selected.lowerBound)]),
+           original.first.map(isWordContinuation) == true { return false }
+        if selected.upperBound < before.endIndex, isWordContinuation(before[selected.upperBound]),
+           original.last.map(isWordContinuation) == true { return false }
         return before.replacingCharacters(in: selected, with: replacement) == after
+    }
+
+    private static func isWordContinuation(_ character: Character) -> Bool {
+        character.isLetter || character.isNumber || "_-'’ʼ".contains(character)
     }
 
     private static func focusedElement() -> AXUIElement? {
