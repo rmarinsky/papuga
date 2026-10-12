@@ -3,6 +3,12 @@ import Carbon.HIToolbox
 @testable import papuga
 
 final class CharacterMapperTests: XCTestCase {
+    func test_deadKeySequenceConvertsToACompleteAccentedCharacter() throws {
+        let (from, to) = try buildMaps(from: "com.apple.keylayout.US", to: "com.apple.keylayout.USInternational-PC")
+        XCTAssertEqual(mapper.convert(text: "'e", fromSourceID: from, toSourceID: to), "é")
+        XCTAssertEqual(mapper.convert(text: "é", fromSourceID: to, toSourceID: from), "'e")
+    }
+
     private var mapper = CharacterMapper()
 
     override func setUp() {

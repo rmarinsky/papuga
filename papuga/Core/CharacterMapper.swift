@@ -4,6 +4,7 @@ import Foundation
 struct KeyMapping {
     let keyCode: UInt16
     let needsShift: Bool
+    var needsOption: Bool = false
 }
 
 struct KeycodeCharacters {
@@ -12,142 +13,129 @@ struct KeycodeCharacters {
 }
 
 final class CharacterMapper {
-    private var forwardMaps: [String: [Character: KeyMapping]] = [:]
+    private var sequences: [String: [Character: [KeyMapping]]] = [:]
     private var reverseMaps: [String: [UInt16: KeycodeCharacters]] = [:]
-    private let logger = AppLogger.mapper
+    private var layoutData: [String: CFData] = [:]
 
     func buildMap(for source: TISInputSource, sourceID: String) {
-        AppLogger.pre(logger, "buildMap(sourceID: \(sourceID))")
-        if forwardMaps[sourceID] != nil {
-            AppLogger.post(logger, "buildMap skipped: cache hit for \(sourceID)")
-            return
-        }
-
-        guard let layoutDataPtr = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else {
-            AppLogger.warn(logger, "buildMap aborted: layoutData missing for \(sourceID)")
-            return
-        }
-
-        let layoutData = Unmanaged<CFData>.fromOpaque(layoutDataPtr).takeUnretainedValue()
-        let dataPtr = CFDataGetBytePtr(layoutData)!
-        let keyboardLayout = dataPtr.withMemoryRebound(to: UCKeyboardLayout.self, capacity: 1) { $0 }
+        guard sequences[sourceID] == nil,
+              let pointer = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { return }
+        let data = Unmanaged<CFData>.fromOpaque(pointer).takeUnretainedValue()
+        let layout = UnsafeRawPointer(CFDataGetBytePtr(data)!).assumingMemoryBound(to: UCKeyboardLayout.self)
         let keyboardType = UInt32(LMGetKbdType())
+        var forward: [Character: [KeyMapping]] = [:]
+        var reverse: [UInt16: KeycodeCharacters] = [:]
+        var deadKeys: [(KeyMapping, UInt32)] = []
+        var strokes: [KeyMapping] = []
 
-        var forwardMap: [Character: KeyMapping] = [:]
-        var reverseMap: [UInt16: KeycodeCharacters] = [:]
-
-        for keyCode in 0...Constants.maxKeyCode {
-            let normalChar = characterForKeyCode(keyCode, shift: false, layout: keyboardLayout, keyboardType: keyboardType)
-            let shiftedChar = characterForKeyCode(keyCode, shift: true, layout: keyboardLayout, keyboardType: keyboardType)
-
-            reverseMap[keyCode] = KeycodeCharacters(normal: normalChar, shifted: shiftedChar)
-
-            if let char = normalChar {
-                if forwardMap[char] == nil {
-                    forwardMap[char] = KeyMapping(keyCode: keyCode, needsShift: false)
-                }
-            }
-            if let char = shiftedChar {
-                if forwardMap[char] == nil {
-                    forwardMap[char] = KeyMapping(keyCode: keyCode, needsShift: true)
+        // Prefer direct ordinary keys over Option variants or composed sequences.
+        for option in [false, true] {
+            for shift in [false, true] {
+                for code in 0...Constants.maxKeyCode {
+                    let stroke = KeyMapping(keyCode: code, needsShift: shift, needsOption: option)
+                    strokes.append(stroke)
+                    var state: UInt32 = 0
+                    guard let text = translate(stroke, layout: layout, keyboardType: keyboardType, state: &state) else { continue }
+                    if state != 0 && text.isEmpty { deadKeys.append((stroke, state)) }
+                    if let character = singleCharacter(text), forward[character] == nil, state == 0 {
+                        forward[character] = [stroke]
+                    }
+                    if !option {
+                        let old = reverse[code]
+                        reverse[code] = KeycodeCharacters(normal: shift ? old?.normal : singleCharacter(text),
+                                                         shifted: shift ? singleCharacter(text) : old?.shifted)
+                    }
                 }
             }
         }
-
-        forwardMaps[sourceID] = forwardMap
-        reverseMaps[sourceID] = reverseMap
-        AppLogger.post(logger, "buildMap completed for \(sourceID): forward=\(forwardMap.count), reverse=\(reverseMap.count)")
+        // Recover a composed source character as its physical dead-key sequence.
+        // Multi-step IME composition has no Unicode layout table and is not guessed.
+        for (deadKey, initialState) in deadKeys {
+            for stroke in strokes {
+                var state = initialState
+                guard let text = translate(stroke, layout: layout, keyboardType: keyboardType, state: &state),
+                      let character = singleCharacter(text), forward[character] == nil else { continue }
+                forward[character] = [deadKey, stroke]
+            }
+        }
+        sequences[sourceID] = forward
+        reverseMaps[sourceID] = reverse
+        layoutData[sourceID] = data
     }
 
     func convert(text: String, fromSourceID: String, toSourceID: String) -> String {
-        AppLogger.pre(logger, "convert(textCount: \(text.count), from: \(fromSourceID), to: \(toSourceID))")
-        guard let sourceForward = forwardMaps[fromSourceID],
-              let targetReverse = reverseMaps[toSourceID] else {
-            AppLogger.warn(logger, "convert fallback: missing maps for source/target")
-            return text
-        }
-
-        var converted = ""
-        converted.reserveCapacity(text.count)
-        for char in text {
-            guard let mapping = sourceForward[char] else {
-                converted.append(char)
+        guard fromSourceID != toSourceID, let source = sequences[fromSourceID], let data = layoutData[toSourceID] else { return text }
+        let layout = UnsafeRawPointer(CFDataGetBytePtr(data)!).assumingMemoryBound(to: UCKeyboardLayout.self)
+        let keyboardType = UInt32(LMGetKbdType())
+        var state: UInt32 = 0
+        var result = ""
+        for character in text {
+            guard let strokes = source[character] else {
+                if state != 0 {
+                    guard let flushed = translate(KeyMapping(keyCode: 49, needsShift: false), layout: layout,
+                                                  keyboardType: keyboardType, state: &state) else { return text }
+                    if flushed != " " { result += flushed }
+                    state = 0
+                }
+                result.append(character)
                 continue
             }
-            guard let targetChars = targetReverse[mapping.keyCode] else {
-                converted.append(char)
-                continue
+            for stroke in strokes {
+                guard let output = translate(stroke, layout: layout, keyboardType: keyboardType, state: &state) else {
+                    // Never return a partly converted string after an OS mapping error.
+                    return text
+                }
+                result += output
             }
-            converted.append(mapping.needsShift ? (targetChars.shifted ?? char) : (targetChars.normal ?? char))
         }
-        AppLogger.post(logger, "convert completed: outputCount=\(converted.count)")
-        return converted
+        if state != 0 {
+            guard let output = translate(KeyMapping(keyCode: 49, needsShift: false), layout: layout,
+                                         keyboardType: keyboardType, state: &state) else { return text }
+            // UCKeyTranslate can retain opaque nonzero state after committing a
+            // character. A plain space means there was no pending accent to flush.
+            if output != " " { result += output }
+        }
+        return result
     }
 
-    /// The key a character is produced by, in a given layout. Used by the
-    /// keystroke (keyboard-adjacency) typo model to find which physical key the
-    /// user actually pressed.
     func mapping(for character: Character, sourceID: String) -> KeyMapping? {
-        forwardMaps[sourceID]?[character]
+        sequences[sourceID]?[character]?.first
     }
 
-    /// The characters a physical key produces in a given layout (normal +
-    /// shifted) — the inverse of `mapping(for:)`.
     func characters(forKeyCode keyCode: UInt16, sourceID: String) -> KeycodeCharacters? {
         reverseMaps[sourceID]?[keyCode]
     }
 
-    func hasMap(for sourceID: String) -> Bool {
-        forwardMaps[sourceID] != nil
-    }
+    func hasMap(for sourceID: String) -> Bool { sequences[sourceID] != nil }
 
     func invalidateCache() {
-        AppLogger.pre(logger, "invalidateCache()")
-        forwardMaps.removeAll()
+        sequences.removeAll()
         reverseMaps.removeAll()
-        AppLogger.post(logger, "All character maps invalidated")
+        layoutData.removeAll()
     }
 
     func invalidateCache(for sourceID: String) {
-        AppLogger.pre(logger, "invalidateCache(for: \(sourceID))")
-        forwardMaps.removeValue(forKey: sourceID)
+        sequences.removeValue(forKey: sourceID)
         reverseMaps.removeValue(forKey: sourceID)
-        AppLogger.post(logger, "Character maps invalidated for \(sourceID)")
+        layoutData.removeValue(forKey: sourceID)
     }
 
-    private func characterForKeyCode(
-        _ keyCode: UInt16,
-        shift: Bool,
-        layout: UnsafePointer<UCKeyboardLayout>,
-        keyboardType: UInt32
-    ) -> Character? {
-        let modifierKeyState: UInt32 = shift ? (UInt32(shiftKey >> 8) & 0xFF) : 0
-        var deadKeyState: UInt32 = 0
-        var chars = [UniChar](repeating: 0, count: 4)
-        var length: Int = 0
-
-        let status = UCKeyTranslate(
-            layout,
-            keyCode,
-            UInt16(kUCKeyActionDisplay),
-            modifierKeyState,
-            keyboardType,
-            UInt32(kUCKeyTranslateNoDeadKeysBit),
-            &deadKeyState,
-            chars.count,
-            &length,
-            &chars
-        )
-
-        guard status == noErr, length > 0 else { return nil }
-
-        guard let scalar = UnicodeScalar(chars[0]) else { return nil }
-        let character = Character(scalar)
-
-        if character.isNewline || character.asciiValue == 0 {
-            return nil
-        }
-
+    private func singleCharacter(_ text: String) -> Character? {
+        guard text.count == 1, let character = text.first,
+              !character.isNewline, !character.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else { return nil }
         return character
+    }
+
+    private func translate(_ stroke: KeyMapping, layout: UnsafePointer<UCKeyboardLayout>,
+                           keyboardType: UInt32, state: inout UInt32) -> String? {
+        var modifiers: UInt32 = stroke.needsShift ? UInt32(shiftKey) : 0
+        if stroke.needsOption { modifiers |= UInt32(optionKey) }
+        var characters = [UniChar](repeating: 0, count: 255)
+        var length = 0
+        let status = UCKeyTranslate(layout, stroke.keyCode, UInt16(kUCKeyActionDown),
+                                    (modifiers >> 8) & 0xFF, keyboardType, 0, &state,
+                                    characters.count, &length, &characters)
+        guard status == noErr else { return nil }
+        return String(decoding: characters.prefix(length), as: UTF16.self)
     }
 }
