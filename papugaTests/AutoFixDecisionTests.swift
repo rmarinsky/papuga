@@ -374,6 +374,8 @@ final class AutoFixDecisionTests: XCTestCase {
         XCTAssertEqual(AutoFixDecision.languageHintForLayoutID("com.apple.keylayout.Russian"), "ru")
         XCTAssertEqual(AutoFixDecision.languageHintForLayoutID("com.apple.keylayout.US"), "en")
         XCTAssertEqual(AutoFixDecision.languageHintForLayoutID("com.apple.keylayout.German"), "de")
-        XCTAssertEqual(AutoFixDecision.languageHintForLayoutID("com.apple.keylayout.UnknownLang"), "en")
+        XCTAssertEqual(AutoFixDecision.languageHintForLayoutID("com.apple.keylayout.UnknownLang"), "")
+        XCTAssertEqual(AutoFixDecision.languageHintForLayoutID("com.apple.keylayout.Dutch"), "nl")
+        XCTAssertEqual(AutoFixDecision.languageHintForLayoutID("com.apple.keylayout.Portuguese"), "pt")
     }
 }

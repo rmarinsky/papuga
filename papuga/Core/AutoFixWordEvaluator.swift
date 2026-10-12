@@ -65,11 +65,13 @@ struct AutoFixWordEvaluator {
         guard !targets.isEmpty else { return result(.keep(.noTargetLayout)) }
         guard let source else { return result(.keep(.missingMaps)) }
         let currentLanguage = AutoFixDecision.languageHintForLayoutID(source.id)
+        guard !currentLanguage.isEmpty else { return result(.keep(.missingMaps)) }
         mapper.buildMap(for: source.source, sourceID: source.id)
         originalScore = scorer.score(word, expecting: currentLanguage)
         for target in targets {
             mapper.buildMap(for: target.source, sourceID: target.id)
             let language = AutoFixDecision.languageHintForLayoutID(target.id)
+            guard !language.isEmpty else { continue }
             var inner = word
             var leadingWrapper = "", trailingWrapper = ""
             let wrappers: [Character: Character] = ["(": ")", "[": "]", "{": "}", "\"": "\"", "«": "»", "“": "”"]
