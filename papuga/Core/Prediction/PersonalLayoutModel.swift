@@ -52,7 +52,7 @@ final class PersonalLayoutModel {
             let candidates = entry.converted.split(whereSeparator: \.isWhitespace).map(String.init)
             guard originals.count == candidates.count else { continue }
             // Old selections do not prove the last token was finished.
-            let completedCount = originals.count - (entry.original.last?.isWhitespace == true ? 0 : 1)
+            let completedCount = originals.count - (entry.verificationSucceeded == true || entry.original.last?.isWhitespace == true ? 0 : 1)
             for index in 0..<max(0, completedCount) {
                 let original = originals[index].lowercased(), candidate = candidates[index].lowercased()
                 guard original.count >= 2, candidate.count >= 2,
@@ -69,7 +69,7 @@ final class PersonalLayoutModel {
                     let app = entry.bundleID ?? ""
                     if let previous = lastEpisode[key]?[app], entry.timestamp.timeIntervalSince(previous) < 60 { continue }
                     lastEpisode[key, default: [:]][app] = entry.timestamp
-                    counts[key, default: 0] += 1
+                    counts[key, default: 0] += entry.verificationSucceeded == true ? 2 : 1
                 }
             }
         }
