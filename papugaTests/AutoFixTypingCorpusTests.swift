@@ -2,7 +2,7 @@ import Carbon.HIToolbox
 import XCTest
 @testable import papuga
 
-/// Uses the evaluator called by AutoFixController, real OS layouts, real AppleNL,
+/// Uses the evaluator called by AutoFixController, real OS layouts, the default local scorer,
 /// real system spelling, and shipped dictionaries. No predicted outcomes are mocked.
 final class AutoFixTypingCorpusTests: XCTestCase {
     func test_manualPhraseEvidenceImprovesRankingWithoutChangingCorrectText() throws {
@@ -63,6 +63,15 @@ final class AutoFixTypingCorpusTests: XCTestCase {
         model.replaceHistory(history)
         XCTAssertEqual(evaluate("ghbdsn").replacement?.targetID, uk.id)
         XCTAssertEqual(evaluate(nil).disposition, .suggestLayout)
+        XCTAssertEqual(evaluate("different").disposition, .suggestLayout)
+        let competing = (3..<6).map { day in
+            ReplacementHistoryEntry(timestamp: Date(timeIntervalSince1970: Double(day * 86400)),
+                kind: .manualSwitch, original: "ghbdsn csh ", converted: "привыт сыр ",
+                sourceLayoutID: from.id, targetLayoutID: ru.id, verificationSucceeded: true)
+        }
+        model.replaceHistory(history + competing)
+        XCTAssertEqual(evaluate("ghbdsn").disposition, .suggestLayout)
+        model.replaceHistory(history)
         history.append(ReplacementHistoryEntry(timestamp: Date(timeIntervalSince1970: 300000),
             kind: .autoFixUndone, original: "csh", converted: "сір", sourceLayoutID: from.id))
         model.replaceHistory(history)
@@ -92,7 +101,7 @@ final class AutoFixTypingCorpusTests: XCTestCase {
         XCTAssertFalse(cases.isEmpty, "A missing corpus category must not turn green")
         let from = try source("com.apple.keylayout.US")
         let to = try source("com.apple.keylayout.Ukrainian-PC")
-        let evaluator = AutoFixWordEvaluator(mapper: CharacterMapper(), spellChecker: Self.checker, scorer: AppleNLScorer())
+        let evaluator = AutoFixWordEvaluator(mapper: CharacterMapper(), spellChecker: Self.checker, scorer: LanguageScorerFactory.make(.appleNL))
         for tc in cases {
             XCTContext.runActivity(named: "\(tc.id): \(tc.keys) → \(tc.expectedText)") { _ in
                 let actual = evaluator.evaluate(String(tc.keys.dropLast()), source: from, targets: [to], configuration: .init())
@@ -115,7 +124,7 @@ final class AutoFixTypingCorpusTests: XCTestCase {
         let from = try source("com.apple.keylayout.US")
         let ukrainian = try source("com.apple.keylayout.Ukrainian-PC")
         let russian = try source("com.apple.keylayout.Russian")
-        let evaluator = AutoFixWordEvaluator(mapper: CharacterMapper(), spellChecker: Self.checker, scorer: AppleNLScorer())
+        let evaluator = AutoFixWordEvaluator(mapper: CharacterMapper(), spellChecker: Self.checker, scorer: LanguageScorerFactory.make(.appleNL))
         let result = evaluator.evaluate("ghbdsn", source: from, targets: [russian, ukrainian], configuration: .init())
         XCTAssertEqual(result.replacement?.candidate, "привіт", "\(result.disposition)")
         XCTAssertEqual(result.replacement?.targetID, ukrainian.id)
@@ -128,7 +137,7 @@ final class AutoFixTypingCorpusTests: XCTestCase {
             "uk": DictionaryBuilder.loadBundledBase(language: "uk"),
             "en": DictionaryBuilder.loadBundledBase(language: "en")
         ], learned: [:]), learnedKnown: ["en": ["yt", "vtys", "wt"]])
-        let evaluator = AutoFixWordEvaluator(mapper: CharacterMapper(), spellChecker: checker, scorer: AppleNLScorer())
+        let evaluator = AutoFixWordEvaluator(mapper: CharacterMapper(), spellChecker: checker, scorer: LanguageScorerFactory.make(.appleNL))
         for word in ["yt", "vtys", "wt"] {
             let result = evaluator.evaluate(word, source: from, targets: [to], configuration: .init())
             XCTAssertEqual(result.disposition, .sourceWord, word)
