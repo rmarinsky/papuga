@@ -38,6 +38,7 @@ final class LayoutManager {
     }
 
     func reloadLayouts() {
+        AutoFixDecision.invalidateLanguageHints()
         AppLogger.pre(logger, "reloadLayouts()")
         let conditions = [
             kTISPropertyInputSourceCategory!: kTISCategoryKeyboardInputSource!,
