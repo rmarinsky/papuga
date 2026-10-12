@@ -2,6 +2,16 @@ import XCTest
 @testable import papuga
 
 final class PersonalLayoutModelTests: XCTestCase {
+    func test_legacyUnverifiedHistoryDoesNotTeach() {
+        let model = PersonalLayoutModel()
+        model.replaceHistory((0..<4).map { day in
+            ReplacementHistoryEntry(timestamp: Date(timeIntervalSince1970: Double(day * 86400)),
+                kind: .manualSwitch, original: "lfdfq dct ", converted: "давай все ",
+                sourceLayoutID: from, targetLayoutID: to)
+        })
+        XCTAssertEqual(model.boost(original: "lfdfq", candidate: "давай", sourceID: from, targetID: to), 0)
+    }
+
     func test_failedInsertionsNeverTeachLayoutPairs() {
         let model = PersonalLayoutModel()
         model.replaceHistory((0..<4).map { day in
@@ -17,7 +27,7 @@ final class PersonalLayoutModelTests: XCTestCase {
         var history = (0..<3).map { day in
             ReplacementHistoryEntry(timestamp: Date(timeIntervalSince1970: Double(day * 86400)),
                 kind: .manualSwitch, original: "lfdfq dct ", converted: "давай все ",
-                sourceLayoutID: from, targetLayoutID: to)
+                sourceLayoutID: from, targetLayoutID: to, verificationSucceeded: true)
         }
         history.append(ReplacementHistoryEntry(timestamp: Date(timeIntervalSince1970: 300000),
             kind: .autoFixUndone, original: "lfdfq dct", converted: "давай все", sourceLayoutID: from))
@@ -31,14 +41,14 @@ final class PersonalLayoutModelTests: XCTestCase {
         let retries = (0..<3).map { second in
             ReplacementHistoryEntry(timestamp: Date(timeIntervalSince1970: Double(second)),
                 kind: .manualSwitch, original: "lfdfq dct", converted: "давай все",
-                sourceLayoutID: from, targetLayoutID: to, bundleID: "test.editor")
+                sourceLayoutID: from, targetLayoutID: to, bundleID: "test.editor", verificationSucceeded: true)
         }
         model.replaceHistory(retries)
         XCTAssertEqual(model.boost(original: "lfdfq", candidate: "давай", sourceID: from, targetID: to), 0)
         XCTAssertEqual(model.boost(original: "dct", candidate: "все", sourceID: from, targetID: to), 0)
         model.replaceHistory((0..<3).map { day in
             ReplacementHistoryEntry(timestamp: Date(timeIntervalSince1970: Double(day * 86400)),
-                kind: .manualSwitch, original: "lfdfq ", converted: "давай ", sourceLayoutID: from, targetLayoutID: to)
+                kind: .manualSwitch, original: "lfdfq ", converted: "давай ", sourceLayoutID: from, targetLayoutID: to, verificationSucceeded: true)
         })
         XCTAssertGreaterThan(model.boost(original: "lfdfq", candidate: "давай", sourceID: from, targetID: to), 0)
         model.replaceHistory([])
@@ -53,7 +63,7 @@ final class PersonalLayoutModelTests: XCTestCase {
         let history = (0..<3).map { day in
             ReplacementHistoryEntry(timestamp: Date(timeIntervalSince1970: Double(day * 86400)),
                 kind: .manualSwitch, original: "lfdfq dct ", converted: "давай все ",
-                sourceLayoutID: from, targetLayoutID: to, bundleID: "test.editor")
+                sourceLayoutID: from, targetLayoutID: to, bundleID: "test.editor", verificationSucceeded: true)
         }
         model.replaceHistory(history)
         XCTAssertGreaterThan(model.boost(original: "lfdfq", candidate: "давай", sourceID: from, targetID: to), 0)

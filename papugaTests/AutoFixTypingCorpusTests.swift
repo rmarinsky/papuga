@@ -17,11 +17,26 @@ final class AutoFixTypingCorpusTests: XCTestCase {
         model.replaceHistory((0..<3).map { day in
             ReplacementHistoryEntry(timestamp: Date(timeIntervalSince1970: Double(day * 86400)),
                 kind: .manualSwitch, original: "lfdfq dct ", converted: "давай все ",
-                sourceLayoutID: from.id, targetLayoutID: to.id, bundleID: "test.editor")
+                sourceLayoutID: from.id, targetLayoutID: to.id, bundleID: "test.editor", verificationSucceeded: true)
         })
         let after = try XCTUnwrap(evaluator.evaluate("lfdfq", source: from, targets: [to], configuration: .init()).selection)
         XCTAssertGreaterThan(after.best.scoreCandidate, before.best.scoreCandidate)
         XCTAssertEqual(evaluator.evaluate("hello", source: from, targets: [to], configuration: .init()).disposition, .sourceWord)
+    }
+
+    func test_sameScriptLayoutUsesVerifiedDictionaryEvidence() throws {
+        let from = try source("com.apple.keylayout.US")
+        let to = try source("com.apple.keylayout.French")
+        let checker = HybridSpellChecker(indexes: DictionaryBuilder.build(base: [
+            "en": [("hello", 1000)], "fr": [("avec", 1000)]
+        ], learned: [:]))
+        let evaluator = AutoFixWordEvaluator(mapper: CharacterMapper(), spellChecker: checker,
+                                             scorer: LanguageScorerFactory.make(.appleNL))
+        // Like cross-script evidence, exact layout/dictionary evidence does not
+        // require the language identifier to report an impossible margin of 1.
+        let result = evaluator.evaluate("qvec", source: from, targets: [to], configuration: .init(threshold: 1))
+        XCTAssertEqual(result.replacement?.candidate, "avec", "\(result.disposition)")
+        XCTAssertNil(evaluator.evaluate("hello", source: from, targets: [to], configuration: .init()).replacement)
     }
 
     private struct Case: Decodable {
