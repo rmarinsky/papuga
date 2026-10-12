@@ -6,7 +6,9 @@ import OSLog
 final class ReplacementHistoryStore {
     static let shared = ReplacementHistoryStore()
 
-    private(set) var entries: [ReplacementHistoryEntry] = []
+    private(set) var entries: [ReplacementHistoryEntry] = [] {
+        didSet { PersonalLayoutModel.shared.replaceHistory(entries) }
+    }
 
     private let ioQueue = DispatchQueue(label: "ua.com.rmarinsky.papuga.replacement-history", qos: .utility)
     private let fileURL: URL

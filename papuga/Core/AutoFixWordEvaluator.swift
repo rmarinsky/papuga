@@ -45,7 +45,8 @@ struct AutoFixWordEvaluator {
         _ word: String,
         source: InputSourceInfo?,
         targets: [InputSourceInfo],
-        configuration config: Configuration
+        configuration config: Configuration,
+        previousWord: String? = nil
     ) -> AutoFixWordEvaluation {
         var originalScore = 0.0
         var candidates: [AutoFixTargetCandidate] = []
@@ -105,7 +106,9 @@ struct AutoFixWordEvaluator {
             }
             candidates.append(AutoFixTargetCandidate(targetID: target.id, targetLang: language,
                 candidate: innerPlan?.renderedReplacement ?? (leadingWrapper + mapped + trailingWrapper),
-                scoreCandidate: scorer.score(innerPlan?.correctedCore ?? mapped, expecting: language),
+                scoreCandidate: min(1, scorer.score(innerPlan?.correctedCore ?? mapped, expecting: language)
+                    + PersonalLayoutModel.shared.boost(original: inner, candidate: innerPlan?.correctedCore ?? mapped,
+                        sourceID: source.id, targetID: target.id, previousWord: previousWord)),
                 replacementPlan: innerPlan, isInterpretationAmbiguous: ambiguous))
         }
         // An unsupported target's language score cannot outrank an exact dictionary match.

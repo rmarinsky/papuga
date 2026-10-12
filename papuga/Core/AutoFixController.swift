@@ -507,7 +507,8 @@ final class AutoFixController {
                 candidateSeparation: Defaults[.autoFixCandidateSeparation],
                 spellingTypoGuardEnabled: Defaults[.autoFixSpellingTypoGuardEnabled],
                 spellingTypoGuardMinimumLength: Defaults[.autoFixSpellingTypoGuardMinWordLength],
-                spellingTypoGuardMaximumDistance: Defaults[.autoFixSpellingTypoGuardMaxEditDistance]))
+                spellingTypoGuardMaximumDistance: Defaults[.autoFixSpellingTypoGuardMaxEditDistance]),
+            previousWord: layoutIncident.tokens.last?.original)
         let scoreOriginal = evaluation.scoreOriginal
         updateDecisionCandidates(scoreOriginal: scoreOriginal, candidates: evaluation.candidates, threshold: threshold)
         if case .keep(let reason) = evaluation.disposition {
