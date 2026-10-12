@@ -2,6 +2,26 @@ import XCTest
 @testable import papuga
 
 final class PersonalLayoutModelTests: XCTestCase {
+    func test_retainedHistoryDoesNotRevalidateUnchangedEntries() {
+        let model = PersonalLayoutModel()
+        var history = (0..<2000).map { index in
+            ReplacementHistoryEntry(timestamp: Date(timeIntervalSince1970: Double(index * 86400)),
+                kind: .manualSwitch, original: "lfdfq dct ", converted: "давай все ",
+                sourceLayoutID: from, targetLayoutID: to, verificationSucceeded: true)
+        }
+        model.replaceHistory(history)
+        XCTAssertEqual(model.validatedEntryCount, 2000)
+        history.append(ReplacementHistoryEntry(timestamp: Date(timeIntervalSince1970: 2000 * 86400),
+            kind: .manualSwitch, original: "lfdfq dct ", converted: "давай все ",
+            sourceLayoutID: from, targetLayoutID: to, verificationSucceeded: true))
+        let start = Date()
+        model.replaceHistory(history)
+        print("Personal history incremental update ms: \(Date().timeIntervalSince(start) * 1000)")
+        XCTAssertEqual(model.validatedEntryCount, 2001, "Only the new record should invoke layout validation")
+        model.replaceHistory([])
+        XCTAssertEqual(model.boost(original: "lfdfq", candidate: "давай", sourceID: from, targetID: to), 0)
+    }
+
     func test_legacyUnverifiedHistoryDoesNotTeach() {
         let model = PersonalLayoutModel()
         model.replaceHistory((0..<4).map { day in
