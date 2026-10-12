@@ -75,6 +75,7 @@ final class TextSwitchEngine {
             let converted = characterMapper.convert(text: text, fromSourceID: currentID, toSourceID: targetID)
             AppLogger.post(logger, "[\(operationID)] Conversion completed (\(converted.count) chars)")
 
+            let learningSnapshot = ManualReplacementSnapshot.capture(original: text)
             AppLogger.action(logger, "[\(operationID)] Writing converted text to clipboard")
             clipboardManager.setText(converted)
 
@@ -86,6 +87,8 @@ final class TextSwitchEngine {
                 AppLogger.action(logger, "[\(operationID)] Paste skipped: copy-only mode")
             }
 
+            try? await Task.sleep(for: .seconds(Constants.switchLayoutSettleDelay))
+            let verified = resultMode == .copyAndPaste && learningSnapshot?.confirms(replacement: converted) == true
             updateAnalytics(text: text, operationID: operationID)
             ReplacementHistoryStore.shared.record(
                 ReplacementHistoryEntry(
@@ -94,13 +97,13 @@ final class TextSwitchEngine {
                     converted: converted,
                     sourceLayoutID: currentID,
                     targetLayoutID: targetID,
-                    bundleID: AppContextProvider.frontmostBundleID()
+                    bundleID: AppContextProvider.frontmostBundleID(),
+                    verificationSucceeded: verified
                 )
             )
             AppLogger.action(logger, "[\(operationID)] Emitting textReplacementDidComplete notification")
             NotificationCenter.default.post(name: .textReplacementDidComplete, object: nil)
 
-            try? await Task.sleep(for: .seconds(Constants.switchLayoutSettleDelay))
             AppLogger.action(logger, "[\(operationID)] Switching system layout to target")
             layoutManager.switchTo(targetID)
             AppLogger.post(logger, "[\(operationID)] System layout switched")
