@@ -5,6 +5,25 @@ import XCTest
 /// Uses the evaluator called by AutoFixController, real OS layouts, real AppleNL,
 /// real system spelling, and shipped dictionaries. No predicted outcomes are mocked.
 final class AutoFixTypingCorpusTests: XCTestCase {
+    func test_manualPhraseEvidenceImprovesRankingWithoutChangingCorrectText() throws {
+        let model = PersonalLayoutModel.shared
+        model.replaceHistory([])
+        defer { model.replaceHistory([]) }
+        let from = try source("com.apple.keylayout.US")
+        let to = try source("com.apple.keylayout.Ukrainian-PC")
+        let evaluator = AutoFixWordEvaluator(mapper: CharacterMapper(), spellChecker: Self.checker,
+                                             scorer: LanguageScorerFactory.make(.appleNL))
+        let before = try XCTUnwrap(evaluator.evaluate("lfdfq", source: from, targets: [to], configuration: .init()).selection)
+        model.replaceHistory((0..<3).map { day in
+            ReplacementHistoryEntry(timestamp: Date(timeIntervalSince1970: Double(day * 86400)),
+                kind: .manualSwitch, original: "lfdfq dct ", converted: "давай все ",
+                sourceLayoutID: from.id, targetLayoutID: to.id, bundleID: "test.editor")
+        })
+        let after = try XCTUnwrap(evaluator.evaluate("lfdfq", source: from, targets: [to], configuration: .init()).selection)
+        XCTAssertGreaterThan(after.best.scoreCandidate, before.best.scoreCandidate)
+        XCTAssertEqual(evaluator.evaluate("hello", source: from, targets: [to], configuration: .init()).disposition, .sourceWord)
+    }
+
     private struct Case: Decodable {
         let id: String
         let category: String
