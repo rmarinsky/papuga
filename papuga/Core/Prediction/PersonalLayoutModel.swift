@@ -32,7 +32,8 @@ final class PersonalLayoutModel {
             reversals[key] = max(reversals[key] ?? .distantPast, entry.timestamp)
         }
         for entry in relevant.reversed() where entry.kind == .manualSwitch {
-            guard !entry.originalTruncated, !entry.convertedTruncated,
+            guard entry.verificationSucceeded != false,
+                  !entry.originalTruncated, !entry.convertedTruncated,
                   entry.original != entry.converted,
                   let sourceID = entry.sourceLayoutID, let targetID = entry.targetLayoutID,
                   sourceID != targetID,

@@ -2,6 +2,16 @@ import XCTest
 @testable import papuga
 
 final class PersonalLayoutModelTests: XCTestCase {
+    func test_failedInsertionsNeverTeachLayoutPairs() {
+        let model = PersonalLayoutModel()
+        model.replaceHistory((0..<4).map { day in
+            ReplacementHistoryEntry(timestamp: Date(timeIntervalSince1970: Double(day * 86400)),
+                kind: .manualSwitch, original: "lfdfq dct ", converted: "давай все ",
+                sourceLayoutID: from, targetLayoutID: to, verificationSucceeded: false)
+        })
+        XCTAssertEqual(model.boost(original: "lfdfq", candidate: "давай", sourceID: from, targetID: to), 0)
+    }
+
     private let from = "com.apple.keylayout.US"
     private let to = "com.apple.keylayout.Ukrainian-PC"
 

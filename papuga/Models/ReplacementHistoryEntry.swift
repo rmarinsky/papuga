@@ -38,6 +38,8 @@ struct ReplacementHistoryEntry: Codable, Identifiable, Equatable {
     let sourceLayoutID: String?
     let targetLayoutID: String?
     let bundleID: String?
+    /// Nil for legacy records; false for copy-only or unverified insertion.
+    let verificationSucceeded: Bool?
 
     init(
         id: UUID = UUID(),
@@ -47,7 +49,8 @@ struct ReplacementHistoryEntry: Codable, Identifiable, Equatable {
         converted: String,
         sourceLayoutID: String? = nil,
         targetLayoutID: String? = nil,
-        bundleID: String? = nil
+        bundleID: String? = nil,
+        verificationSucceeded: Bool? = nil
     ) {
         let (origStored, origTruncated) = Self.truncated(original)
         let (convStored, convTruncated) = Self.truncated(converted)
@@ -61,6 +64,7 @@ struct ReplacementHistoryEntry: Codable, Identifiable, Equatable {
         self.sourceLayoutID = sourceLayoutID
         self.targetLayoutID = targetLayoutID
         self.bundleID = bundleID
+        self.verificationSucceeded = verificationSucceeded
     }
 
     static func truncated(_ text: String) -> (String, Bool) {
