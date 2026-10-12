@@ -28,8 +28,13 @@ final class PersonalLayoutModel {
         // An undo invalidates earlier positive evidence for that exact source/result.
         var reversals: [String: Date] = [:]
         for entry in relevant where entry.kind == .autoFixUndone {
-            let key = reversalKey(entry.original, entry.converted)
-            reversals[key] = max(reversals[key] ?? .distantPast, entry.timestamp)
+            let originals = entry.original.split(whereSeparator: \.isWhitespace)
+            let candidates = entry.converted.split(whereSeparator: \.isWhitespace)
+            guard originals.count == candidates.count else { continue }
+            for (original, candidate) in zip(originals, candidates) {
+                let key = reversalKey(String(original), String(candidate))
+                reversals[key] = max(reversals[key] ?? .distantPast, entry.timestamp)
+            }
         }
         for entry in relevant.reversed() where entry.kind == .manualSwitch {
             guard entry.verificationSucceeded != false,
