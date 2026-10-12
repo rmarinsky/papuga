@@ -3,7 +3,7 @@ import XCTest
 
 final class LanguageScorerTests: XCTestCase {
     func test_localScorerPrefersRealWordsOverWrongLayoutText() {
-        let scorer = NGramScorer()
+        let scorer = LanguageScorerFactory.make(.appleNL)
         for (original, candidate, source, target) in [
             ("рфі", "has", "uk", "en"),
             ("lfdfq", "давай", "en", "uk"),

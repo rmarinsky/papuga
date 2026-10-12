@@ -11,7 +11,7 @@ enum LanguageScorerAlgorithm: String, CaseIterable, Codable {
 
     var title: String {
         switch self {
-        case .appleNL: return "Apple NLLanguageRecognizer"
+        case .appleNL: return "Локальний словник + мовна модель"
         case .ngram: return "Local n-gram (LREC 2010)"
         case .cld3: return "CLD3 (Google neural)"
         }
@@ -20,7 +20,7 @@ enum LanguageScorerAlgorithm: String, CaseIterable, Codable {
     var description: String {
         switch self {
         case .appleNL:
-            return "Вбудоване в macOS визначення мови. За замовчуванням."
+            return "Локальні словники й n-gram модель; для інших мов — оцінка macOS."
         case .ngram:
             return "Маленька n-gram модель, навчена на UA/EN/RU. Точніше для коротких слів."
         case .cld3:
@@ -48,7 +48,7 @@ protocol LanguageScorer {
 enum LanguageScorerFactory {
     static func make(_ algorithm: LanguageScorerAlgorithm) -> LanguageScorer {
         switch algorithm.resolvedImplementation {
-        case .appleNL: return AppleNLScorer()
+        case .appleNL: return NGramScorer()
         case .ngram: return NGramScorer()
         case .cld3: return CLD3Scorer()
         }

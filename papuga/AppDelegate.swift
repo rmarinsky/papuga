@@ -39,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         clipboardHistoryManager.bootstrap { [weak clipboardHistoryManager] in
             clipboardHistoryManager?.startMonitoring()
         }
+        NGramScorer.prepare()
         self.autoFixController = AutoFixController(
             layoutManager: layoutManager,
             characterMapper: autoFixCharacterMapper
