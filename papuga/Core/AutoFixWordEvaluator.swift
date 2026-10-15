@@ -132,12 +132,14 @@ struct AutoFixWordEvaluator {
         effectiveScore = best.scoreCandidate
         if skip == .tooShort { return result(.shortWord) }
         let hasCore = !BufferedToken(rawText: word, keyCodes: []).core.isEmpty
-        let sourceWord: String
-        if let plan = best.replacementPlan {
-            sourceWord = String(word.dropFirst(plan.preservedLeadingPunctuation.count).dropLast(plan.preservedTrailingPunctuation.count))
-        } else {
-            sourceWord = word
-        }
+        // Source spelling must not depend on whether a target interpretation
+        // succeeded. A comma or closing bracket cannot invalidate a real word.
+        let sourceToken = BufferedToken(rawText: word, keyCodes: [])
+        // A one-letter remainder is not evidence against a verified leading-key
+        // conversion such as ];f → їжа (the stripped remainder is English "f").
+        let consumesLeadingLetterKeys = best.replacementPlan?.interpretationReason == .layoutFullToken
+            && !sourceToken.leadingEdge.isEmpty && sourceToken.core.count == 1
+        let sourceWord = consumesLeadingLetterKeys ? word : sourceToken.core
         let lexicalCandidate = best.replacementPlan?.correctedCore ?? best.candidate
         // NSSpellChecker accepts consonant-only abbreviations such as yt, wt and vtys.
         // Only prefer a frequent cross-script word when the short lowercase source has

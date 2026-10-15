@@ -5,6 +5,22 @@ import XCTest
 /// Uses the evaluator called by AutoFixController, real OS layouts, the default local scorer,
 /// real system spelling, and shipped dictionaries. No predicted outcomes are mocked.
 final class AutoFixTypingCorpusTests: XCTestCase {
+    func test_correctWordsRemainProtectedWithTrailingPunctuation() throws {
+        let uk = try source("com.apple.keylayout.Ukrainian-PC")
+        let en = try source("com.apple.keylayout.US")
+        let evaluator = AutoFixWordEvaluator(mapper: CharacterMapper(), spellChecker: Self.checker,
+                                             scorer: LanguageScorerFactory.make(.appleNL))
+        for (from, to, words) in [(uk, en, ["одягу", "інші", "бути", "рух", "так", "Привіт", "вже"]),
+                                  (en, uk, ["them", "fix", "too", "me"])] {
+            for word in words {
+                for token in [word, word + ",", word + ".", word + "?", word + "!", word + "))", "(\(word))"] {
+                    let result = evaluator.evaluate(token, source: from, targets: [to], configuration: .init())
+                    XCTAssertEqual(result.disposition, .sourceWord, "\(token): \(result.disposition)")
+                }
+            }
+        }
+    }
+
     func test_manualPhraseEvidenceImprovesRankingWithoutChangingCorrectText() throws {
         let model = PersonalLayoutModel.shared
         model.replaceHistory([])
