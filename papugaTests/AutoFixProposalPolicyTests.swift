@@ -30,6 +30,45 @@ final class AutoFixProposalPolicyTests: XCTestCase {
         XCTAssertNil(observation.effectiveCandidateScore)
     }
 
+    func test_proposalActionsPersistEveryResolutionWithThePresentedIdentity() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("events.jsonl")
+        let log = PapugaEventLog(testFileURL: file)
+        let proposal = makeProposal(kind: .compound)
+        var handled: [String] = []
+        let actions = AutoFixProposalActions(
+            replace: { handled.append("accepted") },
+            dismiss: { handled.append("dismissed") },
+            timedOut: { handled.append("timed_out") },
+            neverReplace: { handled.append("never_replace") }
+        ).recordingResolution(for: proposal, in: log)
+        actions.replace()
+        actions.dismiss()
+        actions.timedOut()
+        actions.neverReplace()
+        log.waitForPendingWritesForTesting()
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let events = try String(contentsOf: file, encoding: .utf8).split(separator: "\n").map {
+            try decoder.decode(AnalyticsEvent.self, from: Data($0.utf8))
+        }
+        XCTAssertEqual(handled, ["accepted", "dismissed", "timed_out", "never_replace"])
+        XCTAssertEqual(events.count, 4)
+        for (event, outcome) in zip(events, handled) {
+            XCTAssertEqual(event.kind, "auto_fix_proposal_resolved")
+            guard case .string(let id) = event.properties["proposal_id"],
+                  case .string(let recordedOutcome) = event.properties["outcome"] else {
+                return XCTFail("Resolution must identify the presented proposal and action")
+            }
+            XCTAssertEqual(id, proposal.id.uuidString)
+            XCTAssertEqual(recordedOutcome, outcome)
+            XCTAssertNil(event.properties["original"])
+            XCTAssertNil(event.properties["candidate"])
+        }
+    }
+
     func test_presentedProposalRoundTripsTheActualCandidateAndSharedID() throws {
         for kind: AutoFixProposal.Kind in [.detected, .compound, .spelling, .customRule] {
             let proposal = makeProposal(kind: kind, original: "(ghbds!)", candidate: "(привіт!)")

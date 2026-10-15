@@ -76,6 +76,7 @@ struct AnalyticsEvent: Codable {
 }
 
 enum AnalyticsKind {
+    static let autoFixProposalResolved = "auto_fix_proposal_resolved"
     static let autoFixApplied = "auto_fix_applied"
     static let autoFixSkipped = "auto_fix_skipped"
     static let autoFixUndone = "auto_fix_undone"

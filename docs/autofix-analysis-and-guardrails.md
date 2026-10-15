@@ -208,3 +208,9 @@ without proposal context still decode; their missing linkage cannot be reconstru
 Regression checks cover the reported punctuation failures, genuine punctuation-key
 conversions, low-evidence compound guesses, and controller-to-JSONL recording using a
 temporary store. They do not type into applications or start XCUI automation.
+
+Proposal action callbacks append `auto_fix_proposal_resolved` with `proposal_id` and
+`outcome` (`accepted`, `dismissed`, `timed_out`, or `never_replace`). These events
+contain no source or candidate text. `accepted` records the user's choice, not
+proof of insertion; a successful `auto_fix_applied` event carries the same
+`proposal_id` separately. Recovery can produce a later choice for the same proposal.
