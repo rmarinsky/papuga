@@ -25,6 +25,30 @@ struct AutoFixProposal: Identifiable, Equatable {
     let replacementAnchor: TextReplacementAnchor
     let kind: Kind
 
+    /// Canonical presentation record: never substitute an intermediate layout
+    /// candidate for the text the user actually saw.
+    func decisionObservation(proposalWindow: Double, candidateSeparation: Double,
+                             minimumWordLength: Int) -> AutoFixDecisionObservation {
+        let token = BufferedToken(rawText: original, keyCodes: [])
+        return AutoFixDecisionObservation(
+            id: id, source: original, selectedCandidate: candidate,
+            originalScore: scoreOriginal,
+            effectiveCandidateScore: kind == .compound ? nil : scoreCandidate,
+            threshold: threshold, proposalWindow: proposalWindow,
+            candidateSeparation: candidateSeparation, minimumWordLength: minimumWordLength,
+            algorithm: algorithm, outcome: .proposed,
+            reason: kind == .spelling ? AutoFixSkipReason.likelySpellingTypo.rawValue : nil,
+            scope: kind == .customRule ? .customRule : (original.contains(where: \.isWhitespace) ? .phrase : .word),
+            sourceLayoutID: fromLayoutID, targetLayoutID: targetLayoutID,
+            sourceLanguage: currentLang, targetLanguage: targetLang, bundleID: bundleID,
+            signalKind: kind == .spelling ? .spellingSuggestion : .proposal,
+            candidateOrigin: candidateOrigin,
+            proposalContext: .init(kind: String(describing: kind),
+                sourceCore: String(token.core.prefix(AutoFixDecisionObservation.maxStoredCharacterCount)),
+                leadingPunctuation: String(token.leadingEdge.prefix(AutoFixDecisionObservation.maxStoredCharacterCount)),
+                trailingPunctuation: String(token.trailingEdge.prefix(AutoFixDecisionObservation.maxStoredCharacterCount))))
+    }
+
     var margin: Double {
         scoreCandidate - scoreOriginal
     }

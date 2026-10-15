@@ -7,6 +7,25 @@ struct AutoFixProposalActions {
     var dismiss: () -> Void
     var timedOut: () -> Void
     var neverReplace: () -> Void
+
+    /// Records the user's choice, not proof that an accepted replacement committed.
+    func recordingResolution(for proposal: AutoFixProposal, in log: PapugaEventLog = .shared) -> Self {
+        func recording(_ outcome: String, _ action: @escaping () -> Void) -> () -> Void {
+            {
+                log.track(AnalyticsEvent(
+                    kind: AnalyticsKind.autoFixProposalResolved,
+                    frontmostBundleID: proposal.bundleID,
+                    inputLayout: proposal.fromLayoutID,
+                    properties: ["proposal_id": .string(proposal.id.uuidString),
+                                 "outcome": .string(outcome)]))
+                action()
+            }
+        }
+        return Self(replace: recording("accepted", replace),
+                    dismiss: recording("dismissed", dismiss),
+                    timedOut: recording("timed_out", timedOut),
+                    neverReplace: recording("never_replace", neverReplace))
+    }
 }
 
 /// Thread-safe mirror of "is a proposal currently on screen and listening for Return/Escape".

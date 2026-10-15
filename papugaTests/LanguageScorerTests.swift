@@ -2,6 +2,20 @@ import XCTest
 @testable import papuga
 
 final class LanguageScorerTests: XCTestCase {
+    func test_localScorerPrefersRealWordsOverWrongLayoutText() {
+        let scorer = LanguageScorerFactory.make(.appleNL)
+        for (original, candidate, source, target) in [
+            ("рфі", "has", "uk", "en"),
+            ("lfdfq", "давай", "en", "uk"),
+            ("dct", "все", "en", "uk"),
+            ("рфі учзшкшутсу ещ", "has expirience to", "uk", "en")
+        ] {
+            XCTAssertGreaterThan(scorer.score(candidate, expecting: target),
+                                 scorer.score(original, expecting: source) + 0.35,
+                                 "Must favour the intended words: \(original) → \(candidate)")
+        }
+    }
+
     func test_AppleNL_scores_uk_word_higher_for_uk() {
         let scorer = AppleNLScorer()
         let scoreUK = scorer.score("Україна", expecting: "uk")

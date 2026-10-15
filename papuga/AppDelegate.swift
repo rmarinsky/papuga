@@ -22,6 +22,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     lazy var updaterManager = UpdaterManager()
 
     func configure(layoutManager: LayoutManager, clipboardHistoryManager: ClipboardHistoryManager) {
+        // Unit-test hosts must not register event taps, open windows, or touch live history.
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
         AppLogger.pre(logger, "configure(layoutManager:) called")
         guard !isConfigured else {
             AppLogger.action(logger, "configure(layoutManager:) skipped: already configured")
@@ -37,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         clipboardHistoryManager.bootstrap { [weak clipboardHistoryManager] in
             clipboardHistoryManager?.startMonitoring()
         }
+        NGramScorer.prepare()
         self.autoFixController = AutoFixController(
             layoutManager: layoutManager,
             characterMapper: autoFixCharacterMapper
@@ -55,6 +58,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Unit-test hosts must not register event taps, open windows, or touch live history.
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
         AppLogger.pre(logger, "applicationDidFinishLaunching")
         _ = updaterManager
         PapugaEventLog.shared.pruneOldEntries()
@@ -126,6 +131,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
+        // Unit-test hosts must not register event taps, open windows, or touch live history.
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
         PermissionManager.shared.refreshStatus()
         ensurePermissionDependentServicesRunning()
     }

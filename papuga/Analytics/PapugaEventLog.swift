@@ -32,6 +32,12 @@ final class PapugaEventLog {
         AppLogger.post(logger, "PapugaEventLog initialized at \(fileURL.path)")
     }
 
+    init(testFileURL: URL) {
+        self.fileURL = testFileURL
+    }
+
+    func waitForPendingWritesForTesting() { queue.sync {} }
+
     func track(_ event: AnalyticsEvent) {
         queue.async { [weak self] in
             self?.appendSync(event)

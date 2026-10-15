@@ -45,7 +45,8 @@ struct AutoFixWordEvaluator {
         _ word: String,
         source: InputSourceInfo?,
         targets: [InputSourceInfo],
-        configuration config: Configuration
+        configuration config: Configuration,
+        previousWord: String? = nil
     ) -> AutoFixWordEvaluation {
         var originalScore = 0.0
         var candidates: [AutoFixTargetCandidate] = []
@@ -65,11 +66,13 @@ struct AutoFixWordEvaluator {
         guard !targets.isEmpty else { return result(.keep(.noTargetLayout)) }
         guard let source else { return result(.keep(.missingMaps)) }
         let currentLanguage = AutoFixDecision.languageHintForLayoutID(source.id)
+        guard !currentLanguage.isEmpty else { return result(.keep(.missingMaps)) }
         mapper.buildMap(for: source.source, sourceID: source.id)
         originalScore = scorer.score(word, expecting: currentLanguage)
         for target in targets {
             mapper.buildMap(for: target.source, sourceID: target.id)
             let language = AutoFixDecision.languageHintForLayoutID(target.id)
+            guard !language.isEmpty else { continue }
             var inner = word
             var leadingWrapper = "", trailingWrapper = ""
             let wrappers: [Character: Character] = ["(": ")", "[": "]", "{": "}", "\"": "\"", "«": "»", "“": "”"]
@@ -103,7 +106,9 @@ struct AutoFixWordEvaluator {
             }
             candidates.append(AutoFixTargetCandidate(targetID: target.id, targetLang: language,
                 candidate: innerPlan?.renderedReplacement ?? (leadingWrapper + mapped + trailingWrapper),
-                scoreCandidate: scorer.score(innerPlan?.correctedCore ?? mapped, expecting: language),
+                scoreCandidate: min(1, scorer.score(innerPlan?.correctedCore ?? mapped, expecting: language)
+                    + PersonalLayoutModel.shared.boost(original: inner, candidate: innerPlan?.correctedCore ?? mapped,
+                        sourceID: source.id, targetID: target.id, previousWord: previousWord)),
                 replacementPlan: innerPlan, isInterpretationAmbiguous: ambiguous))
         }
         // An unsupported target's language score cannot outrank an exact dictionary match.
@@ -112,18 +117,29 @@ struct AutoFixWordEvaluator {
             scoreOriginal: originalScore, threshold: threshold, separation: config.candidateSeparation)
         if let ranked = selection, !attested.isEmpty {
             let meanings = Set(attested.map { $0.targetLang + ":" + $0.candidate })
-            selection = .init(best: ranked.best, runnerUp: ranked.runnerUp, isAmbiguous: meanings.count > 1)
+            let preferred = attested.filter {
+                PersonalLayoutModel.shared.hasContextPreference(original: word,
+                    candidate: $0.replacementPlan?.correctedCore ?? $0.candidate,
+                    sourceID: source.id, targetID: $0.targetID, previousWord: previousWord)
+            }
+            if meanings.count > 1, preferred.count == 1, let learned = preferred.first {
+                selection = .init(best: learned, runnerUp: attested.first { $0.targetID != learned.targetID }, isAmbiguous: false)
+            } else {
+                selection = .init(best: ranked.best, runnerUp: ranked.runnerUp, isAmbiguous: meanings.count > 1)
+            }
         }
         guard let best = selection?.best else { return result(.keep(.identicalCandidate)) }
         effectiveScore = best.scoreCandidate
         if skip == .tooShort { return result(.shortWord) }
         let hasCore = !BufferedToken(rawText: word, keyCodes: []).core.isEmpty
-        let sourceWord: String
-        if let plan = best.replacementPlan {
-            sourceWord = String(word.dropFirst(plan.preservedLeadingPunctuation.count).dropLast(plan.preservedTrailingPunctuation.count))
-        } else {
-            sourceWord = word
-        }
+        // Source spelling must not depend on whether a target interpretation
+        // succeeded. A comma or closing bracket cannot invalidate a real word.
+        let sourceToken = BufferedToken(rawText: word, keyCodes: [])
+        // A one-letter remainder is not evidence against a verified leading-key
+        // conversion such as ];f → їжа (the stripped remainder is English "f").
+        let consumesLeadingLetterKeys = best.replacementPlan?.interpretationReason == .layoutFullToken
+            && !sourceToken.leadingEdge.isEmpty && sourceToken.core.count == 1
+        let sourceWord = consumesLeadingLetterKeys ? word : sourceToken.core
         let lexicalCandidate = best.replacementPlan?.correctedCore ?? best.candidate
         // NSSpellChecker accepts consonant-only abbreviations such as yt, wt and vtys.
         // Only prefer a frequent cross-script word when the short lowercase source has
@@ -146,7 +162,11 @@ struct AutoFixWordEvaluator {
             candidateIsWordLike: WordPlausibility.isWordLike(lexicalCandidate)) {
         case .requireProposal: return result(.suggestLayout)
         case .suppress:
-            if spellingStatus == .misspelled,
+            // A spell-check guess cannot establish that the layout was wrong.
+            // Require independent evidence before asking the target dictionary.
+            if spellingStatus == .misspelled, Self.isLexicalToken(best.candidate),
+               AutoFixDecision.shouldReplace(scoreOriginal: originalScore,
+                   scoreCandidate: best.scoreCandidate, threshold: threshold),
                let suggestion = AutoFixDecision.compoundLayoutSpellingSuggestion(mapped: best.candidate,
                    targetLanguage: best.targetLang, isMisspelled: { _, _ in true },
                    guesses: { spellChecker.guesses(for: $0, language: $1) }) {
@@ -161,7 +181,9 @@ struct AutoFixWordEvaluator {
         let verifiedLayoutWord = spellingStatus == .correct
             && lexicalCandidate.count >= 2
             && WordPlausibility.isWordLike(lexicalCandidate)
-            && AutoFixDecision.isCrossScriptConversion(original: word, candidate: best.candidate)
+            && (AutoFixDecision.isCrossScriptConversion(original: word, candidate: best.candidate)
+                || (spellChecker.mappedSpellingStatus(sourceWord, language: currentLanguage) == .misspelled
+                    && mapper.convert(text: best.candidate, fromSourceID: best.targetID, toSourceID: source.id) == word))
         // Only a plausible source-language token can be an ordinary spelling typo.
         // Stripping physical layout keys (e.g. lzre. -> lzre -> lure) invents a different word.
         if config.spellingTypoGuardEnabled && Self.isLexicalToken(word)

@@ -507,7 +507,8 @@ final class AutoFixController {
                 candidateSeparation: Defaults[.autoFixCandidateSeparation],
                 spellingTypoGuardEnabled: Defaults[.autoFixSpellingTypoGuardEnabled],
                 spellingTypoGuardMinimumLength: Defaults[.autoFixSpellingTypoGuardMinWordLength],
-                spellingTypoGuardMaximumDistance: Defaults[.autoFixSpellingTypoGuardMaxEditDistance]))
+                spellingTypoGuardMaximumDistance: Defaults[.autoFixSpellingTypoGuardMaxEditDistance]),
+            previousWord: layoutIncident.tokens.last?.original)
         let scoreOriginal = evaluation.scoreOriginal
         updateDecisionCandidates(scoreOriginal: scoreOriginal, candidates: evaluation.candidates, threshold: threshold)
         if case .keep(let reason) = evaluation.disposition {
@@ -599,7 +600,7 @@ final class AutoFixController {
                 showCompoundProposal(original: word, suggestion: suggestion, boundary: boundary,
                     fromLayoutID: currentID, targetLayoutID: targetID, currentLang: currentLang,
                     targetLang: targetLang, algorithm: algorithm, bundleID: bundleID,
-                    targetSession: targetSession)
+                    targetSession: targetSession, scoreOriginal: scoreOriginal, threshold: threshold)
             }
             resetLayoutIncident()
             return
@@ -1137,12 +1138,14 @@ final class AutoFixController {
                 targetSession: decision.targetSession,
                 force: force
             )
-            recordDeferredSingleDecision(
-                decision,
-                outcome: didPresent ? .proposed : .skipped,
-                reason: didPresent ? nil : .targetUnverifiable,
-                signalKind: didPresent ? .proposal : .mutationFailure
-            )
+            if !didPresent {
+                recordDeferredSingleDecision(
+                    decision,
+                    outcome: .skipped,
+                    reason: .targetUnverifiable,
+                    signalKind: .mutationFailure
+                )
+            }
         }
     }
 
@@ -1249,22 +1252,24 @@ final class AutoFixController {
             targetSession: context.targetSession,
             force: true
         )
-        recordPhraseDecision(
-            original: original,
-            candidate: candidate,
-            scoreOriginal: scoreOriginal,
-            scoreCandidate: scoreCandidate,
-            threshold: context.threshold,
-            algorithm: context.algorithm,
-            currentLang: context.currentLang,
-            targetLang: context.targetLang,
-            fromLayoutID: context.fromLayoutID,
-            targetLayoutID: context.targetLayoutID,
-            bundleID: context.bundleID,
-            outcome: didPresent ? .proposed : .skipped,
-            reason: didPresent ? nil : .targetUnverifiable,
-            signalKind: didPresent ? .layoutIncident : .mutationFailure
-        )
+        if !didPresent {
+            recordPhraseDecision(
+                original: original,
+                candidate: candidate,
+                scoreOriginal: scoreOriginal,
+                scoreCandidate: scoreCandidate,
+                threshold: context.threshold,
+                algorithm: context.algorithm,
+                currentLang: context.currentLang,
+                targetLang: context.targetLang,
+                fromLayoutID: context.fromLayoutID,
+                targetLayoutID: context.targetLayoutID,
+                bundleID: context.bundleID,
+                outcome: .skipped,
+                reason: .targetUnverifiable,
+                signalKind: .mutationFailure
+            )
+        }
     }
 
     private func resetLayoutIncident() {
@@ -1489,6 +1494,7 @@ final class AutoFixController {
             replacementAnchor: replacementAnchor,
             kind: .detected
         )
+        recordProposalPresentation(proposal)
         markDecision(
             outcome: .proposed,
             reason: nil,
@@ -1496,7 +1502,7 @@ final class AutoFixController {
             candidateOrigin: .keyboardLayout,
             matching: original
         )
-        presentProposal(proposal)
+        presentProposal(proposal, recordDecision: false)
         return true
     }
 
@@ -1562,7 +1568,9 @@ final class AutoFixController {
         targetLang: String,
         algorithm: LanguageScorerAlgorithm,
         bundleID: String,
-        targetSession: AutoFixTargetSession?
+        targetSession: AutoFixTargetSession?,
+        scoreOriginal: Double,
+        threshold: Double
     ) {
         let boundaryToPreserve = boundary.isEmpty ? " " : boundary
         guard let targetSession,
@@ -1578,9 +1586,9 @@ final class AutoFixController {
             boundary: boundaryToPreserve,
             fromLayoutID: fromLayoutID,
             targetLayoutID: targetLayoutID,
-            scoreOriginal: 0,
+            scoreOriginal: scoreOriginal,
             scoreCandidate: 0.74,
-            threshold: 0,
+            threshold: threshold,
             algorithm: algorithm,
             currentLang: currentLang,
             targetLang: targetLang,
@@ -1633,7 +1641,19 @@ final class AutoFixController {
         presentProposal(proposal)
     }
 
-    private func presentProposal(_ proposal: AutoFixProposal) {
+    /// Records the presentation contract without touching windows or input.
+    func recordProposalPresentation(_ proposal: AutoFixProposal) {
+        // A presentation is the final decision for this token. Do not also flush
+        // its draft, which may still contain an intermediate compound candidate.
+        if activeDecisionDraft?.source == proposal.original { activeDecisionDraft = nil }
+        decisionHistory.record(proposal.decisionObservation(
+            proposalWindow: Defaults[.autoFixProposalWindow],
+            candidateSeparation: Defaults[.autoFixCandidateSeparation],
+            minimumWordLength: Defaults[.autoFixMinWordLength]))
+    }
+
+    private func presentProposal(_ proposal: AutoFixProposal, recordDecision: Bool = true) {
+        if recordDecision { recordProposalPresentation(proposal) }
         AutoFixProposalCoordinator.shared.show(
             proposal: proposal,
             near: NSEvent.mouseLocation,
@@ -1650,7 +1670,7 @@ final class AutoFixController {
                 neverReplace: { [weak self] in
                     self?.neverReplace(proposal)
                 }
-            )
+            ).recordingResolution(for: proposal)
         )
     }
 
@@ -1727,6 +1747,7 @@ final class AutoFixController {
             frontmostBundleID: proposal.bundleID,
             inputLayout: proposal.targetLayoutID,
             properties: [
+                "proposal_id": .string(proposal.id.uuidString),
                 "original_length": .int(proposal.original.count),
                 "replacement_length": .int(proposal.candidate.count),
                 "score_original": .double(proposal.scoreOriginal),
@@ -1818,7 +1839,7 @@ final class AutoFixController {
             return
         }
         pendingProposalRecovery = nil
-        presentProposal(pending.proposal)
+        presentProposal(pending.proposal, recordDecision: false)
     }
 
     private func showReapplyRecovery(_ pending: PendingReapply) {

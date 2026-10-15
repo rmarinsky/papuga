@@ -148,3 +148,69 @@ Recommended next step:
 - `RecommendationEngineTests`
 
 The key regression now covered: a token after external edit context is skipped instead of being treated as a normal whole word.
+
+
+## Local layout evidence (2026-10-12)
+
+The normal autocorrect scorer now combines bundled Ukrainian/English word frequencies
+with a compact character-trigram model. Other languages use macOS language scoring;
+all candidates still require the existing spelling and editing safety gates. The saved
+`appleNL` setting remains compatible and selects this local scorer. No cloud requests,
+new activation switch, or model download is required. Scores are ranking signals, not
+calibrated probabilities of correctness.
+
+Layout language comes from macOS input-source metadata. Conversion uses the actual
+source and target Unicode keyboard tables, including Option modifiers and dead-key
+sequences. Unknown or non-Unicode input methods are not treated as English. This does
+not provide general IME composition support. Exact dictionary evidence can support
+same-script conversion only with a reversible mapping and a misspelled source.
+
+Personal learning uses at most 2,000 retained manual/undo records. Only manual records
+with successful focused-field insertion readback can teach word pairs and preceding-word
+context. Legacy, copy-only, unverified, truncated, unchanged, and non-layout conversions
+cannot teach. Repeated attempts within 60 seconds in one app count as one episode.
+Three separated verified episodes in the same context can resolve a unique target among
+otherwise dictionary-valid alternatives; conflicting preferences remain suggestions.
+Undo retracts older pair evidence, and clearing history removes learned evidence.
+Validated pairs and input sources are cached; normal updates do not reconvert retained
+phrases. The temporary full-field readback is bounded to 65,536 UTF-16 units and is not
+persisted. Editors without usable readback can still convert but cannot teach from it.
+
+Verification uses unit and in-process integration tests with real macOS layout tables.
+Test hosts do not start keyboard services or show application windows. XCUI and live
+editor typing checks were intentionally not run. Cross-app insertion reliability is
+therefore not established by these checks. Existing toast, history, and Undo flows remain
+the feedback path; this change does not add sentence-level grammar generation.
+
+
+## Punctuation and proposal audit records (2026-10-15)
+
+The word evaluator checks source spelling on the token core independently of target
+interpretation. Correct words such as `інші?`, `одягу,`, and `рух))` stay in their
+source language. A verified leading-key conversion such as `];f` → `їжа` can still
+consume physical letter keys. Existing ambiguity between `те` and `теж` remains a
+suggestion for `nt;`; punctuation is not blanket-stripped from layout conversions.
+
+A compound layout-plus-spelling guess now requires a lexical mapped token and the
+configured layout-score margin before consulting the target dictionary. A target
+spelling guess cannot create evidence that the source layout was wrong. Ambiguous
+punctuation and weak evidence are left unchanged rather than being used to generate
+a compound suggestion. This conservative gate can miss genuine layout-plus-typo
+cases; relaxing it requires evidence from verified corrections and regression cases.
+
+All proposal producers write the actual displayed candidate under the proposal ID.
+Resolution events use that same ID. Proposal context records its kind and the bounded
+source core/edge punctuation; compound suggestions have no fabricated effective score.
+Delayed word/phrase presentations no longer write a second proposed decision, and
+reopening a recovery panel does not add a new presentation record. Older records
+without proposal context still decode; their missing linkage cannot be reconstructed.
+
+Regression checks cover the reported punctuation failures, genuine punctuation-key
+conversions, low-evidence compound guesses, and controller-to-JSONL recording using a
+temporary store. They do not type into applications or start XCUI automation.
+
+Proposal action callbacks append `auto_fix_proposal_resolved` with `proposal_id` and
+`outcome` (`accepted`, `dismissed`, `timed_out`, or `never_replace`). These events
+contain no source or candidate text. `accepted` records the user's choice, not
+proof of insertion; a successful `auto_fix_applied` event carries the same
+`proposal_id` separately. Recovery can produce a later choice for the same proposal.

@@ -133,6 +133,15 @@ struct AutoFixDecisionObservation: Codable, Equatable, Identifiable {
         }
     }
 
+    struct ProposalContext: Codable, Equatable {
+        let kind: String
+        let sourceCore: String
+        let leadingPunctuation: String
+        let trailingPunctuation: String
+    }
+
+    /// Nil on older records. The observation ID is the proposal_id in resolution events.
+    let proposalContext: ProposalContext?
     let id: UUID
     let timestamp: Date
     let source: String
@@ -186,8 +195,10 @@ struct AutoFixDecisionObservation: Codable, Equatable, Identifiable {
         bundleID: String? = nil,
         signalKind: AutoFixDecisionSignalKind? = nil,
         candidateOrigin: AutoFixDecisionCandidateOrigin? = nil,
-        aggregateOnly: Bool = false
+        aggregateOnly: Bool = false,
+        proposalContext: ProposalContext? = nil
     ) {
+        self.proposalContext = proposalContext
         self.id = id
         self.timestamp = timestamp
         self.source = Self.truncated(source)

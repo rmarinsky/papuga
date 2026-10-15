@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import Foundation
 
 struct SpellingTypoGuardAssessment: Equatable {
@@ -195,19 +196,27 @@ enum AutoFixDecision {
         return keyCode == kVK_Space || keyCode == kVK_Return || keyCode == kVK_Tab
     }
 
+    private static let languageCacheLock = NSLock()
+    private static var languageCache: [String: String] = [:]
+
+    static func invalidateLanguageHints() {
+        languageCacheLock.withLock { languageCache.removeAll() }
+    }
+
     static func languageHintForLayoutID(_ layoutID: String) -> String {
-        let lower = layoutID.lowercased()
-        if lower.contains("ukrainian") { return "uk" }
-        if lower.contains("russian") { return "ru" }
-        if lower.contains("polish") { return "pl" }
-        if lower.contains("german") { return "de" }
-        if lower.contains("french") { return "fr" }
-        if lower.contains("spanish") { return "es" }
-        if lower.contains("italian") { return "it" }
-        if lower.contains("turkish") { return "tr" }
-        if lower.contains("arabic") { return "ar" }
-        if lower.contains("hebrew") { return "he" }
-        return "en"
+        if let cached = languageCacheLock.withLock({ languageCache[layoutID] }) { return cached }
+        let query = [kTISPropertyInputSourceID!: layoutID] as CFDictionary
+        let sources = TISCreateInputSourceList(query, true)?.takeRetainedValue() as? [TISInputSource]
+        let code: String
+        if let source = sources?.first,
+           let pointer = TISGetInputSourceProperty(source, kTISPropertyInputSourceLanguages) {
+            let languages = Unmanaged<CFArray>.fromOpaque(pointer).takeUnretainedValue() as? [String]
+            code = String((languages?.first ?? "").prefix { $0 != "-" && $0 != "_" }).lowercased()
+        } else {
+            code = ""
+        }
+        languageCacheLock.withLock { languageCache[layoutID] = code }
+        return code
     }
 
     enum SkipReason: String {
