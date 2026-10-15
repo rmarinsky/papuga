@@ -600,7 +600,7 @@ final class AutoFixController {
                 showCompoundProposal(original: word, suggestion: suggestion, boundary: boundary,
                     fromLayoutID: currentID, targetLayoutID: targetID, currentLang: currentLang,
                     targetLang: targetLang, algorithm: algorithm, bundleID: bundleID,
-                    targetSession: targetSession)
+                    targetSession: targetSession, scoreOriginal: scoreOriginal, threshold: threshold)
             }
             resetLayoutIncident()
             return
@@ -1568,7 +1568,9 @@ final class AutoFixController {
         targetLang: String,
         algorithm: LanguageScorerAlgorithm,
         bundleID: String,
-        targetSession: AutoFixTargetSession?
+        targetSession: AutoFixTargetSession?,
+        scoreOriginal: Double,
+        threshold: Double
     ) {
         let boundaryToPreserve = boundary.isEmpty ? " " : boundary
         guard let targetSession,
@@ -1584,9 +1586,9 @@ final class AutoFixController {
             boundary: boundaryToPreserve,
             fromLayoutID: fromLayoutID,
             targetLayoutID: targetLayoutID,
-            scoreOriginal: 0,
+            scoreOriginal: scoreOriginal,
             scoreCandidate: 0.74,
-            threshold: 0,
+            threshold: threshold,
             algorithm: algorithm,
             currentLang: currentLang,
             targetLang: targetLang,

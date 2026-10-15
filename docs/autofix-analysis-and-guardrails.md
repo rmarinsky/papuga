@@ -181,3 +181,30 @@ Test hosts do not start keyboard services or show application windows. XCUI and 
 editor typing checks were intentionally not run. Cross-app insertion reliability is
 therefore not established by these checks. Existing toast, history, and Undo flows remain
 the feedback path; this change does not add sentence-level grammar generation.
+
+
+## Punctuation and proposal audit records (2026-10-15)
+
+The word evaluator checks source spelling on the token core independently of target
+interpretation. Correct words such as `інші?`, `одягу,`, and `рух))` stay in their
+source language. A verified leading-key conversion such as `];f` → `їжа` can still
+consume physical letter keys. Existing ambiguity between `те` and `теж` remains a
+suggestion for `nt;`; punctuation is not blanket-stripped from layout conversions.
+
+A compound layout-plus-spelling guess now requires a lexical mapped token and the
+configured layout-score margin before consulting the target dictionary. A target
+spelling guess cannot create evidence that the source layout was wrong. Ambiguous
+punctuation and weak evidence are left unchanged rather than being used to generate
+a compound suggestion. This conservative gate can miss genuine layout-plus-typo
+cases; relaxing it requires evidence from verified corrections and regression cases.
+
+All proposal producers write the actual displayed candidate under the proposal ID.
+Resolution events use that same ID. Proposal context records its kind and the bounded
+source core/edge punctuation; compound suggestions have no fabricated effective score.
+Delayed word/phrase presentations no longer write a second proposed decision, and
+reopening a recovery panel does not add a new presentation record. Older records
+without proposal context still decode; their missing linkage cannot be reconstructed.
+
+Regression checks cover the reported punctuation failures, genuine punctuation-key
+conversions, low-evidence compound guesses, and controller-to-JSONL recording using a
+temporary store. They do not type into applications or start XCUI automation.
