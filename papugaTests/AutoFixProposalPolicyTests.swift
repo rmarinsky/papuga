@@ -1,7 +1,50 @@
 import XCTest
+import Defaults
 @testable import papuga
 
 final class AutoFixProposalPolicyTests: XCTestCase {
+    @MainActor
+    func test_controllerPersistsThePresentedCandidateAndItsIdentity() throws {
+        let wasEnabled = Defaults[.replacementHistoryEnabled]
+        Defaults[.replacementHistoryEnabled] = true
+        defer { Defaults[.replacementHistoryEnabled] = wasEnabled }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("decisions.jsonl")
+        let store = AutoFixDecisionHistoryStore(testFileURL: file)
+        let controller = AutoFixController(layoutManager: LayoutManager(), characterMapper: CharacterMapper(), decisionHistory: store)
+        let proposal = makeProposal(kind: .compound, original: "ghbds", candidate: "привіт")
+        controller.recordProposalPresentation(proposal)
+        store.waitForPendingWritesForTesting()
+        let lines = try String(contentsOf: file, encoding: .utf8).split(separator: "\n")
+        XCTAssertEqual(lines.count, 1)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let observation = try decoder.decode(AutoFixDecisionObservation.self, from: Data(lines[0].utf8))
+        XCTAssertEqual(observation.id, proposal.id)
+        XCTAssertEqual(observation.selectedCandidate, "привіт")
+        XCTAssertEqual(observation.proposalContext?.kind, "compound")
+    }
+
+    func test_presentedProposalRoundTripsTheActualCandidateAndSharedID() throws {
+        for kind: AutoFixProposal.Kind in [.detected, .compound, .spelling, .customRule] {
+            let proposal = makeProposal(kind: kind, original: "(ghbds!)", candidate: "(привіт!)")
+            let observation = proposal.decisionObservation(proposalWindow: 0.35, candidateSeparation: 0.15, minimumWordLength: 2)
+            let data = try JSONEncoder().encode(observation)
+            let restored = try JSONDecoder().decode(AutoFixDecisionObservation.self, from: data)
+            XCTAssertEqual(restored.id, proposal.id)
+            XCTAssertEqual(restored.selectedCandidate, "(привіт!)")
+            XCTAssertEqual(restored.source, "(ghbds!)")
+            XCTAssertEqual(restored.proposalContext?.sourceCore, "ghbds")
+            XCTAssertEqual(restored.proposalContext?.leadingPunctuation, "(")
+            XCTAssertEqual(restored.proposalContext?.trailingPunctuation, "!)")
+            XCTAssertEqual(restored.proposalContext?.kind, String(describing: kind))
+            XCTAssertEqual(restored.outcome, .proposed)
+            if kind == .compound { XCTAssertNil(restored.effectiveCandidateScore) }
+        }
+    }
+
     func test_spellingProposalIsOccurrenceOnlyAndDoesNotSwitchLayout() {
         let proposal = makeProposal(kind: .spelling)
 
@@ -68,10 +111,10 @@ final class AutoFixProposalPolicyTests: XCTestCase {
         ))
     }
 
-    private func makeProposal(kind: AutoFixProposal.Kind) -> AutoFixProposal {
+    private func makeProposal(kind: AutoFixProposal.Kind, original: String = "важлво", candidate: String = "важливо") -> AutoFixProposal {
         AutoFixProposal(
-            original: "важлво",
-            candidate: "важливо",
+            original: original,
+            candidate: candidate,
             boundary: " ",
             fromLayoutID: "uk",
             targetLayoutID: kind == .spelling ? "uk" : "en",

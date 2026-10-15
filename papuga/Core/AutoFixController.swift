@@ -1138,12 +1138,14 @@ final class AutoFixController {
                 targetSession: decision.targetSession,
                 force: force
             )
-            recordDeferredSingleDecision(
-                decision,
-                outcome: didPresent ? .proposed : .skipped,
-                reason: didPresent ? nil : .targetUnverifiable,
-                signalKind: didPresent ? .proposal : .mutationFailure
-            )
+            if !didPresent {
+                recordDeferredSingleDecision(
+                    decision,
+                    outcome: .skipped,
+                    reason: .targetUnverifiable,
+                    signalKind: .mutationFailure
+                )
+            }
         }
     }
 
@@ -1250,22 +1252,24 @@ final class AutoFixController {
             targetSession: context.targetSession,
             force: true
         )
-        recordPhraseDecision(
-            original: original,
-            candidate: candidate,
-            scoreOriginal: scoreOriginal,
-            scoreCandidate: scoreCandidate,
-            threshold: context.threshold,
-            algorithm: context.algorithm,
-            currentLang: context.currentLang,
-            targetLang: context.targetLang,
-            fromLayoutID: context.fromLayoutID,
-            targetLayoutID: context.targetLayoutID,
-            bundleID: context.bundleID,
-            outcome: didPresent ? .proposed : .skipped,
-            reason: didPresent ? nil : .targetUnverifiable,
-            signalKind: didPresent ? .layoutIncident : .mutationFailure
-        )
+        if !didPresent {
+            recordPhraseDecision(
+                original: original,
+                candidate: candidate,
+                scoreOriginal: scoreOriginal,
+                scoreCandidate: scoreCandidate,
+                threshold: context.threshold,
+                algorithm: context.algorithm,
+                currentLang: context.currentLang,
+                targetLang: context.targetLang,
+                fromLayoutID: context.fromLayoutID,
+                targetLayoutID: context.targetLayoutID,
+                bundleID: context.bundleID,
+                outcome: .skipped,
+                reason: .targetUnverifiable,
+                signalKind: .mutationFailure
+            )
+        }
     }
 
     private func resetLayoutIncident() {
@@ -1490,6 +1494,7 @@ final class AutoFixController {
             replacementAnchor: replacementAnchor,
             kind: .detected
         )
+        recordProposalPresentation(proposal)
         markDecision(
             outcome: .proposed,
             reason: nil,
@@ -1497,7 +1502,7 @@ final class AutoFixController {
             candidateOrigin: .keyboardLayout,
             matching: original
         )
-        presentProposal(proposal)
+        presentProposal(proposal, recordDecision: false)
         return true
     }
 
@@ -1634,7 +1639,19 @@ final class AutoFixController {
         presentProposal(proposal)
     }
 
-    private func presentProposal(_ proposal: AutoFixProposal) {
+    /// Records the presentation contract without touching windows or input.
+    func recordProposalPresentation(_ proposal: AutoFixProposal) {
+        // A presentation is the final decision for this token. Do not also flush
+        // its draft, which may still contain an intermediate compound candidate.
+        if activeDecisionDraft?.source == proposal.original { activeDecisionDraft = nil }
+        decisionHistory.record(proposal.decisionObservation(
+            proposalWindow: Defaults[.autoFixProposalWindow],
+            candidateSeparation: Defaults[.autoFixCandidateSeparation],
+            minimumWordLength: Defaults[.autoFixMinWordLength]))
+    }
+
+    private func presentProposal(_ proposal: AutoFixProposal, recordDecision: Bool = true) {
+        if recordDecision { recordProposalPresentation(proposal) }
         AutoFixProposalCoordinator.shared.show(
             proposal: proposal,
             near: NSEvent.mouseLocation,
@@ -1819,7 +1836,7 @@ final class AutoFixController {
             return
         }
         pendingProposalRecovery = nil
-        presentProposal(pending.proposal)
+        presentProposal(pending.proposal, recordDecision: false)
     }
 
     private func showReapplyRecovery(_ pending: PendingReapply) {
