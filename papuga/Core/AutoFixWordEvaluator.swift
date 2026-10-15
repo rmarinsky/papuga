@@ -162,7 +162,11 @@ struct AutoFixWordEvaluator {
             candidateIsWordLike: WordPlausibility.isWordLike(lexicalCandidate)) {
         case .requireProposal: return result(.suggestLayout)
         case .suppress:
-            if spellingStatus == .misspelled,
+            // A spell-check guess cannot establish that the layout was wrong.
+            // Require independent evidence before asking the target dictionary.
+            if spellingStatus == .misspelled, Self.isLexicalToken(best.candidate),
+               AutoFixDecision.shouldReplace(scoreOriginal: originalScore,
+                   scoreCandidate: best.scoreCandidate, threshold: threshold),
                let suggestion = AutoFixDecision.compoundLayoutSpellingSuggestion(mapped: best.candidate,
                    targetLanguage: best.targetLang, isMisspelled: { _, _ in true },
                    guesses: { spellChecker.guesses(for: $0, language: $1) }) {

@@ -21,6 +21,41 @@ final class AutoFixTypingCorpusTests: XCTestCase {
         }
     }
 
+    func test_unsubstantiatedLayoutTyposDoNotProduceCompoundProposals() throws {
+        let uk = try source("com.apple.keylayout.Ukrainian-PC")
+        let en = try source("com.apple.keylayout.US")
+        let evaluator = AutoFixWordEvaluator(mapper: CharacterMapper(), spellChecker: Self.checker,
+                                             scorer: LanguageScorerFactory.make(.appleNL))
+        for (from, to, words) in [(uk, en, ["баксів)", "х-арду,", "чт", "бекенді", "тетси"]),
+                                  (en, uk, ["hono", "mvp", "qr", "->", "opps", "i;ve"])] {
+            for word in words {
+                let result = evaluator.evaluate(word, source: from, targets: [to], configuration: .init(threshold: 0.5))
+                if case .suggestCompound = result.disposition {
+                    XCTFail("No independent layout evidence: \(word) → \(result.disposition)")
+                }
+                XCTAssertNil(result.replacement, word)
+            }
+        }
+    }
+
+    func test_physicalPunctuationKeysStillConvertAndLiteralEdgesSurvive() throws {
+        let en = try source("com.apple.keylayout.US")
+        let uk = try source("com.apple.keylayout.Ukrainian-PC")
+        let evaluator = AutoFixWordEvaluator(mapper: CharacterMapper(), spellChecker: Self.checker,
+                                             scorer: LanguageScorerFactory.make(.appleNL))
+        for (input, expected) in [("nt;", "теж"), ("levf.", "думаю"), (",hfnb", "брати"),
+                                  ("ghbdsn!", "привіт!"), ("(ghbdsn)", "(привіт)"), ("ghbdsn))", "привіт))")] {
+            let result = evaluator.evaluate(input, source: en, targets: [uk], configuration: .init())
+            if input == "nt;" {
+                // те and теж are both real words: keep the existing suggestion path.
+                XCTAssertEqual(result.selection?.best.candidate, expected)
+                XCTAssertTrue(result.disposition == .suggestLayout || result.disposition == .replace, "\(result.disposition)")
+            } else {
+                XCTAssertEqual(result.replacement?.candidate, expected, "\(input): \(result.disposition)")
+            }
+        }
+    }
+
     func test_manualPhraseEvidenceImprovesRankingWithoutChangingCorrectText() throws {
         let model = PersonalLayoutModel.shared
         model.replaceHistory([])
