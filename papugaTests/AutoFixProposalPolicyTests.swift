@@ -14,7 +14,7 @@ final class AutoFixProposalPolicyTests: XCTestCase {
         let file = directory.appendingPathComponent("decisions.jsonl")
         let store = AutoFixDecisionHistoryStore(testFileURL: file)
         let controller = AutoFixController(layoutManager: LayoutManager(), characterMapper: CharacterMapper(), decisionHistory: store)
-        let proposal = makeProposal(kind: .compound, original: "ghbds", candidate: "привіт")
+        let proposal = makeProposal(kind: .compound, original: "ghbds", candidate: "привіт", scoreOriginal: 0.12, threshold: 0.5)
         controller.recordProposalPresentation(proposal)
         store.waitForPendingWritesForTesting()
         let lines = try String(contentsOf: file, encoding: .utf8).split(separator: "\n")
@@ -25,6 +25,9 @@ final class AutoFixProposalPolicyTests: XCTestCase {
         XCTAssertEqual(observation.id, proposal.id)
         XCTAssertEqual(observation.selectedCandidate, "привіт")
         XCTAssertEqual(observation.proposalContext?.kind, "compound")
+        XCTAssertEqual(observation.originalScore, 0.12)
+        XCTAssertEqual(observation.threshold, 0.5)
+        XCTAssertNil(observation.effectiveCandidateScore)
     }
 
     func test_presentedProposalRoundTripsTheActualCandidateAndSharedID() throws {
@@ -43,6 +46,18 @@ final class AutoFixProposalPolicyTests: XCTestCase {
             XCTAssertEqual(restored.outcome, .proposed)
             if kind == .compound { XCTAssertNil(restored.effectiveCandidateScore) }
         }
+    }
+
+    func test_legacyObservationsWithoutProposalContextStillDecode() throws {
+        let proposal = makeProposal(kind: .detected)
+        let observation = proposal.decisionObservation(proposalWindow: 0.35, candidateSeparation: 0.15, minimumWordLength: 2)
+        let data = try JSONEncoder().encode(observation)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        object.removeValue(forKey: "proposalContext")
+        let legacy = try JSONDecoder().decode(AutoFixDecisionObservation.self, from: JSONSerialization.data(withJSONObject: object))
+        XCTAssertNil(legacy.proposalContext)
+        XCTAssertEqual(legacy.source, proposal.original)
+        XCTAssertEqual(legacy.selectedCandidate, proposal.candidate)
     }
 
     func test_spellingProposalIsOccurrenceOnlyAndDoesNotSwitchLayout() {
@@ -111,16 +126,16 @@ final class AutoFixProposalPolicyTests: XCTestCase {
         ))
     }
 
-    private func makeProposal(kind: AutoFixProposal.Kind, original: String = "важлво", candidate: String = "важливо") -> AutoFixProposal {
+    private func makeProposal(kind: AutoFixProposal.Kind, original: String = "важлво", candidate: String = "важливо", scoreOriginal: Double = 0, threshold: Double = 0.35) -> AutoFixProposal {
         AutoFixProposal(
             original: original,
             candidate: candidate,
             boundary: " ",
             fromLayoutID: "uk",
             targetLayoutID: kind == .spelling ? "uk" : "en",
-            scoreOriginal: 0,
+            scoreOriginal: scoreOriginal,
             scoreCandidate: 1,
-            threshold: 0.35,
+            threshold: threshold,
             algorithm: .appleNL,
             currentLang: "uk",
             targetLang: kind == .spelling ? "uk" : "en",
