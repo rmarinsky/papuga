@@ -438,7 +438,8 @@ final class AutoFixTargetValidator {
         expectedBundleID: String,
         source: String,
         boundary: String,
-        boundaryCaret: Int? = nil
+        boundaryCaret: Int? = nil,
+        allowsKeyboardFallback: Bool = true
     ) -> TextReplacementAnchor? {
         lastFailureReason = nil
         let validation = validateCurrentTarget(
@@ -553,7 +554,7 @@ final class AutoFixTargetValidator {
             // only meaningful while that is still the boundary. Once the user has typed
             // past it, backspacing would eat the word they are writing right now.
             let caretStillAtBoundary = boundaryCaret == nil || boundaryCaret == selection?.location
-            if fallbackAnchor == nil, caretStillAtBoundary, Self.canUseKeyboardFallback(
+            if allowsKeyboardFallback, fallbackAnchor == nil, caretStillAtBoundary, Self.canUseKeyboardFallback(
                 boundary: boundary,
                 selection: selection,
                 sourceRange: caretRange

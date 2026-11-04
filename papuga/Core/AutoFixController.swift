@@ -532,7 +532,7 @@ final class AutoFixController {
             // destroying it — the words before it are still a mistake worth
             // judging. Throwing the run away here silently dropped everything
             // typed ahead of an allowlisted word.
-            finalizeLayoutIncident(trigger: .midFlow)
+            finalizeLayoutIncident(trigger: .midFlow, typedPastRun: true)
             return
         }
 
@@ -1269,7 +1269,8 @@ final class AutoFixController {
 
     private func finalizeLayoutIncident(
         boundaryOverride: String? = nil,
-        trigger: LayoutIncidentFinalizeTrigger = .idle
+        trigger: LayoutIncidentFinalizeTrigger = .idle,
+        typedPastRun: Bool = false
     ) {
         guard let context = layoutIncidentContext,
               !layoutIncident.isEmpty else {
@@ -1296,6 +1297,10 @@ final class AutoFixController {
         // Per-token capture: the anchor belongs to the boundary of the last
         // *judged* token, sampled while it was still the live caret.
         let incidentBoundaryCaret = lastJudged.boundaryCaret
+        let allowsBlindReplacement = LayoutIncidentTracker.allowsBlindReplacement(
+            typedPastRun: typedPastRun || trimmedTrailing || boundaryOverride != nil,
+            boundaryCaret: incidentBoundaryCaret
+        )
         let scorer = resolvedScorer(for: context.algorithm)
         let scoreOriginal = scorer.score(original, expecting: context.currentLang)
         let scoreCandidate = scorer.score(candidate, expecting: context.targetLang)
@@ -1353,7 +1358,8 @@ final class AutoFixController {
                 targetLang: context.targetLang,
                 bundleID: context.bundleID,
                 targetSession: context.targetSession,
-                boundaryCaret: incidentBoundaryCaret
+                boundaryCaret: incidentBoundaryCaret,
+                allowsKeyboardFallback: allowsBlindReplacement
             )
             recordPhraseDecision(
                 original: original,
@@ -1456,7 +1462,8 @@ final class AutoFixController {
         targetLang: String,
         bundleID: String,
         targetSession: AutoFixTargetSession?,
-        boundaryCaret: Int? = nil
+        boundaryCaret: Int? = nil,
+        allowsKeyboardFallback: Bool = true
     ) -> Bool {
         guard let replacementResult = performAnchoredReplacement(
             original: original,
@@ -1464,7 +1471,8 @@ final class AutoFixController {
             boundary: boundary,
             bundleID: bundleID,
             targetSession: targetSession,
-            boundaryCaret: boundaryCaret
+            boundaryCaret: boundaryCaret,
+            allowsKeyboardFallback: allowsKeyboardFallback
         ) else {
             return false
         }
@@ -2582,7 +2590,8 @@ final class AutoFixController {
         boundary: String,
         bundleID: String,
         targetSession: AutoFixTargetSession?,
-        boundaryCaret: Int? = nil
+        boundaryCaret: Int? = nil,
+        allowsKeyboardFallback: Bool = true
     ) -> TextReplacementResult? {
         guard let targetSession else {
             logSkip(.targetUnverifiable, word: original, bundleID: bundleID, extra: [
@@ -2595,7 +2604,8 @@ final class AutoFixController {
             expectedBundleID: bundleID,
             source: original,
             boundary: boundary,
-            boundaryCaret: boundaryCaret
+            boundaryCaret: boundaryCaret,
+            allowsKeyboardFallback: allowsKeyboardFallback
         ) else {
             logTargetUnverifiable(word: original, bundleID: bundleID)
             return nil

@@ -166,6 +166,16 @@ struct LayoutIncidentTracker: Equatable {
         return .discard
     }
 
+    /// Whether a finalized run may fall back to blind keyboard deletes.
+    ///
+    /// The blind path deletes backwards from the *live* caret. Once the user has
+    /// typed past the run (a trimmed trailing word, an allowlisted word, a cap
+    /// overflow) that caret no longer sits after the run, so without a recorded
+    /// boundary caret to prove position the deletes would eat the newer text.
+    static func allowsBlindReplacement(typedPastRun: Bool, boundaryCaret: Int?) -> Bool {
+        !typedPastRun || boundaryCaret != nil
+    }
+
     static func joinedBody(
         of tokens: [LayoutIncidentToken],
         _ keyPath: KeyPath<LayoutIncidentToken, String>

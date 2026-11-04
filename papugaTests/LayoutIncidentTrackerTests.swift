@@ -20,6 +20,14 @@ final class LayoutIncidentTrackerTests: XCTestCase {
         )
     }
 
+    func test_blindReplacementRefusedOnceTypedPastWithoutCaret() {
+        // Caret-less web editor: the live caret is after the word that ended the
+        // run, so blind deletes from it would erase that word.
+        XCTAssertFalse(LayoutIncidentTracker.allowsBlindReplacement(typedPastRun: true, boundaryCaret: nil))
+        XCTAssertTrue(LayoutIncidentTracker.allowsBlindReplacement(typedPastRun: true, boundaryCaret: 12))
+        XCTAssertTrue(LayoutIncidentTracker.allowsBlindReplacement(typedPastRun: false, boundaryCaret: nil))
+    }
+
     func test_runWithoutStrongTokenNeverAutoReplaces() {
         // A run of only short/neutral words ("i", "nj") rests on the scorer
         // alone; a high margin earns a proposal, never a silent rewrite.
