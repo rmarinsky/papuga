@@ -65,4 +65,14 @@ final class AutoFixUndoShortcutTests: XCTestCase {
             modifiers: []
         ))
     }
+
+    func test_onlyTextTypesOverAProposal() {
+        XCTAssertTrue(AutoFixKeyEventText.typesOverProposal("a", flags: []))
+        XCTAssertTrue(AutoFixKeyEventText.typesOverProposal(" ", flags: []))
+        XCTAssertFalse(AutoFixKeyEventText.typesOverProposal("\t", flags: []), "Tab moves focus")
+        XCTAssertFalse(AutoFixKeyEventText.typesOverProposal("\r", flags: []))
+        XCTAssertFalse(AutoFixKeyEventText.typesOverProposal("", flags: []), "arrows carry no text")
+        XCTAssertFalse(AutoFixKeyEventText.typesOverProposal("z", flags: .maskCommand))
+        XCTAssertFalse(AutoFixKeyEventText.typesOverProposal("a", flags: .maskControl))
+    }
 }

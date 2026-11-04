@@ -29,6 +29,14 @@ enum AutoFixKeyEventText {
             }
         }
     }
+
+    /// Whether a keystroke types over an open proposal (demoting it to a chip)
+    /// rather than just dismissing it. Tab, Return and other control keys move
+    /// focus or act — they are not typing text over the word.
+    static func typesOverProposal(_ text: String, flags: CGEventFlags) -> Bool {
+        guard !flags.contains(.maskCommand), !flags.contains(.maskControl) else { return false }
+        return text.unicodeScalars.contains { !CharacterSet.controlCharacters.contains($0) }
+    }
 }
 
 @MainActor
@@ -294,8 +302,7 @@ final class AutoFixController {
         // deferred chip instead of dying (the coordinator no-ops when nothing
         // is on screen). Only printable text is typing over; arrows, Tab and
         // shortcuts just dismiss it.
-        let typesText = !typedString.isEmpty && !flags.contains(.maskCommand)
-            && !flags.contains(.maskControl)
+        let typesText = AutoFixKeyEventText.typesOverProposal(typedString, flags: flags)
         AutoFixProposalCoordinator.shared.dismiss(outcome: typesText ? .typedOver : .dismissed)
         clearRecovery()
 
