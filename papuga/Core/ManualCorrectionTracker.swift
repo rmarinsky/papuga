@@ -107,6 +107,15 @@ final class ManualCorrectionTracker {
         return max(0.55, min(0.95, 0.95 - ratio))
     }
 
+    /// Whether `token` is one of the whitespace-separated words of `phrase`
+    /// (normalized), not merely a substring of one: correcting "the" must not
+    /// match a chip for "other".
+    static func phrase(_ phrase: String, containsToken token: String) -> Bool {
+        let needle = normalizedToken(token)
+        guard !needle.isEmpty else { return false }
+        return phrase.split(whereSeparator: \.isWhitespace).contains { normalizedToken(String($0)) == needle }
+    }
+
     private static func normalizedToken(_ text: String) -> String {
         BufferedToken.normalizedCore(from: text).lowercased()
     }

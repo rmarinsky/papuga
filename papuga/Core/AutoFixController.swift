@@ -128,6 +128,8 @@ final class AutoFixController {
             appActivationObserver = nil
         }
         resetTypingState(clearLastFix: true)
+        // A chip left on screen would still mutate text after AutoFix is off.
+        dropDeferredChip(resolution: "chip_stopped")
         Defaults[.typingCadenceAverageGap] = cadence.averageGap
         AppLogger.post(logger, "AutoFixController stopped")
     }
@@ -290,8 +292,11 @@ final class AutoFixController {
 
         // Typing over a panel is not a rejection — the proposal demotes to the
         // deferred chip instead of dying (the coordinator no-ops when nothing
-        // is on screen).
-        AutoFixProposalCoordinator.shared.dismiss(outcome: .typedOver)
+        // is on screen). Only printable text is typing over; arrows, Tab and
+        // shortcuts just dismiss it.
+        let typesText = !typedString.isEmpty && !flags.contains(.maskCommand)
+            && !flags.contains(.maskControl)
+        AutoFixProposalCoordinator.shared.dismiss(outcome: typesText ? .typedOver : .dismissed)
         clearRecovery()
 
         // Before every branch that resets typing state: `lastFix` has to survive until
@@ -499,7 +504,8 @@ final class AutoFixController {
             // The user is fixing this text by hand — offering to fix it too
             // would race them. (Apply-time verification is the safety net; this
             // just removes the chip before they have to look at it.)
-            if let chip = pendingDeferredChip, chip.original.contains(correction.source) {
+            if let chip = pendingDeferredChip,
+               ManualCorrectionTracker.phrase(chip.original, containsToken: correction.source) {
                 dropDeferredChip(resolution: "chip_self_corrected")
             }
         }
@@ -1289,14 +1295,16 @@ final class AutoFixController {
 
         let original = LayoutIncidentTracker.joinedBody(of: judged, \.original)
         let candidate = LayoutIncidentTracker.joinedBody(of: judged, \.candidate)
-        // boundaryOverride describes text sitting after the FULL run (cap
-        // overflow); once trimming dropped the tail it no longer applies.
-        let untouchedBoundary = trimmedTrailing
-            ? lastJudged.boundary
-            : (boundaryOverride ?? incident.trailingBoundary)
         // Per-token capture: the anchor belongs to the boundary of the last
         // *judged* token, sampled while it was still the live caret.
         let incidentBoundaryCaret = lastJudged.boundaryCaret
+        // boundaryOverride describes text sitting after the FULL run (cap
+        // overflow) and only serves the caret-less value-suffix match. A recorded
+        // caret sits right after the last judged token's own boundary, so the
+        // boundary must describe that same text or the computed range is shifted.
+        let untouchedBoundary = trimmedTrailing || incidentBoundaryCaret != nil
+            ? lastJudged.boundary
+            : (boundaryOverride ?? incident.trailingBoundary)
         let allowsBlindReplacement = LayoutIncidentTracker.allowsBlindReplacement(
             typedPastRun: typedPastRun || trimmedTrailing || boundaryOverride != nil,
             boundaryCaret: incidentBoundaryCaret
@@ -1886,6 +1894,9 @@ final class AutoFixController {
     /// waits — passive, keyboard-transparent — for the user to reach a natural
     /// stop and either click it in or let it fade.
     private func demoteProposalToChip(_ proposal: AutoFixProposal) {
+        if let previous = pendingDeferredChip {
+            logProposalResolution(previous, resolution: "chip_superseded")
+        }
         pendingDeferredChip = proposal
         FixToastCoordinator.shared.showDeferredChip(
             original: proposal.original,
@@ -1921,6 +1932,7 @@ final class AutoFixController {
         }
         guard let anchor = targetValidator.captureRetroactiveAnchor(
             expectedBundleID: chip.bundleID,
+            expectedIdentity: chip.replacementAnchor.focusedElementIdentity,
             source: chip.original,
             boundary: chip.boundary
         ) else {
@@ -2780,6 +2792,9 @@ private struct LayoutIncidentContext {
             && currentLang == other.currentLang
             && targetLang == other.targetLang
             && bundleID == other.bundleID
+            // A policy change mid-run must not inherit the first token's permissions.
+            && canMutateDirectly == other.canMutateDirectly
+            && allowsProposal == other.allowsProposal
     }
 }
 

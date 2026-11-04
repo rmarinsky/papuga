@@ -227,6 +227,7 @@ temporary store. They do not type into applications or start XCUI automation.
 Proposal actions append `auto_fix_proposal_resolved` with `proposal_id` and
 `resolution` (`accepted`, `accept_failed`, `esc`, `typed_over`, `timed_out`,
 `never_replace`, and for the deferred chip `chip_applied`, `chip_apply_failed`,
-`chip_dismissed`, `chip_expired`). These events contain no source or candidate text. `accepted` records the user's choice, not
+`chip_dismissed`, `chip_expired`, `chip_abandoned`, `chip_self_corrected`,
+`chip_superseded`, `chip_stopped`). These events contain no source or candidate text. `accepted` records the user's choice, not
 proof of insertion; a successful `auto_fix_applied` event carries the same
 `proposal_id` separately. Recovery can produce a later choice for the same proposal.

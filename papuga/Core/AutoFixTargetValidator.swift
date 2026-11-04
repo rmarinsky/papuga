@@ -490,9 +490,11 @@ final class AutoFixTargetValidator {
                 Thread.sleep(forTimeInterval: Self.focusSampleRetryDelay)
             }
 
+            // Same element test validateCurrentTarget just passed — a pid match
+            // alone would let a sibling field holding the same text be anchored.
             guard let focused = Self.focusedElement(),
                   let signature = Self.focusedElementSignature(for: focused),
-                  signature.pid == session.focusedElementSignature?.pid
+                  session.focusedElementSignature?.matchesTypingTargetIgnoringPosition(signature) == true
             else {
                 continue
             }
@@ -1252,6 +1254,7 @@ final class AutoFixTargetValidator {
     /// burst could land anywhere.
     func captureRetroactiveAnchor(
         expectedBundleID: String,
+        expectedIdentity: FocusedElementSignature.StableIdentity,
         source: String,
         boundary: String
     ) -> TextReplacementAnchor? {
@@ -1262,6 +1265,7 @@ final class AutoFixTargetValidator {
             guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == expectedBundleID,
                   let focused = Self.focusedElement(),
                   let signature = Self.focusedElementSignature(for: focused),
+                  Self.isSameWindow(expectedIdentity, signature.stableIdentity),
                   let value = Self.stringAttribute(kAXValueAttribute as CFString, from: focused)
             else {
                 continue
@@ -1289,6 +1293,20 @@ final class AutoFixTargetValidator {
             }
         }
         return nil
+    }
+
+    /// Whether a re-located field still sits in the window the chip was raised for.
+    /// Web editors recreate their element proxies, so element identity cannot be
+    /// required — but a same-app window switch must not redirect the fix.
+    nonisolated static func isSameWindow(
+        _ expected: FocusedElementSignature.StableIdentity,
+        _ current: FocusedElementSignature.StableIdentity
+    ) -> Bool {
+        guard expected.pid == current.pid else { return false }
+        if let lhs = expected.windowTitleHash, let rhs = current.windowTitleHash {
+            return lhs == rhs
+        }
+        return true
     }
 
     /// `focusedElementSignature()` re-sampled as described on `focusSampleAttempts`.

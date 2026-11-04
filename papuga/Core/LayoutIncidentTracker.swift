@@ -140,10 +140,11 @@ struct LayoutIncidentTracker: Equatable {
     /// currently producible — kept as the safety valve should token flow change):
     /// a run containing a word the user meant is never auto-replaced.
     ///
-    /// `hasStrongEvidence`: at least one token in the run is a dictionary-backed
-    /// wrong-layout word. A run of only short/neutral tokens ("i", "nj") rests on
-    /// the scorer alone, which is unreliable for one or two letters — it earns a
-    /// proposal at most, never a silent rewrite.
+    /// `hasStrongEvidence`: at least one token in the run is a `.strong` wrong-layout
+    /// word (dictionary-backed, or a cross-script conversion of 3+ letters that
+    /// already scores as the target language). A run of only short/neutral tokens
+    /// ("i", "nj") rests on the joined phrase score alone, which is unreliable for
+    /// one or two letters — it earns a proposal at most, never a silent rewrite.
     static func runVerdict(
         scoreOriginal: Double,
         scoreCandidate: Double,

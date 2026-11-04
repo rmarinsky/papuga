@@ -153,7 +153,14 @@ final class FixToastCoordinator {
     }
 
     private func show(panel: ToastPanel, size: NSSize, near point: NSPoint) {
-        let origin = NSPoint(x: point.x + 14, y: point.y - size.height - 6)
+        // Kept on the visible screen: near an edge an off-screen chip's buttons
+        // could not be clicked until it expired.
+        let screen = NSScreen.screens.first { NSMouseInRect(point, $0.frame, false) }?.visibleFrame
+            ?? NSScreen.main?.visibleFrame ?? .zero
+        let origin = NSPoint(
+            x: min(max(point.x + 14, screen.minX + 8), screen.maxX - size.width - 8),
+            y: min(max(point.y - size.height - 6, screen.minY + 8), screen.maxY - size.height - 8)
+        )
         panel.setFrame(NSRect(origin: origin, size: size), display: true)
         panel.orderFrontRegardless()
     }

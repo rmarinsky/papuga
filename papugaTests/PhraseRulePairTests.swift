@@ -55,4 +55,9 @@ final class PhraseRulePairTests: XCTestCase {
         )
         XCTAssertEqual(pairs.map(\.source), ["ljhtxs"])
     }
+
+    func test_repeatedWordYieldsOnePair() {
+        let pairs = HistoryWordActionPolicy.phraseRulePairs(source: "nj nj", target: "то то")
+        XCTAssertEqual(pairs.map(\.id), ["nj→то"])
+    }
 }

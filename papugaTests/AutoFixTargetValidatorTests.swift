@@ -920,5 +920,16 @@ final class AutoFixTargetValidatorTests: XCTestCase {
             allowsKeyboardFallback: false
         ).survivesLaterTyping)
     }
-}
 
+    func test_sameWindow_rejectsAnotherWindowOfTheSameApp() {
+        func identity(pid: pid_t, title: Int?) -> FocusedElementSignature.StableIdentity {
+            .init(pid: pid, role: "AXTextArea", subrole: nil, windowTitleHash: title,
+                  elementIdentifier: nil, frameHash: nil)
+        }
+        XCTAssertTrue(AutoFixTargetValidator.isSameWindow(identity(pid: 1, title: 7), identity(pid: 1, title: 7)))
+        XCTAssertFalse(AutoFixTargetValidator.isSameWindow(identity(pid: 1, title: 7), identity(pid: 1, title: 8)))
+        XCTAssertFalse(AutoFixTargetValidator.isSameWindow(identity(pid: 1, title: 7), identity(pid: 2, title: 7)))
+        XCTAssertTrue(AutoFixTargetValidator.isSameWindow(identity(pid: 1, title: nil), identity(pid: 1, title: 8)),
+                      "no title to compare: fall back to the process")
+    }
+}

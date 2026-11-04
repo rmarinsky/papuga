@@ -73,7 +73,14 @@ final class PapugaEventLog {
             guard let self else { return }
             try? self.handle?.close()
             self.handle = nil
-            try? FileManager.default.removeItem(at: self.fileURL)
+            do {
+                try FileManager.default.removeItem(at: self.fileURL)
+            } catch CocoaError.fileNoSuchFile {
+                // Already gone — that is a successful clear.
+            } catch {
+                AppLogger.error(self.logger, "PapugaEventLog clear failed: \(error.localizedDescription)")
+                return
+            }
             AppLogger.action(self.logger, "PapugaEventLog cleared")
         }
     }

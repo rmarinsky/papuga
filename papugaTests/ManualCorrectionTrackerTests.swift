@@ -63,4 +63,11 @@ final class ManualCorrectionTrackerTests: XCTestCase {
 
         XCTAssertNil(candidate)
     }
+
+    func test_chipMatchesOnlyWholeTokens() {
+        XCTAssertTrue(ManualCorrectionTracker.phrase("nj ljhtxs", containsToken: "ljhtxs"))
+        XCTAssertTrue(ManualCorrectionTracker.phrase("nj ljhtxs,", containsToken: "LJHTXS"))
+        XCTAssertFalse(ManualCorrectionTracker.phrase("other words", containsToken: "the"),
+                       "a correction of 'the' must not drop a chip for 'other'")
+    }
 }

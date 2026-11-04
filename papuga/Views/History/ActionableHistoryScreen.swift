@@ -181,12 +181,15 @@ enum HistoryWordActionPolicy {
         let sources = source.split(whereSeparator: \.isWhitespace).map(String.init)
         let targets = target.split(whereSeparator: \.isWhitespace).map(String.init)
         guard sources.count == targets.count else { return [] }
+        // A repeated word ("nj nj") yields one row: ForEach needs unique ids.
+        var seen = Set<String>()
         return zip(sources, targets).compactMap { rawSource, rawTarget in
             guard canUseSource(rawSource, truncated: false),
                   let sanitizedTarget = sanitizedTarget(rawTarget) else { return nil }
             let sourceCore = normalizedSource(rawSource)
             guard sourceCore.caseInsensitiveCompare(sanitizedTarget) != .orderedSame else { return nil }
-            return PhraseRulePair(source: sourceCore, target: sanitizedTarget)
+            let pair = PhraseRulePair(source: sourceCore, target: sanitizedTarget)
+            return seen.insert(pair.id).inserted ? pair : nil
         }
     }
 
