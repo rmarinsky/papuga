@@ -2043,6 +2043,7 @@ final class AutoFixController {
             frontmostBundleID: proposal.bundleID,
             inputLayout: proposal.targetLayoutID,
             properties: [
+                "proposal_id": .string(proposal.id.uuidString),
                 "original_length": .int(proposal.original.count),
                 "replacement_length": .int(proposal.candidate.count),
                 "score_original": .double(proposal.scoreOriginal),
