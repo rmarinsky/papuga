@@ -100,20 +100,34 @@ occurrence, does not switch the keyboard layout, and does not create a custom ru
 suggestion exists, Papuga still suppresses the unsafe cross-layout conversion without retaining a
 full-text history row.
 
-### Whole-sentence layout incidents
+### Whole-sentence layout runs
 
-A suspicious first word normally waits for a 300 ms grace period. A safe, unambiguous replacement
-whose candidate score is displayed as 100% bypasses that grace period and applies immediately.
-A following printable key turns other candidates into a single in-memory incident instead of
-applying or proposing individual words. Papuga captures at most 30 words or 300 UTF-16 code units
-and finalizes on sentence punctuation plus a boundary, Return/Tab, or a 600 ms pause after a
-completed word.
+The run is the atomic unit: every completed word with a candidate — weak or strong — joins one
+in-memory run (at most 30 words or 300 UTF-16 code units), and no word inside a multi-word run is
+ever replaced alone. A lone unambiguous word still waits out a short grace period (or bypasses it
+at a displayed 100% score) and applies by itself.
 
-Automatic replacement requires at least three strong tokens, 75% support, no contradictions, and
-a phrase margin above the active threshold. Two strong tokens with 60% support can produce one
-whole-incident proposal even when the raw language coefficient is low. The final mutation uses one
-anchored source range, preserves the trailing boundary, and produces one undo/reapply action.
-Individual tokens inside the incident contribute only anonymous aggregate counts.
+Timing adapts to the typist: `TypingCadenceTracker` keeps a smoothed inter-keystroke gap (seeded
+from the typing-test WPM when available, persisted across launches) and derives the commit pause
+(0.45–1.5 s), the single-word grace (0.2–0.6 s), the proposal-panel duration (4–8 s), and the
+deferred-chip lifetime (8–15 s) from it.
+
+The verdict is the margin of the whole joined run — `score(candidate body) − score(original body)`
+against the active threshold — not a per-word quorum. A trailing contradiction (the correct word
+that ended the run) is trimmed and stays untouched; a contradiction that somehow survives inside
+the judged run caps the verdict at a proposal. Unanimous per-word dictionary evidence (every
+candidate a real word, every original not) also earns a proposal when the scorer disagrees — never
+an automatic replacement. A run with no dictionary-backed wrong-layout word (only short or
+neutral tokens) is likewise capped at a proposal. Discarded runs are recorded as anonymous aggregates.
+
+When the run is judged mid-flow (sentence punctuation, Return/Tab, cap) while the user is still
+typing, a proposal surfaces as the passive deferred chip instead of the interactive panel: it
+ignores the keyboard, survives continued typing, applies the whole run on click (re-anchoring by
+the single word-aligned occurrence of the run in the field; never by blind keyboard deletes,
+since the caret has moved), and silently disappears when the text is gone or
+the user fixed it themselves. Typing over an open panel demotes it to the same chip. The final
+mutation uses one anchored source range, preserves the trailing boundary, and produces one
+undo/reapply action.
 
 ## What still needs more design before implementation
 
@@ -145,6 +159,7 @@ Recommended next step:
 ## Tests added
 
 - `AutoFixEditingGuardTests`
+- `ManualCorrectionTrackerTests`
 - `RecommendationEngineTests`
 
 The key regression now covered: a token after external edit context is skipped instead of being treated as a normal whole word.

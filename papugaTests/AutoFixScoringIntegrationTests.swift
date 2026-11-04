@@ -201,10 +201,22 @@ final class AutoFixScoringIntegrationTests: XCTestCase {
 
         XCTAssertEqual(tracker.originalBody, "][ vf' ,enb")
         XCTAssertEqual(tracker.candidateBody, "їх має бути")
-        XCTAssertTrue(tracker.isReadyForImmediateFinalization)
+
+        // The joined run scored by the real scorer is the verdict now — no
+        // strong-token quorum in between.
+        let scorer = LanguageScorerFactory.make(.appleNL)
+        let scoreOriginal = scorer.score(tracker.originalBody, expecting: "en")
+        let scoreCandidate = scorer.score(tracker.candidateBody, expecting: "uk")
         XCTAssertEqual(
-            tracker.decision(scoreOriginal: 1, scoreCandidate: 0, threshold: 0.35),
-            .propose
+            LayoutIncidentTracker.runVerdict(
+                scoreOriginal: scoreOriginal,
+                scoreCandidate: scoreCandidate,
+                threshold: 0.35,
+                proposalWindow: 0.22,
+                hasContradiction: false
+            ),
+            .replace,
+            "margin \(scoreCandidate - scoreOriginal) should clear the threshold"
         )
     }
 
@@ -234,8 +246,22 @@ final class AutoFixScoringIntegrationTests: XCTestCase {
 
         XCTAssertEqual(tracker.originalBody, "іудутшву іудусещкі")
         XCTAssertEqual(tracker.candidateBody, "selenide selectors")
+
+        // The scorer's blind spot: gibberish Cyrillic reads as confident
+        // Ukrainian, so the margin goes negative — but every token carries
+        // unanimous dictionary evidence, which still earns a proposal.
+        let scorer = LanguageScorerFactory.make(.appleNL)
+        let scoreOriginal = scorer.score(tracker.originalBody, expecting: "uk")
+        let scoreCandidate = scorer.score(tracker.candidateBody, expecting: "en")
         XCTAssertEqual(
-            tracker.decision(scoreOriginal: 1, scoreCandidate: 0.52, threshold: 0.35),
+            LayoutIncidentTracker.runVerdict(
+                scoreOriginal: scoreOriginal,
+                scoreCandidate: scoreCandidate,
+                threshold: 0.35,
+                proposalWindow: 0.22,
+                hasContradiction: false,
+                hasUnanimousDictionarySupport: true
+            ),
             .propose
         )
     }

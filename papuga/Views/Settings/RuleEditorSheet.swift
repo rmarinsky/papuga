@@ -326,15 +326,12 @@ struct RuleEditorSheet: View {
 
         switch mode {
         case .replace:
-            // A word can't be both replaced and left alone.
-            allowlist.removeAll {
-                HistoryWordActionPolicy.normalizedSource($0).caseInsensitiveCompare(sourceKey) == .orderedSame
-            }
+            // A word can't be both replaced and left alone. `remove` also
+            // unlearns it from the spelling dictionary — leaving it learned
+            // keeps the word "correct" and the new rule never fires.
+            IgnoreWordService.remove(src)
             if let original = seed.allowlistOriginal {
-                let originalCore = HistoryWordActionPolicy.normalizedSource(original)
-                allowlist.removeAll {
-                    HistoryWordActionPolicy.normalizedSource($0).caseInsensitiveCompare(originalCore) == .orderedSame
-                }
+                IgnoreWordService.remove(original)
             }
             if let ruleID = seed.ruleID, let idx = customRules.firstIndex(where: { $0.id == ruleID }) {
                 customRules[idx].source = src
@@ -366,10 +363,7 @@ struct RuleEditorSheet: View {
                 customRules.removeAll { $0.id == ruleID }
             }
             if let original = seed.allowlistOriginal {
-                let originalCore = HistoryWordActionPolicy.normalizedSource(original)
-                allowlist.removeAll {
-                    HistoryWordActionPolicy.normalizedSource($0).caseInsensitiveCompare(originalCore) == .orderedSame
-                }
+                IgnoreWordService.remove(original)
             }
             IgnoreWordService.add(src)
         }

@@ -75,7 +75,7 @@ struct DictionaryTab: View {
                                 mode: .leaveAlone
                             )
                         },
-                        onRemove: { allowlist.removeAll { $0 == word } }
+                        onRemove: { IgnoreWordService.remove(word) }
                     )
                 }
                 AddWordChip {

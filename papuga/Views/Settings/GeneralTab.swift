@@ -71,6 +71,7 @@ struct GeneralTab: View {
                     Button("Очистити", role: .destructive) {
                         AutoFixDecisionHistoryStore.shared.clearAll()
                         ReplacementHistoryStore.shared.clearAll()
+                        PapugaEventLog.shared.clearAll()
                     }
                     Button("Скасувати", role: .cancel) {}
                 } message: {

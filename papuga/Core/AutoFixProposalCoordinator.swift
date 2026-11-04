@@ -5,6 +5,7 @@ import SwiftUI
 struct AutoFixProposalActions {
     var replace: () -> Void
     var dismiss: () -> Void
+    var typedOver: () -> Void
     var timedOut: () -> Void
     var neverReplace: () -> Void
 }
@@ -110,6 +111,8 @@ final class AutoFixProposalCoordinator {
             actions.replace()
         case .dismissed:
             actions.dismiss()
+        case .typedOver:
+            actions.typedOver()
         case .timedOut:
             actions.timedOut()
         case .neverReplace:

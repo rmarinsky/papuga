@@ -3,6 +3,7 @@ import Carbon.HIToolbox
 import CoreGraphics
 import Defaults
 import Foundation
+import KeyboardShortcuts
 import os
 
 enum PapugaSyntheticEvent {
@@ -52,16 +53,27 @@ final class AutoFixController {
     private var lastFix: PendingUndo?
     private var pendingProposalRecovery: PendingProposalRecovery?
     private var pendingReapply: PendingReapply?
+    /// One slot, newest wins: the fix the user typed past, kept alive as a
+    /// passive chip until they click it, close it, or it times out.
+    private var pendingDeferredChip: AutoFixProposal?
     private var editingGuard = AutoFixEditingGuard()
     private var layoutIncident = LayoutIncidentTracker()
     private var layoutIncidentContext: LayoutIncidentContext?
     private var pendingSingleDecision: DeferredSingleDecision?
     private var isCapturingLayoutIncident = false
+    /// Restored from the last session; falls back to the typing-test WPM, then
+    /// to a middling default. Persisted in `stop()`.
+    private var cadence = TypingCadenceTracker(
+        averageGap: Defaults[.typingCadenceAverageGap] > 0
+            ? Defaults[.typingCadenceAverageGap]
+            : TypingCadenceTracker.seededGap(wordsPerMinute: Defaults[.measuredTypingWPM])
+    )
     private var layoutIncidentTimerState = LayoutIncidentTimerState()
     private var layoutIncidentTimerTask: Task<Void, Never>?
     private let spellChecker: SpellCheckingClient
     private let decisionHistory: AutoFixDecisionRecording
     private var activeDecisionDraft: AutoFixDecisionDraft?
+    private let manualCorrectionTracker = ManualCorrectionTracker()
     private let targetValidator = AutoFixTargetValidator()
     private var appActivationObserver: NSObjectProtocol?
     private var consecutiveReplacementDirection: AutoFixReplacementDirection?
@@ -116,6 +128,7 @@ final class AutoFixController {
             appActivationObserver = nil
         }
         resetTypingState(clearLastFix: true)
+        Defaults[.typingCadenceAverageGap] = cadence.averageGap
         AppLogger.post(logger, "AutoFixController stopped")
     }
 
@@ -149,6 +162,8 @@ final class AutoFixController {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
+                // The chip's anchor belongs to the app the user just left.
+                self?.dropDeferredChip(resolution: "chip_abandoned")
                 self?.resetTypingState(clearLastFix: false)
             }
         }
@@ -163,8 +178,12 @@ final class AutoFixController {
         }
         editingGuard.reset()
         resetLayoutIncident()
+        manualCorrectionTracker.resetEditingState()
         targetValidator.reset()
         consecutiveReplacementDirection = nil
+        // Whatever caused this reset (click, app switch, navigation) also broke
+        // the typing rhythm — the next gap must not count toward the cadence.
+        cadence.noteInterruption()
     }
 
     fileprivate nonisolated func handleEvent(type: CGEventType, event: CGEvent) {
@@ -248,9 +267,13 @@ final class AutoFixController {
             // Resetting lastFix here would null out the pending undo before the
             // Button action can fire, defeating the toast.
             if FixToastCoordinator.shared.isMouseOverToast()
+                || FixToastCoordinator.shared.isMouseOverChip()
                 || AutoFixProposalCoordinator.shared.isMouseOverProposal() {
                 return
             }
+            // A click elsewhere moves the caret and the user's attention — the
+            // deferred fix is stale context now.
+            dropDeferredChip(resolution: "chip_abandoned")
             resetTypingState(clearLastFix: true)
             // A click may land inside existing text, so suppress the very next word. We use
             // noteClickSuppression (not noteEditingStarted) so auto-fix resumes normally for every
@@ -265,13 +288,23 @@ final class AutoFixController {
             return
         }
 
-        AutoFixProposalCoordinator.shared.dismiss(outcome: .dismissed)
+        // Typing over a panel is not a rejection — the proposal demotes to the
+        // deferred chip instead of dying (the coordinator no-ops when nothing
+        // is on screen).
+        AutoFixProposalCoordinator.shared.dismiss(outcome: .typedOver)
         clearRecovery()
+
+        // Before every branch that resets typing state: `lastFix` has to survive until
+        // the shortcut fires on keyUp.
+        if isUndoShortcut(keyCode: keyCode, flags: flags) {
+            return
+        }
 
         let isBoundary = isWordBoundary(keyCode: keyCode, typedString: typedString)
         if type == .keyDown,
            !typedString.isEmpty,
            !isBoundary {
+            cadence.notePrintable(at: timestamp)
             notePrintableContinuation(timestamp: timestamp)
         }
 
@@ -320,6 +353,7 @@ final class AutoFixController {
         // key as an undo gesture would therefore delete the untouched Space/Return/Tab boundary
         // before Papuga can validate anything. Undo remains available through the range-safe chip.
         lastFix = nil
+        manualCorrectionTracker.noteBackspace(bufferWasEmpty: bufferWasEmpty, timestamp: timestamp)
         editingGuard.noteBackspace(bufferWasEmpty: bufferWasEmpty, enabled: Defaults[.autoFixConservativeEditingGuard])
         resetLayoutIncident()
         buffer.popLast()
@@ -428,13 +462,23 @@ final class AutoFixController {
             boundary: boundary
         )
         if case .changed(let reason) = targetValidation {
-            logSkip(.targetChanged, word: word, bundleID: bundleID, extra: [
+            var extra: [String: AnalyticsValue] = [
                 "target_reason": .string(reason),
                 "from_lang": .string(currentLang)
-            ])
+            ]
+            for (key, value) in caretMismatchProperties() {
+                extra[key] = value
+            }
+            logSkip(.targetChanged, word: word, bundleID: bundleID, extra: extra)
             resetLayoutIncident()
             return
         }
+
+        // Read while it is still true. Anything that defers — the single-word grace
+        // timer, the sentence idle timer — applies its fix hundreds of milliseconds
+        // from now, by which point the user has typed on and the live caret no longer
+        // describes where this token ended.
+        let boundaryCaret = targetValidator.currentCaretLocation()
 
         let appPolicy = AutoFixAppPolicyResolver.policy(for: bundleID)
         guard appPolicy != .disabled else {
@@ -446,8 +490,27 @@ final class AutoFixController {
         }
         let canMutateDirectly = targetValidation.canMutate && appPolicy.allowsAutomaticMutation
 
+        if let correction = manualCorrectionTracker.noteCompletedWord(
+            word,
+            language: currentLang,
+            bundleID: bundleID.isEmpty ? nil : bundleID,
+            timestamp: ProcessInfo.processInfo.systemUptime
+           ) {
+            // The user is fixing this text by hand — offering to fix it too
+            // would race them. (Apply-time verification is the safety net; this
+            // just removes the chip before they have to look at it.)
+            if let chip = pendingDeferredChip, chip.original.contains(correction.source) {
+                dropDeferredChip(resolution: "chip_self_corrected")
+            }
+        }
 
-        if editingGuard.shouldSuppress(enabled: Defaults[.autoFixConservativeEditingGuard]) {
+        // The guard protects against a word glued to pre-existing text after a
+        // click ("к|" + "nj" → "кnj"). When the field itself proves the word
+        // stands alone — empty field, start of it, or appended after whitespace
+        // — the danger is absent and the word stays fixable. This was eating
+        // the first word of every fresh chat message.
+        if editingGuard.shouldSuppress(enabled: Defaults[.autoFixConservativeEditingGuard]),
+           !targetValidator.typedWordStandsAlone(source: word, boundary: boundary.isEmpty ? " " : boundary) {
             logSkip(.editingContext, word: word, bundleID: bundleID, extra: [
                 "from_lang": .string(currentLang)
             ])
@@ -465,7 +528,11 @@ final class AutoFixController {
         // including an older custom rule for the same word.
         if AutoFixDecision.isInAllowlist(word, allowlist: Defaults[.autoFixAllowlist]) {
             logSkip(.allowlist, word: word, bundleID: bundleID)
-            resetLayoutIncident()
+            // The word itself stays untouched, but it *ends* the run rather than
+            // destroying it — the words before it are still a mistake worth
+            // judging. Throwing the run away here silently dropped everything
+            // typed ahead of an allowlisted word.
+            finalizeLayoutIncident(trigger: .midFlow)
             return
         }
 
@@ -548,7 +615,8 @@ final class AutoFixController {
                 allowsProposal: appPolicy.allowsProposal,
                 targetSession: targetSession,
                 evidence: .neutral,
-                singleAction: .none
+                singleAction: .none,
+                boundaryCaret: boundaryCaret
             )
             return
         }
@@ -579,7 +647,8 @@ final class AutoFixController {
                 allowsProposal: appPolicy.allowsProposal,
                 targetSession: targetSession,
                 evidence: .contradiction,
-                singleAction: .none
+                singleAction: .none,
+                boundaryCaret: boundaryCaret
             )
             return
         }
@@ -609,13 +678,11 @@ final class AutoFixController {
         if case .suggestSpelling(let typoAssessment) = evaluation.disposition {
             if typoAssessment.shouldSuppressAutoReplace {
                 var extra: [String: AnalyticsValue] = [
-                    "candidate": .string(candidate),
+                    "candidate_length": .int(candidate.count),
                     "from_lang": .string(currentLang),
                     "to_lang": .string(targetLang)
                 ]
-                if let suggestion = typoAssessment.suggestion {
-                    extra["spell_suggestion"] = .string(suggestion)
-                }
+                extra["has_spell_suggestion"] = .bool(typoAssessment.suggestion != nil)
                 if let editDistance = typoAssessment.editDistance {
                     extra["edit_distance"] = .int(editDistance)
                 }
@@ -731,7 +798,8 @@ final class AutoFixController {
                     targetLayoutID: targetID,
                     candidateScore: effectiveScoreCandidate
                 ),
-                singleAction: shouldOfferSingleProposal ? .proposal(force: false) : .none
+                singleAction: shouldOfferSingleProposal ? .proposal(force: false) : .none,
+                boundaryCaret: boundaryCaret
             ) {
                 return
             }
@@ -791,7 +859,8 @@ final class AutoFixController {
                 targetLayoutID: targetID,
                 candidateScore: effectiveScoreCandidate
             ),
-            singleAction: deferredAction
+            singleAction: deferredAction,
+            boundaryCaret: boundaryCaret
         ) {
             return
         }
@@ -930,7 +999,8 @@ final class AutoFixController {
         allowsProposal: Bool,
         targetSession: AutoFixTargetSession?,
         evidence: LayoutIncidentToken.Evidence,
-        singleAction: DeferredSingleAction
+        singleAction: DeferredSingleAction,
+        boundaryCaret: Int?
     ) -> Bool {
         let context = LayoutIncidentContext(
             fromLayoutID: fromLayoutID,
@@ -949,7 +1019,8 @@ final class AutoFixController {
             candidate: candidate,
             boundary: boundary.isEmpty ? " " : boundary,
             targetLayoutID: targetLayoutID,
-            evidence: evidence
+            evidence: evidence,
+            boundaryCaret: boundaryCaret
         )
 
         if isCapturingLayoutIncident {
@@ -964,7 +1035,7 @@ final class AutoFixController {
                     let untouchedSuffix = layoutIncident.trailingBoundary
                         + original
                         + token.boundary
-                    finalizeLayoutIncident(boundaryOverride: untouchedSuffix)
+                    finalizeLayoutIncident(boundaryOverride: untouchedSuffix, trigger: .midFlow)
                     return handleLayoutIncidentToken(
                         original: original,
                         candidate: candidate,
@@ -984,18 +1055,18 @@ final class AutoFixController {
                         allowsProposal: allowsProposal,
                         targetSession: targetSession,
                         evidence: evidence,
-                        singleAction: singleAction
+                        singleAction: singleAction,
+                        boundaryCaret: boundaryCaret
                     )
                 } else if evidence == .contradiction {
                     markDecisionAggregateOnly(matching: original)
-                    finalizeLayoutIncident()
+                    finalizeLayoutIncident(trigger: .midFlow)
                     return true
                 } else if result == .reachedCap
-                            || layoutIncident.isReadyForImmediateFinalization
                             || layoutIncident.endsSentence
                             || LayoutIncidentTracker.isHardBoundary(boundary) {
                     markDecisionAggregateOnly(matching: original)
-                    finalizeLayoutIncident()
+                    finalizeLayoutIncident(trigger: .midFlow)
                     return true
                 } else {
                     markDecisionAggregateOnly(matching: original)
@@ -1011,7 +1082,30 @@ final class AutoFixController {
             return false
         }
 
-        guard evidence == .strong else { return false }
+        guard evidence != .contradiction else { return false }
+
+        // A weak word is only weak alone: "nj" scores nothing by itself, yet in
+        // "nj ljhtxs" it is obviously "то". Runs used to open only on a strong
+        // token, so weak words typed BEFORE the first strong one fell out of the
+        // run forever — and the strong word then got replaced by itself, leaving
+        // a half-converted phrase. A neutral token now opens the run too; the
+        // joined run is judged as a whole at finalization.
+        if evidence == .neutral {
+            guard layoutIncident.append(token) != .wouldExceedCap else {
+                resetLayoutIncident()
+                return false
+            }
+            layoutIncidentContext = context
+            isCapturingLayoutIncident = true
+            markDecisionAggregateOnly(matching: original)
+            if LayoutIncidentTracker.isHardBoundary(boundary) {
+                finalizeLayoutIncident(trigger: .midFlow)
+            } else {
+                armLayoutIncidentIdleTimer()
+            }
+            return true
+        }
+
         guard layoutIncident.append(token) != .wouldExceedCap else {
             resetLayoutIncident()
             return false
@@ -1031,7 +1125,8 @@ final class AutoFixController {
             currentLang: currentLang,
             targetLang: targetLang,
             bundleID: bundleID,
-            targetSession: targetSession
+            targetSession: targetSession,
+            boundaryCaret: boundaryCaret
         )
         markDecisionAggregateOnly(matching: original)
         if LayoutIncidentTracker.isHardBoundary(boundary) {
@@ -1039,8 +1134,9 @@ final class AutoFixController {
             return true
         }
         let timestamp = ProcessInfo.processInfo.systemUptime
-        layoutIncidentTimerState.armSingleWord(at: timestamp)
-        scheduleLayoutIncidentTimer(after: LayoutIncidentTimerState.singleWordGrace)
+        let grace = cadence.singleWordGrace
+        layoutIncidentTimerState.armSingleWord(at: timestamp, grace: grace)
+        scheduleLayoutIncidentTimer(after: grace)
         return true
     }
 
@@ -1063,8 +1159,9 @@ final class AutoFixController {
 
     private func armLayoutIncidentIdleTimer() {
         let timestamp = ProcessInfo.processInfo.systemUptime
-        layoutIncidentTimerState.armIncidentIdle(at: timestamp)
-        scheduleLayoutIncidentTimer(after: LayoutIncidentTimerState.incidentIdleDelay)
+        let idle = cadence.commitPause
+        layoutIncidentTimerState.armIncidentIdle(at: timestamp, idle: idle)
+        scheduleLayoutIncidentTimer(after: idle)
     }
 
     private func scheduleLayoutIncidentTimer(after delay: TimeInterval) {
@@ -1091,6 +1188,15 @@ final class AutoFixController {
     }
 
     private func executeDeferredSingleDecision() {
+        // Atomicity: a deferred single is only valid while the run it opened
+        // still holds just that word. Once more tokens have joined, the run is
+        // judged as a whole — a lone-word mutation inside a longer run is
+        // exactly how phrases used to end up half-converted.
+        guard layoutIncident.wordCount <= 1 else {
+            pendingSingleDecision = nil
+            finalizeLayoutIncident()
+            return
+        }
         guard let decision = pendingSingleDecision else {
             resetLayoutIncident()
             return
@@ -1113,7 +1219,8 @@ final class AutoFixController {
                 currentLang: decision.currentLang,
                 targetLang: decision.targetLang,
                 bundleID: decision.bundleID,
-                targetSession: decision.targetSession
+                targetSession: decision.targetSession,
+                boundaryCaret: decision.boundaryCaret
             )
             recordDeferredSingleDecision(
                 decision,
@@ -1136,7 +1243,8 @@ final class AutoFixController {
                 targetLang: decision.targetLang,
                 bundleID: decision.bundleID,
                 targetSession: decision.targetSession,
-                force: force
+                force: force,
+                boundaryCaret: decision.boundaryCaret
             )
             if !didPresent {
                 recordDeferredSingleDecision(
@@ -1149,7 +1257,20 @@ final class AutoFixController {
         }
     }
 
-    private func finalizeLayoutIncident(boundaryOverride: String? = nil) {
+    /// What caused the run to be judged. `.idle` — the user genuinely paused,
+    /// so a panel in front of them is fine. `.midFlow` — a boundary keystroke
+    /// (sentence end, Enter, cap, a correct word) closed the run while they
+    /// were still typing; anything interactive would die under the next
+    /// keystroke, so proposals surface as the passive chip instead.
+    private enum LayoutIncidentFinalizeTrigger {
+        case idle
+        case midFlow
+    }
+
+    private func finalizeLayoutIncident(
+        boundaryOverride: String? = nil,
+        trigger: LayoutIncidentFinalizeTrigger = .idle
+    ) {
         guard let context = layoutIncidentContext,
               !layoutIncident.isEmpty else {
             resetLayoutIncident()
@@ -1158,17 +1279,34 @@ final class AutoFixController {
         let incident = layoutIncident
         resetLayoutIncident()
 
-        let original = incident.originalBody
-        let candidate = incident.candidateBody
-        let untouchedBoundary = boundaryOverride ?? incident.trailingBoundary
+        // Judge and replace only the tokens that are part of the mistake — a
+        // trailing contradiction (the correct word that ended the run) stays
+        // untouched in the document.
+        let judged = incident.judgedTokens
+        guard !judged.isEmpty, let lastJudged = judged.last else { return }
+        let trimmedTrailing = judged.count != incident.tokens.count
+
+        let original = LayoutIncidentTracker.joinedBody(of: judged, \.original)
+        let candidate = LayoutIncidentTracker.joinedBody(of: judged, \.candidate)
+        // boundaryOverride describes text sitting after the FULL run (cap
+        // overflow); once trimming dropped the tail it no longer applies.
+        let untouchedBoundary = trimmedTrailing
+            ? lastJudged.boundary
+            : (boundaryOverride ?? incident.trailingBoundary)
+        // Per-token capture: the anchor belongs to the boundary of the last
+        // *judged* token, sampled while it was still the live caret.
+        let incidentBoundaryCaret = lastJudged.boundaryCaret
         let scorer = resolvedScorer(for: context.algorithm)
         let scoreOriginal = scorer.score(original, expecting: context.currentLang)
         let scoreCandidate = scorer.score(candidate, expecting: context.targetLang)
-        let decision = incident.decision(
+        let decision = LayoutIncidentTracker.runVerdict(
             scoreOriginal: scoreOriginal,
             scoreCandidate: scoreCandidate,
             threshold: context.threshold,
-            tolerateContradictions: Defaults[.autoFixTolerateIncidentContradictions]
+            proposalWindow: Defaults[.autoFixProposalWindow],
+            hasContradiction: judged.contains { $0.evidence == .contradiction },
+            hasUnanimousDictionarySupport: judged.allSatisfy { $0.evidence == .strong },
+            hasStrongEvidence: judged.contains { $0.evidence == .strong }
         )
 
         guard decision != .discard,
@@ -1179,6 +1317,25 @@ final class AutoFixController {
                 targetLanguage: context.targetLang,
                 allowlist: Defaults[.autoFixAllowlist]
               ) else {
+            // Discards used to vanish without a trace — the field data that
+            // exposed the quorum bug had to be reconstructed by hand. Aggregate
+            // counts are enough to see the miss rate.
+            recordPhraseDecision(
+                original: original,
+                candidate: candidate,
+                scoreOriginal: scoreOriginal,
+                scoreCandidate: scoreCandidate,
+                threshold: context.threshold,
+                algorithm: context.algorithm,
+                currentLang: context.currentLang,
+                targetLang: context.targetLang,
+                fromLayoutID: context.fromLayoutID,
+                targetLayoutID: context.targetLayoutID,
+                bundleID: context.bundleID,
+                outcome: .skipped,
+                reason: .belowThreshold,
+                signalKind: nil
+            )
             return
         }
 
@@ -1195,7 +1352,8 @@ final class AutoFixController {
                 currentLang: context.currentLang,
                 targetLang: context.targetLang,
                 bundleID: context.bundleID,
-                targetSession: context.targetSession
+                targetSession: context.targetSession,
+                boundaryCaret: incidentBoundaryCaret
             )
             recordPhraseDecision(
                 original: original,
@@ -1250,7 +1408,9 @@ final class AutoFixController {
             targetLang: context.targetLang,
             bundleID: context.bundleID,
             targetSession: context.targetSession,
-            force: true
+            force: true,
+            boundaryCaret: incidentBoundaryCaret,
+            presentation: trigger == .midFlow ? .chip : .panel
         )
         if !didPresent {
             recordPhraseDecision(
@@ -1295,14 +1455,16 @@ final class AutoFixController {
         currentLang: String,
         targetLang: String,
         bundleID: String,
-        targetSession: AutoFixTargetSession?
+        targetSession: AutoFixTargetSession?,
+        boundaryCaret: Int? = nil
     ) -> Bool {
         guard let replacementResult = performAnchoredReplacement(
             original: original,
             candidate: candidate,
             boundary: boundary,
             bundleID: bundleID,
-            targetSession: targetSession
+            targetSession: targetSession,
+            boundaryCaret: boundaryCaret
         ) else {
             return false
         }
@@ -1369,7 +1531,8 @@ final class AutoFixController {
         currentLang: String,
         targetLang: String,
         bundleID: String,
-        targetSession: AutoFixTargetSession?
+        targetSession: AutoFixTargetSession?,
+        boundaryCaret: Int? = nil
     ) -> Bool {
         let boundaryToPreserve = boundary.isEmpty ? " " : boundary
         guard let replacementResult = performAnchoredReplacement(
@@ -1377,7 +1540,8 @@ final class AutoFixController {
             candidate: candidate,
             boundary: boundaryToPreserve,
             bundleID: bundleID,
-            targetSession: targetSession
+            targetSession: targetSession,
+            boundaryCaret: boundaryCaret
         ) else {
             return false
         }
@@ -1431,6 +1595,13 @@ final class AutoFixController {
         return true
     }
 
+    /// How a proposal reaches the user: the interactive panel (they paused) or
+    /// the passive deferred chip (they are still typing).
+    private enum ProposalPresentation {
+        case panel
+        case chip
+    }
+
     @discardableResult
     private func maybeShowProposal(
         original: String,
@@ -1446,7 +1617,9 @@ final class AutoFixController {
         targetLang: String,
         bundleID: String,
         targetSession: AutoFixTargetSession?,
-        force: Bool = false
+        force: Bool = false,
+        boundaryCaret: Int? = nil,
+        presentation: ProposalPresentation = .panel
     ) -> Bool {
         guard Defaults[.autoFixProposalEnabled] else { return false }
         if !force {
@@ -1471,10 +1644,11 @@ final class AutoFixController {
                 for: targetSession,
                 expectedBundleID: bundleID,
                 source: original,
-                boundary: boundaryToPreserve
+                boundary: boundaryToPreserve,
+                boundaryCaret: boundaryCaret
               )
         else {
-            logSkip(.targetUnverifiable, word: original, bundleID: bundleID)
+            logTargetUnverifiable(word: original, bundleID: bundleID)
             return false
         }
         let proposal = AutoFixProposal(
@@ -1502,7 +1676,12 @@ final class AutoFixController {
             candidateOrigin: .keyboardLayout,
             matching: original
         )
-        presentProposal(proposal, recordDecision: false)
+        switch presentation {
+        case .panel:
+            presentProposal(proposal, recordDecision: false)
+        case .chip:
+            demoteProposalToChip(proposal)
+        }
         return true
     }
 
@@ -1527,7 +1706,7 @@ final class AutoFixController {
                 boundary: boundaryToPreserve
               )
         else {
-            logSkip(.targetUnverifiable, word: original, bundleID: bundleID)
+            logTargetUnverifiable(word: original, bundleID: bundleID)
             return
         }
 
@@ -1580,6 +1759,15 @@ final class AutoFixController {
                 source: original,
                 boundary: boundaryToPreserve
               ) else { return }
+        // Compound proposals used to be the one producer that recorded no
+        // decision at all — invisible in history and aggregates alike.
+        markDecision(
+            outcome: .proposed,
+            reason: nil,
+            signalKind: .proposal,
+            candidateOrigin: .keyboardLayout,
+            matching: original
+        )
         presentProposal(AutoFixProposal(
             original: original,
             candidate: suggestion,
@@ -1616,7 +1804,7 @@ final class AutoFixController {
                 boundary: boundaryToPreserve
               )
         else {
-            logSkip(.targetUnverifiable, word: original, bundleID: bundleID)
+            logTargetUnverifiable(word: original, bundleID: bundleID)
             return
         }
         let proposal = AutoFixProposal(
@@ -1657,39 +1845,147 @@ final class AutoFixController {
         AutoFixProposalCoordinator.shared.show(
             proposal: proposal,
             near: NSEvent.mouseLocation,
+            duration: cadence.proposalDuration,
             actions: AutoFixProposalActions(
                 replace: { [weak self] in
-                    self?.acceptProposal(proposal)
+                    guard let self else { return }
+                    let applied = self.acceptProposal(proposal)
+                    self.logProposalResolution(proposal, resolution: applied ? "accepted" : "accept_failed")
                 },
                 dismiss: { [weak self] in
+                    self?.logProposalResolution(proposal, resolution: "esc")
                     self?.showProposalRecovery(proposal)
                 },
+                typedOver: { [weak self] in
+                    self?.logProposalResolution(proposal, resolution: "typed_over")
+                    self?.demoteProposalToChip(proposal)
+                },
                 timedOut: { [weak self] in
+                    self?.logProposalResolution(proposal, resolution: "timed_out")
                     self?.showProposalRecovery(proposal)
                 },
                 neverReplace: { [weak self] in
+                    self?.logProposalResolution(proposal, resolution: "never_replace")
                     self?.neverReplace(proposal)
                 }
             )
         )
     }
 
-    private func acceptProposal(_ proposal: AutoFixProposal) {
+    // MARK: - Deferred chip
+
+    /// Where the panel's death used to be the end of the road, the fix now
+    /// waits — passive, keyboard-transparent — for the user to reach a natural
+    /// stop and either click it in or let it fade.
+    private func demoteProposalToChip(_ proposal: AutoFixProposal) {
+        pendingDeferredChip = proposal
+        FixToastCoordinator.shared.showDeferredChip(
+            original: proposal.original,
+            candidate: proposal.candidate,
+            near: NSEvent.mouseLocation,
+            timeToLive: cadence.chipTimeToLive,
+            onApply: { [weak self] in
+                self?.applyDeferredChip()
+            },
+            onDismiss: { [weak self] in
+                self?.dropDeferredChip(resolution: "chip_dismissed")
+            },
+            onExpire: { [weak self] in
+                self?.dropDeferredChip(resolution: "chip_expired")
+            }
+        )
+    }
+
+    private func applyDeferredChip() {
+        guard let chip = pendingDeferredChip else { return }
+        pendingDeferredChip = nil
+
+        // The captured anchor survives text typed *after* it — the readback at
+        // its exact range still proves it. Only when the anchor is dead (the
+        // text shifted or the element re-created) fall back to locating the run
+        // by content in the current field.
+        // A chip exists because the user typed over the proposal, so a blind
+        // keyboard-fallback anchor is never safe here; re-locate by content instead.
+        if chip.replacementAnchor.survivesLaterTyping,
+           targetValidator.isReplacementAnchorValid(chip.replacementAnchor) {
+            logProposalResolution(chip, resolution: acceptProposal(chip) ? "chip_applied" : "chip_apply_failed")
+            return
+        }
+        guard let anchor = targetValidator.captureRetroactiveAnchor(
+            expectedBundleID: chip.bundleID,
+            source: chip.original,
+            boundary: chip.boundary
+        ) else {
+            // The run is no longer (uniquely) in the field: sent, self-corrected,
+            // or duplicated. Walk away without touching anything.
+            logProposalResolution(chip, resolution: "chip_apply_failed")
+            return
+        }
+        let reanchored = AutoFixProposal(
+            original: chip.original,
+            candidate: chip.candidate,
+            boundary: chip.boundary,
+            fromLayoutID: chip.fromLayoutID,
+            targetLayoutID: chip.targetLayoutID,
+            scoreOriginal: chip.scoreOriginal,
+            scoreCandidate: chip.scoreCandidate,
+            threshold: chip.threshold,
+            algorithm: chip.algorithm,
+            currentLang: chip.currentLang,
+            targetLang: chip.targetLang,
+            bundleID: chip.bundleID,
+            createdAt: chip.createdAt,
+            replacementAnchor: anchor,
+            kind: chip.kind
+        )
+        logProposalResolution(chip, resolution: acceptProposal(reanchored) ? "chip_applied" : "chip_apply_failed")
+    }
+
+    private func dropDeferredChip(resolution: String) {
+        guard let chip = pendingDeferredChip else { return }
+        pendingDeferredChip = nil
+        FixToastCoordinator.shared.dismissChip()
+        logProposalResolution(chip, resolution: resolution)
+    }
+
+    /// What actually became of a shown proposal. `.proposed` in the decision
+    /// history is terminal, so without this the acceptance rate of the panel —
+    /// the number every timing decision here should be tuned against — was
+    /// unknowable.
+    private func logProposalResolution(_ proposal: AutoFixProposal, resolution: String) {
+        PapugaEventLog.shared.track(AnalyticsEvent(
+            kind: AnalyticsKind.autoFixProposalResolved,
+            frontmostBundleID: proposal.bundleID,
+            inputLayout: proposal.fromLayoutID,
+            properties: [
+                "proposal_id": .string(proposal.id.uuidString),
+                "proposal_kind": .string(String(describing: proposal.kind)),
+                "resolution": .string(resolution),
+                "original_length": .int(proposal.original.count),
+                "age_ms": .int(Int((ProcessInfo.processInfo.systemUptime - proposal.createdAt) * 1000))
+            ]
+        ))
+    }
+
+    @discardableResult
+    private func acceptProposal(_ proposal: AutoFixProposal) -> Bool {
         switch proposal.kind {
         case .detected:
             let canCreateRule = canCreateRule(from: proposal)
             let historyKind: ReplacementHistoryEntry.Kind = canCreateRule ? .autoRuleApplied : .autoFixApplied
-            if applyProposal(
+            let applied = applyProposal(
                 proposal,
                 source: canCreateRule ? "proposal_auto_rule" : "proposal",
                 historyKind: historyKind
-            ), canCreateRule {
+            )
+            if applied, canCreateRule {
                 createRuleFromProposal(proposal)
             }
+            return applied
         case .customRule:
-            _ = applyProposal(proposal, source: "custom_rule_proposal", historyKind: .autoRuleApplied)
+            return applyProposal(proposal, source: "custom_rule_proposal", historyKind: .autoRuleApplied)
         case .spelling, .compound:
-            _ = applyProposal(proposal, source: "spelling_proposal", historyKind: .autoFixApplied)
+            return applyProposal(proposal, source: "spelling_proposal", historyKind: .autoFixApplied)
         }
     }
 
@@ -1783,19 +2079,11 @@ final class AutoFixController {
         Defaults[.customAutoReplaceRules] = rules
         cachedCustomRules = rules
 
-        // The allowlist stores normalized cores (IgnoreWordService.add), so a
-        // raw comparison here silently kept the "never replace" entry alive and
-        // the brand-new rule could never fire. RecommendationEngine and
-        // AISuggestionApplier already normalize on this path.
-        let allowlistKey = BufferedToken.normalizedCore(from: proposal.original)
-        if !allowlistKey.isEmpty {
-            var allowlist = Defaults[.autoFixAllowlist]
-            allowlist.removeAll {
-                BufferedToken.normalizedCore(from: $0)
-                    .caseInsensitiveCompare(allowlistKey) == .orderedSame
-            }
-            Defaults[.autoFixAllowlist] = allowlist
-        }
+        // Creating a rule for a word overrides an older "never replace" for it —
+        // and that has to include the spelling dictionary `IgnoreWordService.add`
+        // taught, otherwise the word keeps reading as correct and the new rule
+        // never fires.
+        IgnoreWordService.remove(proposal.original)
     }
 
     private func canCreateRule(from proposal: AutoFixProposal) -> Bool {
@@ -1832,6 +2120,7 @@ final class AutoFixController {
     private func reopenProposalRecovery() {
         guard let pending = pendingProposalRecovery,
               pending.isValid(at: ProcessInfo.processInfo.systemUptime),
+              pending.proposal.replacementAnchor.survivesLaterTyping,
               targetValidator.isReplacementAnchorValid(pending.proposal.replacementAnchor)
         else {
             clearRecovery()
@@ -2232,6 +2521,36 @@ final class AutoFixController {
         activeDecisionDraft = draft
     }
 
+    /// Skip event for "could not pin the token to an AX range", naming the AX read
+    /// that actually failed.
+    ///
+    /// Every caller used to emit an identical bare `target_unverifiable`, which
+    /// covered a missing focused element, a caret outside the typed token, a failed
+    /// text readback and a target that moved — four different bugs behind one
+    /// string, and no way to tell them apart from the field logs.
+    private func logTargetUnverifiable(word: String, bundleID: String) {
+        var extra: [String: AnalyticsValue] = [:]
+        if let reason = targetValidator.lastFailureReason {
+            extra["target_reason"] = .string(reason)
+        }
+        for (key, value) in caretMismatchProperties() {
+            extra[key] = value
+        }
+        logSkip(.targetUnverifiable, word: word, bundleID: bundleID, extra: extra)
+    }
+
+    /// How far the caret actually moved versus what would have been accepted.
+    ///
+    /// Three attempts at this bug were spent theorising about why targets stopped
+    /// matching; the numbers were never in the logs. They are now.
+    private func caretMismatchProperties() -> [String: AnalyticsValue] {
+        guard let mismatch = targetValidator.lastCaretMismatch else { return [:] }
+        return [
+            "caret_advance_actual": .int(mismatch.actual),
+            "caret_advance_expected": .string(mismatch.expected.map(String.init).joined(separator: ","))
+        ]
+    }
+
     private func logSkip(
         _ reason: AutoFixSkipReason,
         word: String,
@@ -2256,13 +2575,13 @@ final class AutoFixController {
         ))
     }
 
-
     private func performAnchoredReplacement(
         original: String,
         candidate: String,
         boundary: String,
         bundleID: String,
-        targetSession: AutoFixTargetSession?
+        targetSession: AutoFixTargetSession?,
+        boundaryCaret: Int? = nil
     ) -> TextReplacementResult? {
         guard let targetSession else {
             logSkip(.targetUnverifiable, word: original, bundleID: bundleID, extra: [
@@ -2274,16 +2593,15 @@ final class AutoFixController {
             for: targetSession,
             expectedBundleID: bundleID,
             source: original,
-            boundary: boundary
+            boundary: boundary,
+            boundaryCaret: boundaryCaret
         ) else {
-            logSkip(.targetUnverifiable, word: original, bundleID: bundleID, extra: [
-                "target_reason": .string("range_validation_failed")
-            ])
+            logTargetUnverifiable(word: original, bundleID: bundleID)
             return nil
         }
         guard let replacementResult = targetValidator.replaceAnchoredText(anchor, with: candidate) else {
             logSkip(.replacementNotCommitted, word: original, bundleID: bundleID, extra: [
-                "target_reason": .string("editor_content_mismatch")
+                "target_reason": .string(targetValidator.lastReplaceFailureReason ?? "editor_content_mismatch")
             ])
             return nil
         }
@@ -2346,6 +2664,40 @@ final class AutoFixController {
         AutoFixDecision.isWordBoundary(keyCode: keyCode, typedString: typedString)
     }
 
+    /// Whether this key event is the user's configured shortcut.
+    ///
+    /// Only the four device-independent modifiers are compared: the flags a tap reports
+    /// also carry state a recorded shortcut never has (numeric keypad, Caps Lock), and
+    /// demanding raw equality would never match.
+    nonisolated static func matchesShortcut(
+        keyCode: UInt16,
+        flags: CGEventFlags,
+        carbonKeyCode: Int?,
+        modifiers: NSEvent.ModifierFlags
+    ) -> Bool {
+        guard let carbonKeyCode, Int(keyCode) == carbonKeyCode else { return false }
+        var pressed: NSEvent.ModifierFlags = []
+        if flags.contains(.maskCommand) { pressed.insert(.command) }
+        if flags.contains(.maskShift) { pressed.insert(.shift) }
+        if flags.contains(.maskAlternate) { pressed.insert(.option) }
+        if flags.contains(.maskControl) { pressed.insert(.control) }
+        return pressed == modifiers.intersection([.command, .shift, .option, .control])
+    }
+
+    /// The undo shortcut reaches the tap on keyDown, but `KeyboardShortcuts` delivers it
+    /// on keyUp. Every reset path below clears `lastFix`, so without this the handler
+    /// always found nothing to undo — a Cmd chord through `processEvent`'s command branch,
+    /// anything else through the reset-key or boundary branch.
+    private func isUndoShortcut(keyCode: UInt16, flags: CGEventFlags) -> Bool {
+        guard let shortcut = KeyboardShortcuts.getShortcut(for: .undoLastFix) else { return false }
+        return Self.matchesShortcut(
+            keyCode: keyCode,
+            flags: flags,
+            carbonKeyCode: shortcut.carbonKeyCode,
+            modifiers: shortcut.modifiers
+        )
+    }
+
     private func languageHintForLayoutID(_ layoutID: String) -> String {
         AutoFixDecision.languageHintForLayoutID(layoutID)
     }
@@ -2393,6 +2745,9 @@ private struct DeferredSingleDecision {
     let targetLang: String
     let bundleID: String
     let targetSession: AutoFixTargetSession?
+    /// The caret as it stood at the boundary that produced this decision, captured
+    /// before the grace timer let the user type past it.
+    let boundaryCaret: Int?
 }
 
 private struct LayoutIncidentContext {

@@ -23,6 +23,15 @@ struct TextReplacementAnchor: Equatable {
     let expectedSource: String
     let allowsKeyboardFallback: Bool
 
+    /// Whether the anchor may still be used after the user typed past it.
+    ///
+    /// A keyboard-fallback anchor deletes blind at the *current* caret. In an editor
+    /// that exposes no caret (Chrome, web fields) nothing can prove the caret has not
+    /// moved, so once the user has typed on, those deletes would eat the new text.
+    var survivesLaterTyping: Bool {
+        !allowsKeyboardFallback
+    }
+
     static func sourceRange(
         caretAfterBoundary: Int,
         source: String,
@@ -135,6 +144,31 @@ struct FocusedElementSignature: Equatable {
         return stableIdentity == other.stableIdentity
     }
 
+    /// Identity check that deliberately ignores caret position and window geometry.
+    ///
+    /// Used when the caret an anchor refers to was recorded earlier, at the word
+    /// boundary, and the live caret has legitimately moved on because the user kept
+    /// typing. Position can no longer corroborate identity — demanding it is what
+    /// made every fast typist's correction fail — so the anchor is proved instead by
+    /// reading the expected text back at the recorded range.
+    ///
+    /// windowTitleHash and frameHash are excluded on purpose: they drift while you
+    /// type (tab titles, growing composers) and were never evidence of identity.
+    func matchesTypingTargetIgnoringPosition(_ other: FocusedElementSignature) -> Bool {
+        guard pid == other.pid,
+              role == other.role,
+              subrole == other.subrole
+        else {
+            return false
+        }
+        if let elementIdentifier,
+           let otherIdentifier = other.elementIdentifier,
+           elementIdentifier != otherIdentifier {
+            return false
+        }
+        return true
+    }
+
     struct StableIdentity: Equatable {
         let pid: pid_t
         let role: String?
@@ -181,8 +215,55 @@ enum AutoFixTargetValidation: Equatable {
 final class AutoFixTargetValidator {
     private(set) var session: AutoFixTargetSession?
 
+    /// Which AX read stopped the last `captureReplacementAnchor` from producing an
+    /// anchor. Carried purely so the skip event can name the failing step — the
+    /// controller used to log a bare `target_unverifiable` that covered four
+    /// different causes and made this class undiagnosable from the field logs.
+    private(set) var lastFailureReason: String?
+
+    struct CaretMismatch: Equatable {
+        let expected: [Int]
+        let actual: Int
+    }
+
+    /// How far the caret actually moved versus what was acceptable, recorded whenever
+    /// a caret comparison rejects the target. Logged so a future regression here is a
+    /// number to read rather than a theory to guess at — the previous three attempts
+    /// at this bug were guesses.
+    private(set) var lastCaretMismatch: CaretMismatch?
+
+    /// The live collapsed caret, for callers that need to record it while it is still
+    /// fresh — i.e. at the word boundary, before any grace period lets it drift.
+    func currentCaretLocation() -> Int? {
+        guard let focused = Self.focusedElement(),
+              let selection = Self.selectedTextRange(for: focused),
+              selection.length == 0
+        else {
+            return nil
+        }
+        return selection.location
+    }
+
+    /// How many times a focused-element read is re-sampled before giving up.
+    ///
+    /// Apps move focus between their own elements between words — Telegram flips
+    /// between the composer's `AXTextArea` and the message list's `AXStaticText`,
+    /// and the system-wide read returns nil outright now and then. Sampling once
+    /// turns those moments into a dropped correction.
+    ///
+    /// Note what this is *not* for: during steady typing the AX caret is healthy and
+    /// monotonic even in Electron apps. An earlier reading of this code blamed
+    /// "oscillation while typing" for the mass failures; the real cause was caret
+    /// arithmetic (see `acceptableCaretAdvances` and `restoredCaretLocation`).
+    /// Re-sampling changes only how many chances we take — never what counts as
+    /// acceptable, which is still an exact readback of `source + boundary` at the
+    /// range we are about to mutate.
+    private static let focusSampleAttempts = 3
+    private static let focusSampleRetryDelay: TimeInterval = 0.008
+
     func reset() {
         session = nil
+        lastFailureReason = nil
     }
 
     @discardableResult
@@ -203,7 +284,11 @@ final class AutoFixTargetValidator {
             targetPID: targetPID,
             bundleID: app?.bundleIdentifier,
             appName: app?.localizedName,
-            focusedElementSignature: Self.focusedElementSignature(),
+            // Re-sampled like every other focused-element read here. This one fires on
+            // the first keystroke of a word, and a nil captured here poisons the word:
+            // validateCurrentTarget can only answer `missing_initial_focused_element`
+            // from then on, no matter how healthy the AX tree becomes by the boundary.
+            focusedElementSignature: Self.resampledFocusedElementSignature(),
             firstKeyCode: keyCode,
             firstCharacter: typedString
         )
@@ -227,11 +312,37 @@ final class AutoFixTargetValidator {
         )
     }
 
+    /// Caret advances that are both consistent with the user having typed `source`
+    /// followed by `boundary` since the session started.
+    ///
+    /// The event tap is created with `.defaultTap`, so Papuga's callback runs *before*
+    /// the keystroke reaches the target app, and `handleEvent` then hops to the main
+    /// actor. Whether the app has inserted a character by the time we read its caret
+    /// is therefore a race Papuga usually wins. `landed` assumes the session's first
+    /// character was already in the field when the session caret was sampled;
+    /// `pending` assumes it was not. Guessing one of them was the original bug: every
+    /// caret-exposing app (Telegram, Notes, Teams) reported `focused_element_changed`
+    /// forever while caret-less ones (Warp, Chrome) worked fine.
+    nonisolated static func acceptableCaretAdvances(
+        source: String,
+        boundary: String,
+        firstCharacter: String
+    ) -> [Int] {
+        let landed = max(0, source.utf16.count - firstCharacter.utf16.count) + boundary.utf16.count
+        let pending = source.utf16.count + boundary.utf16.count
+        return landed == pending ? [landed] : [landed, pending]
+    }
+
+    /// - Parameter knownBoundaryCaret: the caret recorded at the word boundary, when
+    ///   the caller already has one. Its presence means the live caret is expected to
+    ///   have moved on — the user kept typing during the grace period — so caret
+    ///   arithmetic is skipped and identity is checked without position.
     func validateCurrentTarget(
         for session: AutoFixTargetSession,
         expectedBundleID: String? = nil,
         source: String,
-        boundary: String
+        boundary: String,
+        knownBoundaryCaret: Int? = nil
     ) -> AutoFixTargetValidation {
         let activeBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         let expected = expectedBundleID?.nilIfEmpty ?? session.bundleID?.nilIfEmpty
@@ -244,20 +355,50 @@ final class AutoFixTargetValidator {
             return .unverifiable("missing_initial_focused_element")
         }
 
-        guard let currentSignature = Self.focusedElementSignature() else {
-            return .unverifiable("missing_current_focused_element")
+        let advances = Self.acceptableCaretAdvances(
+            source: source,
+            boundary: boundary,
+            firstCharacter: session.firstCharacter
+        )
+
+        // "Any sample matches", not "the first sample matches". Consecutive reads can
+        // disagree while an app moves focus between its own elements between words, and
+        // a target that genuinely moved still fails every sample. Nothing is mutated on
+        // the strength of this verdict alone: captureReplacementAnchor still has to read
+        // `source + boundary` back, and replaceAnchoredText still has to confirm the
+        // commit.
+        var sawCurrentSignature = false
+        for attempt in 0..<Self.focusSampleAttempts {
+            if attempt > 0 {
+                Thread.sleep(forTimeInterval: Self.focusSampleRetryDelay)
+            }
+            guard let currentSignature = Self.focusedElementSignature() else { continue }
+            sawCurrentSignature = true
+
+            if knownBoundaryCaret != nil {
+                if originalSignature.matchesTypingTargetIgnoringPosition(currentSignature) {
+                    lastCaretMismatch = nil
+                    return .verified
+                }
+                continue
+            }
+
+            if advances.contains(where: {
+                originalSignature.matchesTypingTarget(currentSignature, expectedCaretAdvance: $0)
+            }) {
+                lastCaretMismatch = nil
+                return .verified
+            }
+
+            if let original = originalSignature.selectedRangeLocation,
+               let current = currentSignature.selectedRangeLocation {
+                lastCaretMismatch = CaretMismatch(expected: advances, actual: current - original)
+            }
         }
 
-        let expectedCaretAdvance = max(0, source.utf16.count - session.firstCharacter.utf16.count)
-            + boundary.utf16.count
-        guard originalSignature.matchesTypingTarget(
-            currentSignature,
-            expectedCaretAdvance: expectedCaretAdvance
-        ) else {
-            return .changed("focused_element_changed")
-        }
-
-        return .verified
+        return sawCurrentSignature
+            ? .changed("focused_element_changed")
+            : .unverifiable("missing_current_focused_element")
     }
 
     func validateKeyEventStillTargetsSession(_ event: CGEvent) -> AutoFixTargetValidation {
@@ -285,71 +426,170 @@ final class AutoFixTargetValidator {
         return .verified
     }
 
+    /// Pins the just-typed token to an exact AX range, re-sampling the focused
+    /// element as described on `focusSampleAttempts`.
+    ///
+    /// Two ways to reach a verified range, tried in that order per sample:
+    /// the caret, and — when the caret is unusable — the tail of the element's
+    /// `AXValue`. Both end at the same acceptance test, an exact readback of
+    /// `source + boundary`, so a bad sample costs a retry rather than a wrong edit.
     func captureReplacementAnchor(
         for session: AutoFixTargetSession,
         expectedBundleID: String,
         source: String,
-        boundary: String
+        boundary: String,
+        boundaryCaret: Int? = nil
     ) -> TextReplacementAnchor? {
-        guard validateCurrentTarget(
+        lastFailureReason = nil
+        let validation = validateCurrentTarget(
             for: session,
             expectedBundleID: expectedBundleID,
             source: source,
-            boundary: boundary
-        ) == .verified,
-              let focused = Self.focusedElement(),
-              let signature = Self.focusedElementSignature(for: focused),
-              signature.pid == session.focusedElementSignature?.pid
-        else {
+            boundary: boundary,
+            knownBoundaryCaret: boundaryCaret
+        )
+        guard validation == .verified else {
+            switch validation {
+            case .verified:
+                break
+            case .changed(let reason), .unverifiable(let reason):
+                lastFailureReason = reason
+            }
             return nil
         }
 
-        let selection = Self.selectedTextRange(for: focused)
-        let sourceRange: AXTextRange? = selection.flatMap { selection in
-            guard selection.length == 0 else { return nil }
-            return TextReplacementAnchor.sourceRange(
-                caretAfterBoundary: selection.location,
-                source: source,
-                boundary: boundary
+        func makeAnchor(
+            signature: FocusedElementSignature,
+            sourceRange: AXTextRange?,
+            caretAfterBoundary: Int?,
+            allowsKeyboardFallback: Bool
+        ) -> TextReplacementAnchor {
+            TextReplacementAnchor(
+                targetPID: signature.pid,
+                bundleID: expectedBundleID,
+                focusedElementIdentity: signature.stableIdentity,
+                sourceRange: sourceRange,
+                boundaryUTF16Length: boundary.utf16.count,
+                caretAfterBoundary: caretAfterBoundary,
+                expectedSource: source,
+                allowsKeyboardFallback: allowsKeyboardFallback
             )
         }
-        let hasReadableAnchor = sourceRange.map { sourceRange in
-            Self.waitForReadableAnchor(
+
+        // The unverified keyboard fallback is the weakest path in the app — it
+        // deletes blind and offers no undo. A verified anchor from a *later*
+        // sample must therefore beat a fallback offered by an earlier one, so hold
+        // the fallback aside instead of returning on the first sample that allows
+        // it. Before re-sampling existed this ordering could not arise.
+        var fallbackAnchor: TextReplacementAnchor?
+        var failure = "missing_focused_element"
+
+        for attempt in 0..<Self.focusSampleAttempts {
+            if attempt > 0 {
+                Thread.sleep(forTimeInterval: Self.focusSampleRetryDelay)
+            }
+
+            guard let focused = Self.focusedElement(),
+                  let signature = Self.focusedElementSignature(for: focused),
+                  signature.pid == session.focusedElementSignature?.pid
+            else {
+                continue
+            }
+
+            let selection = Self.selectedTextRange(for: focused)
+            // The caret recorded at the boundary wins over the live one whenever the
+            // caller kept it. By mutation time the user has usually typed several more
+            // characters, so the live caret no longer sits after the token — but the
+            // token itself has not moved, and the readback below still proves it.
+            let anchorCaret = boundaryCaret ?? selection.flatMap { $0.length == 0 ? $0.location : nil }
+            let caretRange: AXTextRange? = anchorCaret.flatMap { caret in
+                TextReplacementAnchor.sourceRange(
+                    caretAfterBoundary: caret,
+                    source: source,
+                    boundary: boundary
+                )
+            }
+
+            if let caretRange, Self.waitForReadableAnchor(
                 source: source,
                 boundary: boundary,
-                sourceRange: sourceRange,
-                attempts: 5,
+                sourceRange: caretRange,
+                // The first sample keeps the original budget so a slow web editor
+                // still gets the same time to publish its text (e93324d); later
+                // samples are cheaper because the outer loop already waited.
+                attempts: attempt == 0 ? 5 : 2,
                 retryDelay: { Thread.sleep(forTimeInterval: 0.005) },
                 readString: { Self.string(for: $0, in: focused) }
-            )
-        } ?? false
-        guard hasReadableAnchor || Self.canUseKeyboardFallback(
-            boundary: boundary,
-            selection: selection,
-            sourceRange: sourceRange
-        ) else { return nil }
+            ) {
+                return makeAnchor(
+                    signature: signature,
+                    sourceRange: caretRange,
+                    caretAfterBoundary: anchorCaret,
+                    allowsKeyboardFallback: false
+                )
+            }
 
-        return TextReplacementAnchor(
-            targetPID: signature.pid,
-            bundleID: expectedBundleID,
-            focusedElementIdentity: signature.stableIdentity,
-            sourceRange: sourceRange,
-            boundaryUTF16Length: boundary.utf16.count,
-            caretAfterBoundary: selection?.location,
-            expectedSource: source,
-            allowsKeyboardFallback: !hasReadableAnchor
-        )
+            // The token is still the tail of AXValue, so recover the range from the
+            // text when the caret cannot describe it. The suffix match is its own
+            // proof that nothing was typed past the boundary — so this path is
+            // open even when a recorded caret exists but its readback failed
+            // (Telegram flips focus mid-read and the caret sample dies while the
+            // text sits right there).
+            if selection?.length ?? 0 == 0,
+               let suffix = Self.verifiedValueSuffixRange(
+                source: source,
+                boundary: boundary,
+                in: focused
+               ) {
+                return makeAnchor(
+                    signature: signature,
+                    sourceRange: suffix.sourceRange,
+                    caretAfterBoundary: suffix.caretAfterBoundary,
+                    allowsKeyboardFallback: false
+                )
+            }
+
+            // The blind fallback types at wherever the caret *currently* is, so it is
+            // only meaningful while that is still the boundary. Once the user has typed
+            // past it, backspacing would eat the word they are writing right now.
+            let caretStillAtBoundary = boundaryCaret == nil || boundaryCaret == selection?.location
+            if fallbackAnchor == nil, caretStillAtBoundary, Self.canUseKeyboardFallback(
+                boundary: boundary,
+                selection: selection,
+                sourceRange: caretRange
+            ) {
+                fallbackAnchor = makeAnchor(
+                    signature: signature,
+                    sourceRange: caretRange,
+                    caretAfterBoundary: selection?.location,
+                    allowsKeyboardFallback: true
+                )
+            }
+
+            failure = caretRange == nil ? "caret_outside_typed_token" : "editor_text_readback_failed"
+        }
+
+        if fallbackAnchor == nil {
+            lastFailureReason = failure
+        }
+        return fallbackAnchor
     }
+
+    /// Which step stopped the last `replaceAnchoredText`. One opaque
+    /// `editor_content_mismatch` used to cover four different causes — Telegram's
+    /// 7-of-7 failures were undiagnosable from field logs.
+    private(set) var lastReplaceFailureReason: String?
 
     /// Uses the exact anchored range when available. Web editors without AX text readback may use
     /// the verified keyboard fallback, but only for an ordinary space boundary.
     func replaceAnchoredText(_ anchor: TextReplacementAnchor, with replacement: String) -> TextReplacementResult? {
+        lastReplaceFailureReason = nil
         guard let sourceRange = anchor.sourceRange,
               let caretAfterBoundary = anchor.caretAfterBoundary,
               let focused = validatedElement(for: anchor)
         else {
             guard anchor.allowsKeyboardFallback,
-                  validatedTarget(for: anchor) != nil,
+                  validatedTarget(for: anchor, allowsStaleCaret: false) != nil,
                   let plan = Self.keyboardFallbackPlan(
                     source: anchor.expectedSource,
                     boundary: " ",
@@ -357,19 +597,33 @@ final class AutoFixTargetValidator {
                   ),
                   Self.postKeyboardFallback(plan)
             else {
+                lastReplaceFailureReason = "anchor_invalid"
                 return nil
             }
             return TextReplacementResult(recoveryAnchor: nil)
         }
 
-        guard Self.isAttributeSettable(kAXSelectedTextRangeAttribute as CFString, on: focused),
-              Self.isAttributeSettable(kAXSelectedTextAttribute as CFString, on: focused),
-              Self.setSelectedTextRange(sourceRange, on: focused)
-        else {
+        // Where the user actually is, read before anything moves. By the time a fix
+        // lands they are usually a word or two further on, and putting the caret back
+        // beside the corrected token would yank them backwards mid-sentence.
+        let liveCaretBeforeEdit = Self.selectedTextRange(for: focused)
+            .flatMap { $0.length == 0 ? $0.location : nil }
+
+        guard Self.isAttributeSettable(kAXSelectedTextRangeAttribute as CFString, on: focused) else {
+            lastReplaceFailureReason = "selection_not_settable"
+            return nil
+        }
+        guard Self.setSelectedTextRange(sourceRange, on: focused) else {
+            lastReplaceFailureReason = "selection_set_failed"
             return nil
         }
 
-        let axWriteSucceeded = AXUIElementSetAttributeValue(
+        // Qt editors (Telegram Desktop) expose a settable selection range but no
+        // settable AXSelectedText. Demanding both attributes killed the write
+        // before the Unicode-events path below ever got a chance — the verified
+        // selection is all that path actually needs.
+        let canWriteSelectedText = Self.isAttributeSettable(kAXSelectedTextAttribute as CFString, on: focused)
+        let axWriteSucceeded = canWriteSelectedText && AXUIElementSetAttributeValue(
             focused,
             kAXSelectedTextAttribute as CFString,
             replacement as CFTypeRef
@@ -406,13 +660,21 @@ final class AutoFixTargetValidator {
 
         guard replacementCommitted else {
             _ = Self.setSelectedTextRange(
-                AXTextRange(location: caretAfterBoundary, length: 0),
+                AXTextRange(location: liveCaretBeforeEdit ?? caretAfterBoundary, length: 0),
                 on: focused
             )
+            lastReplaceFailureReason = canWriteSelectedText
+                ? "write_not_committed"
+                : "unicode_fallback_not_committed"
             return nil
         }
 
-        let resultingCaret = sourceRange.location + replacementLength + anchor.boundaryUTF16Length
+        let resultingCaret = Self.restoredCaretLocation(
+            liveCaret: liveCaretBeforeEdit,
+            sourceRange: sourceRange,
+            replacementUTF16Length: replacementLength,
+            boundaryUTF16Length: anchor.boundaryUTF16Length
+        )
         _ = Self.setSelectedTextRange(
             AXTextRange(location: resultingCaret, length: 0),
             on: focused
@@ -437,6 +699,30 @@ final class AutoFixTargetValidator {
                 allowsKeyboardFallback: false
             )
         )
+    }
+
+    /// Where to leave the caret after a replacement.
+    ///
+    /// A fix lands up to `singleWordGrace` (0.3 s) — or `incidentIdleDelay` (0.6 s) for
+    /// a sentence — after the boundary that triggered it, and a typist covers several
+    /// characters in that time. Whatever text sits after the corrected token is the
+    /// word they are writing *now*, so the caret has to come back to where they left
+    /// it, shifted only by how much the token grew or shrank.
+    ///
+    /// The old behaviour — parking the caret just past the corrected token — is kept
+    /// for the case it was written for: no readable live caret, or a caret that had not
+    /// moved past the token at all.
+    nonisolated static func restoredCaretLocation(
+        liveCaret: Int?,
+        sourceRange: AXTextRange,
+        replacementUTF16Length: Int,
+        boundaryUTF16Length: Int
+    ) -> Int {
+        let tokenEnd = sourceRange.location + sourceRange.length
+        guard let liveCaret, liveCaret >= tokenEnd else {
+            return sourceRange.location + replacementUTF16Length + boundaryUTF16Length
+        }
+        return liveCaret + (replacementUTF16Length - sourceRange.length)
     }
 
     /// Largest token this path will blind-delete.
@@ -515,6 +801,17 @@ final class AutoFixTargetValidator {
         return false
     }
 
+    /// The boundary as the editor stores it, versus as the key event reported it.
+    ///
+    /// `keyboardGetUnicodeString` reports Return as U+000D; AX text on macOS holds U+000A.
+    /// Both are one UTF-16 unit, so no range arithmetic changes — only the readback
+    /// comparison has to accept either. Without this, every Enter-terminated fix died as
+    /// `target_unverifiable`, and since `keyboardFallbackPlan` refuses any boundary but a
+    /// space, there was no second chance.
+    nonisolated static func readbackBoundaries(_ boundary: String) -> [String] {
+        boundary == "\r" ? ["\n", "\r"] : [boundary]
+    }
+
     nonisolated static func waitForReadableAnchor(
         source: String,
         boundary: String,
@@ -523,16 +820,23 @@ final class AutoFixTargetValidator {
         retryDelay: () -> Void,
         readString: (AXTextRange) -> String?
     ) -> Bool {
-        waitForCommittedReplacement(
-            expected: source + boundary,
-            at: AXTextRange(
-                location: sourceRange.location,
-                length: sourceRange.length + boundary.utf16.count
-            ),
-            attempts: attempts,
-            retryDelay: retryDelay,
-            readString: readString
+        guard attempts > 0 else { return false }
+        let expected = readbackBoundaries(boundary).map { source + $0 }
+        let range = AXTextRange(
+            location: sourceRange.location,
+            length: sourceRange.length + boundary.utf16.count
         )
+        for attempt in 0..<attempts {
+            // Both renderings are tried inside one attempt: which one an editor uses is
+            // fixed, so alternating between retries would only halve the budget.
+            if let text = readString(range), expected.contains(text) {
+                return true
+            }
+            if attempt < attempts - 1 {
+                retryDelay()
+            }
+        }
+        return false
     }
 
     private static func postUnicodeReplacement(_ replacement: String) -> Bool {
@@ -612,12 +916,13 @@ final class AutoFixTargetValidator {
 
     func isReplacementAnchorValid(_ anchor: TextReplacementAnchor) -> Bool {
         validatedElement(for: anchor) != nil
-            || (anchor.allowsKeyboardFallback && validatedTarget(for: anchor) != nil)
+            || (anchor.allowsKeyboardFallback
+                && validatedTarget(for: anchor, allowsStaleCaret: false) != nil)
     }
 
     private func validatedElement(for anchor: TextReplacementAnchor) -> AXUIElement? {
         guard let sourceRange = anchor.sourceRange,
-              let focused = validatedTarget(for: anchor),
+              let focused = validatedTarget(for: anchor, allowsStaleCaret: true),
               Self.string(for: sourceRange, in: focused) == anchor.expectedSource
         else {
             return nil
@@ -625,23 +930,60 @@ final class AutoFixTargetValidator {
         return focused
     }
 
-    private func validatedTarget(for anchor: TextReplacementAnchor) -> AXUIElement? {
-        guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == anchor.bundleID,
-              let focused = Self.focusedElement(),
-              let signature = Self.focusedElementSignature(for: focused),
-              signature.pid == anchor.targetPID,
-              signature.stableIdentity == anchor.focusedElementIdentity
-        else {
-            return nil
-        }
+    /// Whether the caret must still sit exactly where the anchor recorded it.
+    ///
+    /// Reading `expectedSource` back at an exact range is strictly stronger evidence than
+    /// caret position, so a caller that does that readback does not need a frozen caret —
+    /// demanding one is what broke every correction for anyone who kept typing through the
+    /// grace period.
+    ///
+    /// The blind keyboard path reads nothing back: it fires Delete at wherever the caret
+    /// happens to be. There the caret is the only anchor there is, so it must be frozen —
+    /// even though such an anchor may also carry a `sourceRange` that its own path never uses.
+    nonisolated static func requiresFrozenCaret(
+        anchor: TextReplacementAnchor,
+        allowsStaleCaret: Bool
+    ) -> Bool {
+        !(allowsStaleCaret && anchor.sourceRange != nil)
+    }
 
-        let selection = Self.selectedTextRange(for: focused)
-        if let caretAfterBoundary = anchor.caretAfterBoundary {
-            guard selection == AXTextRange(location: caretAfterBoundary, length: 0) else { return nil }
-        } else {
-            guard selection == nil else { return nil }
+    /// Re-checks, immediately before mutating, that the anchor still describes the
+    /// element and caret it was captured against.
+    ///
+    /// Re-sampled for the same reason `captureReplacementAnchor` is: a single read
+    /// here would throw away an anchor that was just verified a few milliseconds
+    /// earlier, turning a correct fix into `replacement_not_committed`.
+    private func validatedTarget(
+        for anchor: TextReplacementAnchor,
+        allowsStaleCaret: Bool
+    ) -> AXUIElement? {
+        for attempt in 0..<Self.focusSampleAttempts {
+            if attempt > 0 {
+                Thread.sleep(forTimeInterval: Self.focusSampleRetryDelay)
+            }
+
+            guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == anchor.bundleID,
+                  let focused = Self.focusedElement(),
+                  let signature = Self.focusedElementSignature(for: focused),
+                  signature.pid == anchor.targetPID,
+                  signature.stableIdentity == anchor.focusedElementIdentity
+            else {
+                continue
+            }
+
+            if !Self.requiresFrozenCaret(anchor: anchor, allowsStaleCaret: allowsStaleCaret) {
+                return focused
+            }
+
+            let selection = Self.selectedTextRange(for: focused)
+            if let caretAfterBoundary = anchor.caretAfterBoundary {
+                guard selection == AXTextRange(location: caretAfterBoundary, length: 0) else { continue }
+            } else {
+                guard selection == nil else { continue }
+            }
+            return focused
         }
-        return focused
+        return nil
     }
 
     nonisolated static func targetPID(from event: CGEvent) -> pid_t? {
@@ -740,6 +1082,225 @@ final class AutoFixTargetValidator {
         let start = utf16.index(utf16.startIndex, offsetBy: range.location)
         let end = utf16.index(start, offsetBy: range.length)
         return String(decoding: utf16[start..<end], as: UTF16.self)
+    }
+
+    struct ValueSuffixAnchor: Equatable {
+        let sourceRange: AXTextRange
+        let caretAfterBoundary: Int
+    }
+
+    /// Range of `source` when `value` ends with exactly `source + boundary`.
+    ///
+    /// UTF-16 throughout, like every other AX range in this file. Requiring the
+    /// token to sit at the very end of the field is what keeps this unambiguous —
+    /// searching for it anywhere in the text could match an earlier occurrence of
+    /// the same word and move the edit somewhere the user never typed.
+    nonisolated static func valueSuffixRange(
+        source: String,
+        boundary: String,
+        in value: String
+    ) -> ValueSuffixAnchor? {
+        let sourceLength = source.utf16.count
+        let valueLength = value.utf16.count
+        for needle in readbackBoundaries(boundary).map({ source + $0 }) {
+            let needleLength = needle.utf16.count
+            guard sourceLength > 0,
+                  needleLength > sourceLength,
+                  valueLength >= needleLength,
+                  substring(
+                    for: AXTextRange(location: valueLength - needleLength, length: needleLength),
+                    in: value
+                  ) == needle
+            else {
+                continue
+            }
+            return ValueSuffixAnchor(
+                sourceRange: AXTextRange(location: valueLength - needleLength, length: sourceLength),
+                caretAfterBoundary: valueLength
+            )
+        }
+        return nil
+    }
+
+    /// `valueSuffixRange` confirmed through the *parameterized* AXStringForRange.
+    ///
+    /// Deriving a range from AXValue indices and then handing it to
+    /// `setSelectedTextRange` assumes both speak the same coordinate space.
+    /// AXStringForRange is what proves that assumption; `string(for:in:)` would
+    /// not, because it falls back to slicing AXValue and would compare the value
+    /// against itself. Editors that do not implement the parameterized attribute
+    /// simply do not get this path.
+    private static func verifiedValueSuffixRange(
+        source: String,
+        boundary: String,
+        in element: AXUIElement
+    ) -> ValueSuffixAnchor? {
+        guard let value = stringAttribute(kAXValueAttribute as CFString, from: element),
+              let anchor = valueSuffixRange(source: source, boundary: boundary, in: value),
+              let confirmed = parameterizedString(
+                for: AXTextRange(
+                    location: anchor.sourceRange.location,
+                    length: anchor.sourceRange.length + boundary.utf16.count
+                ),
+                in: element
+              ),
+              readbackBoundaries(boundary).map({ source + $0 }).contains(confirmed)
+        else {
+            return nil
+        }
+        return anchor
+    }
+
+    /// AXStringForRange with no AXValue fallback — see `verifiedValueSuffixRange`.
+    private static func parameterizedString(for range: AXTextRange, in element: AXUIElement) -> String? {
+        var cfRange = range.cfRange
+        guard let rangeValue = AXValueCreate(.cfRange, &cfRange) else { return nil }
+        var result: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(
+            element,
+            kAXStringForRangeParameterizedAttribute as CFString,
+            rangeValue,
+            &result
+        ) == .success else {
+            return nil
+        }
+        return result as? String
+    }
+
+    /// Whether the word the user just finished typing provably stands alone in
+    /// `value`: the field holds nothing but it, it opens the field, or it sits
+    /// after whitespace at the very end. This is exactly the danger the
+    /// conservative editing guard exists for — a word typed right after a click
+    /// could be glued to pre-existing text ("к|" + "nj" → "кnj") — checked
+    /// directly instead of assumed, so the first word of every fresh chat
+    /// message stops being unfixable.
+    nonisolated static func standsAloneInValue(
+        source: String,
+        boundary: String,
+        value: String
+    ) -> Bool {
+        guard !source.isEmpty, !boundary.isEmpty else { return false }
+        for rendered in readbackBoundaries(boundary) {
+            let needle = source + rendered
+            let starts = occurrenceStarts(of: needle, in: value)
+            // Nothing says which copy the user just typed, so every copy must be
+            // word-aligned: "nj щось кnj " opens with "nj " yet the typed one is glued.
+            guard !starts.isEmpty,
+                  starts.allSatisfy({ isWordStart(at: $0, in: value) })
+            else { continue }
+            if starts.contains(0) || starts.contains(value.utf16.count - needle.utf16.count) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Whether a word can start at `location` (UTF-16): the field opens there or
+    /// whitespace precedes it. An unreadable preceding unit answers false.
+    nonisolated static func isWordStart(at location: Int, in value: String) -> Bool {
+        guard location > 0 else { return true }
+        guard let before = substring(for: AXTextRange(location: location - 1, length: 1), in: value),
+              let scalar = before.unicodeScalars.first
+        else { return false }
+        return CharacterSet.whitespacesAndNewlines.contains(scalar)
+    }
+
+    /// `standsAloneInValue` against the live focused element, re-sampled as
+    /// described on `focusSampleAttempts`. Unreadable field → false: when the
+    /// claim cannot be proven, the editing guard stays in force.
+    func typedWordStandsAlone(source: String, boundary: String) -> Bool {
+        for attempt in 0..<Self.focusSampleAttempts {
+            if attempt > 0 {
+                Thread.sleep(forTimeInterval: Self.focusSampleRetryDelay)
+            }
+            guard let focused = Self.focusedElement(),
+                  let value = Self.stringAttribute(kAXValueAttribute as CFString, from: focused)
+            else {
+                continue
+            }
+            return Self.standsAloneInValue(source: source, boundary: boundary, value: value)
+        }
+        return false
+    }
+
+    /// Start of the *single* occurrence of `needle` in `value`, in UTF-16 units.
+    /// Zero occurrences means the text is gone (the user fixed or sent it);
+    /// more than one means the edit could land on text the user never typed —
+    /// both answer nil, and the caller walks away without touching anything.
+    nonisolated static func uniqueOccurrenceStart(of needle: String, in value: String) -> Int? {
+        let starts = occurrenceStarts(of: needle, in: value)
+        return starts.count == 1 ? starts[0] : nil
+    }
+
+    /// Every start of `needle` in `value`, in UTF-16 units, overlaps included.
+    nonisolated static func occurrenceStarts(of needle: String, in value: String) -> [Int] {
+        let haystack = Array(value.utf16)
+        let target = Array(needle.utf16)
+        guard !target.isEmpty, haystack.count >= target.count else { return [] }
+        return (0...(haystack.count - target.count)).filter { start in
+            !zip(haystack[start..<(start + target.count)], target).contains { $0 != $1 }
+        }
+    }
+
+    /// Anchor for text typed a while ago — the deferred-chip path, where the
+    /// user has kept typing since and no live session or caret describes the
+    /// token anymore. The run is located by content instead: the single
+    /// occurrence of `source + boundary` in the field, confirmed through the
+    /// parameterized read so the range provably maps to what will be selected.
+    /// No keyboard fallback — with nothing pinning the caret, a blind Delete
+    /// burst could land anywhere.
+    func captureRetroactiveAnchor(
+        expectedBundleID: String,
+        source: String,
+        boundary: String
+    ) -> TextReplacementAnchor? {
+        for attempt in 0..<Self.focusSampleAttempts {
+            if attempt > 0 {
+                Thread.sleep(forTimeInterval: Self.focusSampleRetryDelay)
+            }
+            guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == expectedBundleID,
+                  let focused = Self.focusedElement(),
+                  let signature = Self.focusedElementSignature(for: focused),
+                  let value = Self.stringAttribute(kAXValueAttribute as CFString, from: focused)
+            else {
+                continue
+            }
+
+            for rendered in Self.readbackBoundaries(boundary) {
+                let needle = source + rendered
+                // Word-aligned only: "nj " inside "xnj " is part of another word.
+                guard let start = Self.uniqueOccurrenceStart(of: needle, in: value),
+                      Self.isWordStart(at: start, in: value)
+                else { continue }
+                let sourceRange = AXTextRange(location: start, length: source.utf16.count)
+                let confirmRange = AXTextRange(location: start, length: needle.utf16.count)
+                guard Self.parameterizedString(for: confirmRange, in: focused) == needle else { continue }
+                return TextReplacementAnchor(
+                    targetPID: signature.pid,
+                    bundleID: expectedBundleID,
+                    focusedElementIdentity: signature.stableIdentity,
+                    sourceRange: sourceRange,
+                    boundaryUTF16Length: rendered.utf16.count,
+                    caretAfterBoundary: start + needle.utf16.count,
+                    expectedSource: source,
+                    allowsKeyboardFallback: false
+                )
+            }
+        }
+        return nil
+    }
+
+    /// `focusedElementSignature()` re-sampled as described on `focusSampleAttempts`.
+    private static func resampledFocusedElementSignature() -> FocusedElementSignature? {
+        for attempt in 0..<focusSampleAttempts {
+            if attempt > 0 {
+                Thread.sleep(forTimeInterval: focusSampleRetryDelay)
+            }
+            if let signature = focusedElementSignature() {
+                return signature
+            }
+        }
+        return nil
     }
 
     private static func isAttributeSettable(_ attribute: CFString, on element: AXUIElement) -> Bool {

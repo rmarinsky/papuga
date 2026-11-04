@@ -163,4 +163,31 @@ enum HistoryWordActionPolicy {
         return target
     }
 
+    struct PhraseRulePair: Equatable, Identifiable {
+        let source: String
+        let target: String
+        var id: String { source + "→" + target }
+    }
+
+    /// A phrase decision broken into single-word rule seeds. Rules are
+    /// one-word-only, so a phrase row used to offer nothing at all; its words
+    /// convert token-by-token, which makes a 1:1 alignment trustworthy — any
+    /// other shape offers nothing rather than guessing.
+    static func phraseRulePairs(source: String, target: String?) -> [PhraseRulePair] {
+        guard let target,
+              source.contains(where: \.isWhitespace),
+              !source.hasSuffix("…"),
+              !target.hasSuffix("…") else { return [] }
+        let sources = source.split(whereSeparator: \.isWhitespace).map(String.init)
+        let targets = target.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard sources.count == targets.count else { return [] }
+        return zip(sources, targets).compactMap { rawSource, rawTarget in
+            guard canUseSource(rawSource, truncated: false),
+                  let sanitizedTarget = sanitizedTarget(rawTarget) else { return nil }
+            let sourceCore = normalizedSource(rawSource)
+            guard sourceCore.caseInsensitiveCompare(sanitizedTarget) != .orderedSame else { return nil }
+            return PhraseRulePair(source: sourceCore, target: sanitizedTarget)
+        }
+    }
+
 }

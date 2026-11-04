@@ -12,6 +12,27 @@ struct LayoutIncidentToken: Equatable {
     let boundary: String
     let targetLayoutID: String
     let evidence: Evidence
+    /// Caret right after this token's boundary, sampled while it was still true.
+    /// Kept per token because a trailing contradiction gets trimmed before
+    /// replacement — the anchor then belongs to the last *judged* token, not to
+    /// the last one typed.
+    let boundaryCaret: Int?
+
+    init(
+        original: String,
+        candidate: String,
+        boundary: String,
+        targetLayoutID: String,
+        evidence: Evidence,
+        boundaryCaret: Int? = nil
+    ) {
+        self.original = original
+        self.candidate = candidate
+        self.boundary = boundary
+        self.targetLayoutID = targetLayoutID
+        self.evidence = evidence
+        self.boundaryCaret = boundaryCaret
+    }
 }
 
 enum LayoutIncidentAppendResult: Equatable {
@@ -56,23 +77,6 @@ struct LayoutIncidentTracker: Equatable {
             || candidateBody.utf16.count >= maxUTF16Length
     }
 
-    var strongTokenCount: Int {
-        tokens.filter { $0.evidence == .strong }.count
-    }
-
-    var contradictionCount: Int {
-        tokens.filter { $0.evidence == .contradiction }.count
-    }
-
-    var supportRatio: Double {
-        guard !tokens.isEmpty else { return 0 }
-        return Double(strongTokenCount) / Double(tokens.count)
-    }
-
-    var isReadyForImmediateFinalization: Bool {
-        strongTokenCount >= 2 && supportRatio >= 0.75
-    }
-
     var endsSentence: Bool {
         Self.hasSentenceTerminator(originalBody) || Self.hasSentenceTerminator(candidateBody)
     }
@@ -105,54 +109,72 @@ struct LayoutIncidentTracker: Equatable {
         return isAtSafetyCap ? .reachedCap : .accepted
     }
 
-    var contradictionRatio: Double {
-        guard !tokens.isEmpty else { return 0 }
-        return Double(contradictionCount) / Double(tokens.count)
+    /// Tokens worth judging. A trailing contradiction is the correct word that
+    /// *ended* the run — the only position the controller lets one occupy — so
+    /// it is the user's real text, never part of the mistake. It is cut before
+    /// scoring and before replacement; the run is judged and replaced without it.
+    var judgedTokens: [LayoutIncidentToken] {
+        var judged = tokens
+        while judged.last?.evidence == .contradiction {
+            judged.removeLast()
+        }
+        return judged
     }
 
-    /// Share of contradictions a captured sentence can absorb and still be
-    /// worth offering. One real word inside a long wrong-layout run is common:
-    /// `ghbdsn cdsn hello ,ed` is still overwhelmingly a layout mistake.
-    static let contradictionToleranceRatio = 0.2
-
-    /// - Parameter tolerateContradictions: when true, a small share of
-    ///   contradicting tokens degrades the verdict to `.propose` instead of
-    ///   discarding the whole incident.
+    /// The joined run is the unit of judgment: the margin of the whole candidate
+    /// phrase over the whole original IS the verdict.
     ///
-    ///   `contradictionCount == 0` throws away up to 29 correctly-detected
-    ///   words because of one real word in the middle of the run. Tolerating a
-    ///   few can only ever produce a *proposal* — auto-replacement still
-    ///   requires a clean incident, because silently mutating a sentence that
-    ///   contains a word the user meant is the worst failure this app has.
-    func decision(
+    /// This replaces quorum voting (strong-token counts and support ratios),
+    /// which ignored the phrase score it had already been handed: it demanded
+    /// three strong words before acting, so "nj ljhtxs" — weak + strong, phrase
+    /// margin ~0.9 — fell through, and the strong half then got replaced alone.
+    ///
+    /// `hasUnanimousDictionarySupport` is the scorer's blind spot covered from
+    /// the other side: for "іудутшву іудусещкі" → "selenide selectors" the
+    /// language scorer rates gibberish Cyrillic as confident Ukrainian and the
+    /// margin goes negative, while per-word dictionary evidence (every candidate
+    /// a real word, every original not) is unanimous. Unanimity earns a
+    /// *proposal* only — when the scorer disagrees, nothing is auto-applied.
+    ///
+    /// `hasContradiction` covers a contradiction that survived trimming (not
+    /// currently producible — kept as the safety valve should token flow change):
+    /// a run containing a word the user meant is never auto-replaced.
+    ///
+    /// `hasStrongEvidence`: at least one token in the run is a dictionary-backed
+    /// wrong-layout word. A run of only short/neutral tokens ("i", "nj") rests on
+    /// the scorer alone, which is unreliable for one or two letters — it earns a
+    /// proposal at most, never a silent rewrite.
+    static func runVerdict(
         scoreOriginal: Double,
         scoreCandidate: Double,
         threshold: Double,
-        tolerateContradictions: Bool = false
+        proposalWindow: Double,
+        hasContradiction: Bool,
+        hasUnanimousDictionarySupport: Bool = false,
+        hasStrongEvidence: Bool = true
     ) -> LayoutIncidentDecision {
         let margin = scoreCandidate - scoreOriginal
-
-        if contradictionCount == 0 {
-            if strongTokenCount >= 3,
-               supportRatio >= 0.75,
-               margin >= threshold {
-                return .replace
-            }
-            if strongTokenCount >= 2,
-               supportRatio >= 0.60 {
-                return .propose
-            }
-            return .discard
+        if margin >= threshold {
+            return hasContradiction || !hasStrongEvidence ? .propose : .replace
         }
-
-        guard tolerateContradictions,
-              contradictionRatio <= Self.contradictionToleranceRatio,
-              strongTokenCount >= 3,
-              supportRatio >= 0.75
-        else {
-            return .discard
+        if margin >= threshold - proposalWindow {
+            return .propose
         }
-        return .propose
+        if hasUnanimousDictionarySupport, !hasContradiction {
+            return .propose
+        }
+        return .discard
+    }
+
+    static func joinedBody(
+        of tokens: [LayoutIncidentToken],
+        _ keyPath: KeyPath<LayoutIncidentToken, String>
+    ) -> String {
+        tokens.enumerated().map { index, token in
+            let text = token[keyPath: keyPath]
+            guard index < tokens.count - 1 else { return text }
+            return text + token.boundary
+        }.joined()
     }
 
     mutating func reset() {
@@ -161,11 +183,7 @@ struct LayoutIncidentTracker: Equatable {
     }
 
     private func body(_ keyPath: KeyPath<LayoutIncidentToken, String>) -> String {
-        tokens.enumerated().map { index, token in
-            let text = token[keyPath: keyPath]
-            guard index < tokens.count - 1 else { return text }
-            return text + token.boundary
-        }.joined()
+        Self.joinedBody(of: tokens, keyPath)
     }
 
     private static func hasSentenceTerminator(_ text: String) -> Bool {
@@ -179,6 +197,8 @@ struct LayoutIncidentTracker: Equatable {
 }
 
 struct LayoutIncidentTimerState: Equatable {
+    /// Defaults used when no cadence estimate is supplied (tests, cold paths).
+    /// Live callers pass `TypingCadenceTracker`-derived durations instead.
     static let singleWordGrace: TimeInterval = 0.3
     static let incidentIdleDelay: TimeInterval = 0.6
 
@@ -194,12 +214,12 @@ struct LayoutIncidentTimerState: Equatable {
 
     private var pending: Pending?
 
-    mutating func armSingleWord(at timestamp: TimeInterval) {
-        pending = .singleWord(deadline: timestamp + Self.singleWordGrace)
+    mutating func armSingleWord(at timestamp: TimeInterval, grace: TimeInterval = Self.singleWordGrace) {
+        pending = .singleWord(deadline: timestamp + grace)
     }
 
-    mutating func armIncidentIdle(at timestamp: TimeInterval) {
-        pending = .incident(deadline: timestamp + Self.incidentIdleDelay)
+    mutating func armIncidentIdle(at timestamp: TimeInterval, idle: TimeInterval = Self.incidentIdleDelay) {
+        pending = .incident(deadline: timestamp + idle)
     }
 
     mutating func consumeFastContinuation(at timestamp: TimeInterval) -> Bool {

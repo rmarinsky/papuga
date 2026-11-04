@@ -65,6 +65,19 @@ final class PapugaEventLog {
         return opened
     }
 
+    /// Deletes the log outright. Until this existed the file survived every clear the app
+    /// offered — "Очистити журнал рішень" emptied the replacement and decision stores and
+    /// left `events.jsonl` in place.
+    func clearAll() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            try? self.handle?.close()
+            self.handle = nil
+            try? FileManager.default.removeItem(at: self.fileURL)
+            AppLogger.action(self.logger, "PapugaEventLog cleared")
+        }
+    }
+
     func pruneOldEntries() {
         queue.async { [weak self] in
             self?.pruneSync()

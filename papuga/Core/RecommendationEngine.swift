@@ -131,12 +131,35 @@ enum RecommendationEngine {
         return resolved
     }
 
+    /// Whether a word Papuga converted was converted *into a real word* — i.e.
+    /// the original was genuinely the wrong-layout spelling of it.
+    static func producedRealWord(_ converted: String, spellChecker: SpellCheckingClient) -> Bool {
+        let core = BufferedToken.normalizedCore(from: converted)
+        guard core.count >= 2, !core.contains(where: \.isWhitespace) else { return false }
+        // Any configured language will do: the point is only that the conversion
+        // landed on something a dictionary recognises.
+        for language in AutoFixDecision.supportedSpellingLanguages
+        where !spellChecker.isMisspelled(core, language: language) {
+            return true
+        }
+        return false
+    }
+
+    /// - Parameter convertedIsRealWord: guards the "add to allowlist" card. When
+    ///   the conversion is a real word (`nfr` → `так`), the original is a layout
+    ///   mistake, and allowlisting it teaches Papuga to never fix that word
+    ///   again — which is how `так`, `все` and `ти` ended up permanently
+    ///   unfixable. Undoing a fix three times is not consent for that;
+    ///   allowlisting such a word stays available by hand in Settings → Словник.
     static func compute(
         from history: [ReplacementHistoryEntry],
         allowlist: [String],
         blocklist: [String],
         customRules: [CustomAutoReplaceRule],
-        dismissed: [String]
+        dismissed: [String],
+        convertedIsRealWord: (String) -> Bool = { converted in
+            producedRealWord(converted, spellChecker: HybridSpellChecker.production)
+        }
     ) -> [Recommendation] {
         var recs: [Recommendation] = []
 
@@ -149,6 +172,8 @@ enum RecommendationEngine {
 
         var undoneByWord: [String: Int] = [:]
         var undoneByBundle: [String: Int] = [:]
+        /// Undone words whose conversion was a real word — never offered for the allowlist.
+        var layoutMistakeWords: Set<String> = []
         var manualSwitchByPair: [String: (source: String, target: String, count: Int, canCreateCoreRule: Bool)] = [:]
 
         for entry in history {
@@ -156,6 +181,9 @@ enum RecommendationEngine {
             case .autoFixUndone:
                 let key = normalizedCore(entry.original)
                 undoneByWord[key, default: 0] += 1
+                if !entry.convertedTruncated, convertedIsRealWord(entry.converted) {
+                    layoutMistakeWords.insert(key)
+                }
                 if let bundleID = entry.bundleID, !bundleID.isEmpty {
                     undoneByBundle[bundleID.lowercased(), default: 0] += 1
                 }
@@ -185,9 +213,9 @@ enum RecommendationEngine {
             }
         }
 
-
         for (wordLower, count) in undoneByWord where count >= fibonacciThresholds.first! {
             if allowlistLower.contains(wordLower) { continue }
+            if layoutMistakeWords.contains(wordLower) { continue }
             let rec = Recommendation.addWordToAllowlist(
                 word: wordLower,
                 undoCount: count,
@@ -227,7 +255,6 @@ enum RecommendationEngine {
             return lhs.count > rhs.count
         }
     }
-
 
     private static func normalizedCore(_ text: String) -> String {
         BufferedToken.normalizedCore(from: text).lowercased()

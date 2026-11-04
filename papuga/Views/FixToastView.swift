@@ -89,6 +89,87 @@ struct FixToastView: View {
     }
 }
 
+/// Passive catch-up chip for a fix the user typed past. Unlike the proposal
+/// panel it never listens to the keyboard: it outlives continued typing and is
+/// resolved only by mouse (click = apply, × = close) or by its own time-to-live,
+/// shown draining along the bottom edge.
+struct DeferredFixChipView: View {
+    let original: String
+    let candidate: String
+    /// Panel width, pinned onto the content. Without an explicit size the
+    /// hosting view asks its window to resize to fit — and doing that from
+    /// inside a running animation re-enters AppKit's layout pass and throws
+    /// (`_postWindowNeedsUpdateConstraints`), which aborted the app when the
+    /// chip's drain animation ran out.
+    let width: CGFloat
+    let timeToLive: TimeInterval
+    let onApply: () -> Void
+    let onDismiss: () -> Void
+
+    static let height: CGFloat = 30
+
+    @State private var remaining: CGFloat = 1
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: onApply) {
+            HStack(spacing: 6) {
+                Text(PapugaFlipAnimation.emoji)
+                    .font(.system(size: 13))
+                Text(original)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Text("→")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Text(candidate)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color("BrandAccentDeep"))
+                    .lineLimit(1)
+                Button(action: onDismiss) {
+                    Text("×")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 16, height: 16)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("autofix-chip-dismiss")
+            }
+            .padding(.horizontal, 11)
+            .frame(width: width, height: Self.height)
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay(
+                Capsule().strokeBorder(
+                    Color("BrandAccent").opacity(hover ? 0.75 : 0.28),
+                    lineWidth: hover ? 1.2 : 0.8
+                )
+            )
+            .overlay(alignment: .bottom) {
+                // scaleEffect, not an animated frame width: a transform is a
+                // render-time effect, so draining the bar never invalidates
+                // layout and never asks the panel to resize mid-animation.
+                Capsule()
+                    .fill(Color("BrandAccentDeep").opacity(0.85))
+                    .frame(width: max(0, width - 20), height: 2)
+                    .scaleEffect(x: remaining, y: 1, anchor: .leading)
+                    .padding(.bottom, 2)
+                    .allowsHitTesting(false)
+            }
+            .shadow(color: .black.opacity(0.18), radius: 8, x: 0, y: 4)
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+        .accessibilityIdentifier("autofix-chip-apply")
+        .onAppear {
+            withAnimation(.linear(duration: timeToLive)) {
+                remaining = 0
+            }
+        }
+    }
+}
+
 struct FixRecoveryView: View {
     let title: String
     let onClick: () -> Void

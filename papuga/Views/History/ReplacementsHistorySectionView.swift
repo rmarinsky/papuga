@@ -142,7 +142,14 @@ struct ReplacementsHistorySectionView: View {
                     AutoFixDecisionRow(
                         entry: entry,
                         onCreateRule: { openRuleEditor(for: entry) },
-                        onIgnore: { IgnoreWordService.add(entry.source) }
+                        onIgnore: { IgnoreWordService.add(entry.source) },
+                        phrasePairs: HistoryWordActionPolicy.phraseRulePairs(
+                            source: entry.source,
+                            target: entry.selectedCandidate
+                        ),
+                        onCreatePairRule: { pair in
+                            editorSeed = RuleEditorSeed(source: pair.source, target: pair.target, mode: .replace)
+                        }
                     )
                 }
             }
@@ -310,6 +317,9 @@ private struct AutoFixDecisionRow: View {
     let entry: AutoFixDecisionObservation
     let onCreateRule: () -> Void
     let onIgnore: () -> Void
+    /// Word-pair seeds for a phrase entry; empty for single-word rows.
+    var phrasePairs: [HistoryWordActionPolicy.PhraseRulePair] = []
+    var onCreatePairRule: (HistoryWordActionPolicy.PhraseRulePair) -> Void = { _ in }
 
     @Default(.autoFixAllowlist) private var allowlist
     @Default(.customAutoReplaceRules) private var customRules
@@ -387,16 +397,34 @@ private struct AutoFixDecisionRow: View {
             .controlSize(.small)
             .disabled(confirmedAction != nil || !canIgnore)
 
-            Button(action: onCreateRule) {
-                Label(
-                    "Створити правило",
-                    systemImage: confirmedAction == .ruleCreated ? "checkmark" : "wand.and.stars"
-                )
+            if phrasePairs.isEmpty {
+                Button(action: onCreateRule) {
+                    Label(
+                        "Створити правило",
+                        systemImage: confirmedAction == .ruleCreated ? "checkmark" : "wand.and.stars"
+                    )
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .tint(Color("BrandAccentDeep"))
+                .disabled(confirmedAction != nil || !canCreateRule)
+            } else {
+                // Rules are one-word-only, so a phrase row offers its words
+                // individually instead of a permanently disabled button.
+                Menu {
+                    ForEach(phrasePairs) { pair in
+                        Button("\(pair.source) → \(pair.target)") {
+                            onCreatePairRule(pair)
+                        }
+                    }
+                } label: {
+                    Label("Створити правило", systemImage: "wand.and.stars")
+                }
+                .menuStyle(.borderedButton)
+                .controlSize(.small)
+                .tint(Color("BrandAccentDeep"))
+                .fixedSize()
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .tint(Color("BrandAccentDeep"))
-            .disabled(confirmedAction != nil || !canCreateRule)
         }
         .fixedSize()
     }

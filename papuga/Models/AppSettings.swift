@@ -122,6 +122,9 @@ extension Defaults.Keys {
     /// means "not measured yet" — the time-saved estimate falls back to
     /// `Constants.defaultTypingWordsPerMinute`.
     static let measuredTypingWPM = Key<Double>("measuredTypingWPM", default: 0)
+    /// Smoothed inter-keystroke gap accumulated by `TypingCadenceTracker`;
+    /// 0 = never measured. Drives adaptive AutoFix deadlines.
+    static let typingCadenceAverageGap = Key<Double>("typingCadenceAverageGap", default: 0)
     static let clipboardHistoryRetention = Key<String>(
         "clipboardHistoryRetention",
         default: ClipboardHistoryRetentionPreset.oneDay.rawValue
@@ -159,6 +162,9 @@ extension Defaults.Keys {
     // are bounded by anchor re-validation rather than by a timer.
     static let autoFixBlocklist = Key<[String]>("autoFixBlocklist", default: [])
     static let autoFixAllowlist = Key<[String]>("autoFixAllowlist", default: [])
+    /// Spellings Papuga itself taught to the system dictionary. Only these are ever
+    /// unlearned — words the user taught macOS themselves are not Papuga's to remove.
+    static let papugaTaughtSpellings = Key<[String]>("papugaTaughtSpellings", default: [])
     static let autoFixToastEnabled = Key<Bool>("autoFixToastEnabled", default: true)
     static let autoFixConservativeEditingGuard = Key<Bool>("autoFixConservativeEditingGuard", default: true)
     static let autoFixSpellingTypoGuardEnabled = Key<Bool>("autoFixSpellingTypoGuardEnabled", default: true)
@@ -169,19 +175,6 @@ extension Defaults.Keys {
     /// `autoFixThreshold`. The old 0.12 also contradicted
     /// docs/autofix-analysis-and-guardrails.md, which documents 0.22.
     static let autoFixProposalWindow = Key<Double>("autoFixProposalWindow", default: 0.22)
-    /// Experimental, default off. When a captured wrong-layout sentence
-    /// contains a contradicting token (a word that is already correct), the
-    /// whole incident is discarded — up to 29 correctly-detected words thrown
-    /// away because of one real word in the middle. With this on, a small
-    /// share of contradictions degrades the verdict to a *proposal* instead;
-    /// auto-replacement still requires a clean incident.
-    ///
-    /// Off by default because the tolerance ratio has not been tuned against
-    /// real decision history yet — see the replay harness note in the plan.
-    static let autoFixTolerateIncidentContradictions = Key<Bool>(
-        "autoFixTolerateIncidentContradictions",
-        default: false
-    )
     static let autoFixAppPolicyOverrides = Key<[String: String]>("autoFixAppPolicyOverrides", default: [:])
     static let autoFixLayoutSwitchPolicy = Key<String>(
         "autoFixLayoutSwitchPolicy",
