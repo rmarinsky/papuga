@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 import Defaults
 @testable import papuga
@@ -56,5 +57,46 @@ final class IgnoreWordServiceTests: XCTestCase {
         XCTAssertEqual(first?.addedToAllowlist, true)
         XCTAssertEqual(second?.addedToAllowlist, false)
         XCTAssertEqual(Defaults[.autoFixAllowlist], ["ghbdtn"])
+    }
+
+    /// Removing a word must never unlearn a spelling the user taught macOS
+    /// themselves — only what Papuga taught is Papuga's to take back.
+    @MainActor
+    func test_removeLeavesUserLearnedSystemSpellingAlone() {
+        let word = "papugatestqzxv"
+        let checker = NSSpellChecker.shared
+        let savedTaught = Defaults[.papugaTaughtSpellings]
+        defer {
+            checker.unlearnWord(word)
+            Defaults[.papugaTaughtSpellings] = savedTaught
+        }
+        Defaults[.papugaTaughtSpellings] = []
+        checker.learnWord(word)
+        Defaults[.autoFixAllowlist] = [word]
+
+        XCTAssertTrue(IgnoreWordService.remove(word))
+
+        XCTAssertTrue(checker.hasLearnedWord(word))
+        XCTAssertEqual(Defaults[.autoFixAllowlist], [])
+    }
+
+    @MainActor
+    func test_removeUnlearnsOnlyWhatPapugaTaught() {
+        let word = "papugatestqzxw"
+        let checker = NSSpellChecker.shared
+        let savedTaught = Defaults[.papugaTaughtSpellings]
+        defer {
+            checker.unlearnWord(word)
+            Defaults[.papugaTaughtSpellings] = savedTaught
+        }
+        Defaults[.papugaTaughtSpellings] = []
+
+        XCTAssertEqual(IgnoreWordService.add(word)?.taughtAppleSpelling, true)
+        XCTAssertEqual(Defaults[.papugaTaughtSpellings], [word])
+
+        XCTAssertTrue(IgnoreWordService.remove(word))
+
+        XCTAssertFalse(checker.hasLearnedWord(word))
+        XCTAssertEqual(Defaults[.papugaTaughtSpellings], [])
     }
 }

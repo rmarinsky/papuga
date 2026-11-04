@@ -9,6 +9,11 @@ final class FixToastCoordinator {
 
     private var panel: ToastPanel?
     private var dismissTask: Task<Void, Never>?
+    /// The deferred chip lives in its own panel with its own lifetime: the
+    /// shared toast panel is dismissed on every keystroke via `clearRecovery()`,
+    /// and surviving typing is the chip's whole reason to exist.
+    private var chipPanel: ToastPanel?
+    private var chipDismissTask: Task<Void, Never>?
     private let logger = AppLogger.autoFix
 
     private init() {}
@@ -72,8 +77,90 @@ final class FixToastCoordinator {
         AppLogger.action(logger, "Fix recovery shown: titleLength=\(title.count)")
     }
 
+    func showDeferredChip(
+        original: String,
+        candidate: String,
+        near point: NSPoint,
+        timeToLive: TimeInterval,
+        onApply: @escaping () -> Void,
+        onDismiss: @escaping () -> Void,
+        onExpire: @escaping () -> Void
+    ) {
+        chipDismissTask?.cancel()
+
+        let panel = chipPanel ?? makePanel()
+        chipPanel = panel
+        panel.ignoresMouseEvents = false
+
+        let receipt = "\(original) → \(candidate)"
+        let width = min(360, max(170, (receipt as NSString).size(withAttributes: [
+            .font: NSFont.systemFont(ofSize: 12, weight: .semibold)
+        ]).width + 76)).rounded(.up)
+
+        let view = DeferredFixChipView(
+            original: original,
+            candidate: candidate,
+            width: width,
+            timeToLive: timeToLive,
+            onApply: { [weak self] in
+                self?.dismissChip()
+                onApply()
+            },
+            onDismiss: { [weak self] in
+                self?.dismissChip()
+                onDismiss()
+            }
+        )
+        let hosting = NSHostingView(rootView: view)
+        // The panel is the authority on size; the hosting view must not push a
+        // resize back onto its window while the drain animation is running.
+        hosting.frame = NSRect(x: 0, y: 0, width: width, height: DeferredFixChipView.height)
+        hosting.autoresizingMask = [.width, .height]
+        panel.contentView = hosting
+        panel.title = "Застосувати відкладену підказку"
+        panel.identifier = NSUserInterfaceItemIdentifier("autofix-chip-panel")
+        panel.setAccessibilityElement(true)
+        panel.setAccessibilityRole(.window)
+        panel.setAccessibilityLabel(panel.title)
+        panel.setAccessibilityIdentifier("autofix-chip-panel")
+
+        show(panel: panel, size: NSSize(width: width, height: DeferredFixChipView.height), near: point)
+
+        chipDismissTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(timeToLive))
+            } catch {
+                return
+            }
+            await MainActor.run {
+                self?.dismissChip()
+                onExpire()
+            }
+        }
+
+        AppLogger.action(logger, "Deferred chip shown: ttl=\(String(format: "%.1f", timeToLive))s")
+    }
+
+    func dismissChip() {
+        chipDismissTask?.cancel()
+        chipDismissTask = nil
+        chipPanel?.orderOut(nil)
+    }
+
+    func isMouseOverChip() -> Bool {
+        guard let chipPanel, chipPanel.isVisible else { return false }
+        return NSPointInRect(NSEvent.mouseLocation, chipPanel.frame)
+    }
+
     private func show(panel: ToastPanel, size: NSSize, near point: NSPoint) {
-        let origin = NSPoint(x: point.x + 14, y: point.y - size.height - 6)
+        // Kept on the visible screen: near an edge an off-screen chip's buttons
+        // could not be clicked until it expired.
+        let screen = NSScreen.screens.first { NSMouseInRect(point, $0.frame, false) }?.visibleFrame
+            ?? NSScreen.main?.visibleFrame ?? .zero
+        let origin = NSPoint(
+            x: min(max(point.x + 14, screen.minX + 8), screen.maxX - size.width - 8),
+            y: min(max(point.y - size.height - 6, screen.minY + 8), screen.maxY - size.height - 8)
+        )
         panel.setFrame(NSRect(origin: origin, size: size), display: true)
         panel.orderFrontRegardless()
     }

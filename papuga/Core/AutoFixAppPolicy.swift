@@ -48,10 +48,3 @@ enum AutoFixAppPolicyResolver {
         .autoMutate
     }
 }
-
-enum AutoFixMutationStrategy: String, Codable {
-    case directUnicodeEvents
-    case clipboardPaste
-    case proposalOnly
-    case disabled
-}

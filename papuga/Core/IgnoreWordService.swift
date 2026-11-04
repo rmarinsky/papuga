@@ -64,6 +64,46 @@ enum IgnoreWordService {
         )
     }
 
+    /// Undoes `add`. Dropping the word from the allowlist alone is not enough:
+    /// `add` also taught it to the *system* spelling dictionary, and a learned
+    /// word makes `isMisspelled` false forever — which trips AutoFix's
+    /// "the original is a real word, the user meant it" guard. Removing the
+    /// allowlist entry without this left the word just as unfixable as before,
+    /// with nothing in Papuga's own settings left to explain why.
+    @MainActor
+    @discardableResult
+    static func remove(_ rawWord: String) -> Bool {
+        let word = normalizedWord(rawWord)
+        guard !word.isEmpty else { return false }
+
+        var allowlist = Defaults[.autoFixAllowlist]
+        let before = allowlist.count
+        allowlist.removeAll { normalizedWord($0).caseInsensitiveCompare(word) == .orderedSame }
+        let removedFromAllowlist = allowlist.count != before
+        if removedFromAllowlist {
+            Defaults[.autoFixAllowlist] = allowlist
+        }
+
+        let checker = NSSpellChecker.shared
+        var taught = Defaults[.papugaTaughtSpellings]
+        var unlearnedAny = false
+        for variant in appleSpellingVariants(for: word) where taught.contains(variant) {
+            if checker.hasLearnedWord(variant) {
+                checker.unlearnWord(variant)
+                unlearnedAny = true
+            }
+            taught.removeAll { $0 == variant }
+        }
+        Defaults[.papugaTaughtSpellings] = taught
+
+        if removedFromAllowlist || unlearnedAny {
+            AppLogger.autoFix.notice(
+                "Ignore word removed: allowlist=\(removedFromAllowlist, privacy: .public) apple_spelling=\(unlearnedAny, privacy: .public)"
+            )
+        }
+        return removedFromAllowlist || unlearnedAny
+    }
+
     static func normalizedWord(_ rawWord: String) -> String {
         BufferedToken.normalizedCore(from: rawWord)
     }
@@ -99,6 +139,7 @@ enum IgnoreWordService {
         for variant in appleSpellingVariants(for: word) where shouldTeachAppleSpelling(variant) {
             if !checker.hasLearnedWord(variant) {
                 checker.learnWord(variant)
+                Defaults[.papugaTaughtSpellings].append(variant)
                 learnedAny = true
             }
         }

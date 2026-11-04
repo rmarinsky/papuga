@@ -1,9 +1,11 @@
 import XCTest
 @testable import papuga
 
-/// One real word inside a long wrong-layout run used to annihilate the whole
-/// incident: `contradictionCount == 0` was a hard gate, so up to 29 correctly
-/// detected words were discarded because of a single contradicting token.
+/// A contradiction is the correct word that *ended* a run — the only position
+/// the controller lets one occupy. It is trimmed before judgment, so the rest
+/// of the run keeps its fix instead of being annihilated by one real word; and
+/// a contradiction that somehow survives trimming can only ever produce a
+/// proposal, never a silent replacement.
 final class LayoutIncidentContradictionTests: XCTestCase {
 
     private func incident(strong: Int, contradictions: Int) -> LayoutIncidentTracker {
@@ -14,7 +16,8 @@ final class LayoutIncidentContradictionTests: XCTestCase {
                 candidate: "привіт\(index)",
                 boundary: " ",
                 targetLayoutID: "uk",
-                evidence: .strong
+                evidence: .strong,
+                boundaryCaret: 10 * (index + 1)
             ))
         }
         for index in 0..<contradictions {
@@ -29,59 +32,63 @@ final class LayoutIncidentContradictionTests: XCTestCase {
         return incident
     }
 
-    private func verdict(
-        _ incident: LayoutIncidentTracker,
-        tolerate: Bool
-    ) -> LayoutIncidentDecision {
-        incident.decision(
-            scoreOriginal: 0.1,
-            scoreCandidate: 0.95,
-            threshold: 0.35,
-            tolerateContradictions: tolerate
+    func test_trailingContradictionNoLongerAnnihilatesTheRun() {
+        let mostlyGood = incident(strong: 9, contradictions: 1)
+        let judged = mostlyGood.judgedTokens
+
+        XCTAssertEqual(judged.count, 9, "the correct word is trimmed, the mistake run survives")
+        XCTAssertEqual(
+            LayoutIncidentTracker.runVerdict(
+                scoreOriginal: 0.1,
+                scoreCandidate: 0.95,
+                threshold: 0.35,
+                proposalWindow: 0.22,
+                hasContradiction: judged.contains { $0.evidence == .contradiction }
+            ),
+            .replace
         )
     }
 
-    func test_cleanIncidentStillReplaces() {
-        let clean = incident(strong: 4, contradictions: 0)
-        XCTAssertEqual(verdict(clean, tolerate: false), .replace)
-        XCTAssertEqual(verdict(clean, tolerate: true), .replace)
+    func test_trimmedRunAnchorsAtTheLastJudgedToken() {
+        let mostlyGood = incident(strong: 3, contradictions: 1)
+        XCTAssertEqual(mostlyGood.judgedTokens.last?.boundaryCaret, 30)
     }
 
-    func test_defaultBehaviourDiscardsOnAnyContradiction() {
-        let mostlyGood = incident(strong: 9, contradictions: 1)
-        XCTAssertEqual(verdict(mostlyGood, tolerate: false), .discard)
+    func test_multipleTrailingContradictionsAllTrim() {
+        let run = incident(strong: 2, contradictions: 2)
+        XCTAssertEqual(run.judgedTokens.count, 2)
     }
 
-    /// A single real word in a ten-word run becomes a proposal rather than
-    /// nothing — but never a silent replacement.
-    func test_toleratedContradictionDegradesToProposeNotReplace() {
-        let mostlyGood = incident(strong: 9, contradictions: 1)
-        XCTAssertEqual(verdict(mostlyGood, tolerate: true), .propose)
-    }
-
-    func test_tooManyContradictionsStillDiscard() {
-        // 3 of 10 is above the 0.2 tolerance.
-        let mixed = incident(strong: 7, contradictions: 3)
-        XCTAssertEqual(verdict(mixed, tolerate: true), .discard)
-    }
-
-    /// Auto-replacement must never be reachable through the tolerant path,
-    /// whatever the scores: silently rewriting a sentence containing a word the
-    /// user meant is the worst failure mode this app has.
-    func test_toleranceCanNeverProduceAReplacement() {
-        for strong in 3...20 {
-            for contradictions in 1...4 {
-                let candidate = incident(strong: strong, contradictions: contradictions)
-                XCTAssertNotEqual(
-                    verdict(candidate, tolerate: true), .replace,
-                    "strong=\(strong) contradictions=\(contradictions) reached .replace"
-                )
-            }
+    /// Auto-replacement must never be reachable while a contradiction remains
+    /// inside the judged run, whatever the scores: silently rewriting a
+    /// sentence containing a word the user meant is the worst failure mode
+    /// this app has.
+    func test_survivingContradictionCanNeverProduceAReplacement() {
+        for original in stride(from: 0.0, through: 0.5, by: 0.1) {
+            XCTAssertNotEqual(
+                LayoutIncidentTracker.runVerdict(
+                    scoreOriginal: original,
+                    scoreCandidate: 1.0,
+                    threshold: 0.35,
+                    proposalWindow: 0.22,
+                    hasContradiction: true
+                ),
+                .replace,
+                "scoreOriginal=\(original) reached .replace with a contradiction present"
+            )
         }
     }
 
-    func test_weakSupportIsStillDiscardedEvenWhenTolerant() {
-        let weak = incident(strong: 2, contradictions: 1)
-        XCTAssertEqual(verdict(weak, tolerate: true), .discard)
+    func test_weakMarginStillDiscardsRegardlessOfContradictions() {
+        XCTAssertEqual(
+            LayoutIncidentTracker.runVerdict(
+                scoreOriginal: 0.5,
+                scoreCandidate: 0.55,
+                threshold: 0.35,
+                proposalWindow: 0.1,
+                hasContradiction: true
+            ),
+            .discard
+        )
     }
 }

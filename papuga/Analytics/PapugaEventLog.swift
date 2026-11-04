@@ -32,12 +32,6 @@ final class PapugaEventLog {
         AppLogger.post(logger, "PapugaEventLog initialized at \(fileURL.path)")
     }
 
-    init(testFileURL: URL) {
-        self.fileURL = testFileURL
-    }
-
-    func waitForPendingWritesForTesting() { queue.sync {} }
-
     func track(_ event: AnalyticsEvent) {
         queue.async { [weak self] in
             self?.appendSync(event)
@@ -69,6 +63,26 @@ final class PapugaEventLog {
         try opened.seekToEnd()
         handle = opened
         return opened
+    }
+
+    /// Deletes the log outright. Until this existed the file survived every clear the app
+    /// offered — "Очистити журнал рішень" emptied the replacement and decision stores and
+    /// left `events.jsonl` in place.
+    func clearAll() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            try? self.handle?.close()
+            self.handle = nil
+            do {
+                try FileManager.default.removeItem(at: self.fileURL)
+            } catch CocoaError.fileNoSuchFile {
+                // Already gone — that is a successful clear.
+            } catch {
+                AppLogger.error(self.logger, "PapugaEventLog clear failed: \(error.localizedDescription)")
+                return
+            }
+            AppLogger.action(self.logger, "PapugaEventLog cleared")
+        }
     }
 
     func pruneOldEntries() {

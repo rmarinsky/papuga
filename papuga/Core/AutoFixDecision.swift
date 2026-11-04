@@ -196,6 +196,12 @@ enum AutoFixDecision {
         return keyCode == kVK_Space || keyCode == kVK_Return || keyCode == kVK_Tab
     }
 
+    /// Languages `languageHintForLayoutID` can name — the set to test a word
+    /// against when the caller has text but no layout to derive a language from.
+    static let supportedSpellingLanguages = [
+        "uk", "ru", "pl", "de", "fr", "es", "it", "tr", "ar", "he", "en"
+    ]
+
     private static let languageCacheLock = NSLock()
     private static var languageCache: [String: String] = [:]
 

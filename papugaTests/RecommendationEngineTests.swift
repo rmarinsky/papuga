@@ -17,6 +17,50 @@ final class RecommendationEngineTests: XCTestCase {
         super.tearDown()
     }
 
+    func test_undoingALayoutFixNeverOffersToAllowlistTheMistake() {
+        // "nfr" → "так": undoing three times used to surface "Папуга більше не
+        // чіпатиме це слово", and one click made "так" permanently unfixable.
+        let history = (0..<3).map { _ in
+            ReplacementHistoryEntry(kind: .autoFixUndone, original: "nfr", converted: "так")
+        }
+
+        let recommendations = RecommendationEngine.compute(
+            from: history,
+            allowlist: [],
+            blocklist: [],
+            customRules: [],
+            dismissed: [],
+            convertedIsRealWord: { $0 == "так" }
+        )
+
+        XCTAssertFalse(recommendations.contains {
+            if case .addWordToAllowlist = $0 { return true }
+            return false
+        })
+    }
+
+    func test_undoingAConversionIntoGibberishStillOffersTheAllowlist() {
+        // "npx" → "тзч" is not a word: the user really does type "npx", so the
+        // escape hatch stays.
+        let history = (0..<3).map { _ in
+            ReplacementHistoryEntry(kind: .autoFixUndone, original: "npx", converted: "тзч")
+        }
+
+        let recommendations = RecommendationEngine.compute(
+            from: history,
+            allowlist: [],
+            blocklist: [],
+            customRules: [],
+            dismissed: [],
+            convertedIsRealWord: { _ in false }
+        )
+
+        XCTAssertTrue(recommendations.contains {
+            if case .addWordToAllowlist(let word, _, _) = $0 { return word == "npx" }
+            return false
+        })
+    }
+
     @MainActor
     func test_applyingCustomRuleRecommendationRemovesConflictingAllowlistEntry() {
         Defaults[.autoFixAllowlist] = ["pomylkka"]

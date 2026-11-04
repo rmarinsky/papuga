@@ -7,6 +7,10 @@ final class TextSwitchEngine {
     private let layoutManager: LayoutManager
     private let clipboardHistoryManager: ClipboardHistoryManager?
     private let logger = AppLogger.switchEngine
+    /// A switch in flight. Both entry points run on the main thread — `HotkeyListener`
+    /// installs its tap source on `CFRunLoopGetMain()`, and `KeyboardShortcuts` delivers
+    /// on main — so a plain flag is enough to serialize them.
+    private var isSwitching = false
 
     init(layoutManager: LayoutManager, clipboardHistoryManager: ClipboardHistoryManager? = nil) {
         AppLogger.pre(logger, "init(layoutManager:)")
@@ -23,6 +27,13 @@ final class TextSwitchEngine {
             AppLogger.warn(logger, "[\(operationID)] Aborted: service is disabled")
             return
         }
+        // A second trigger mid-flight would snapshot the *converted* text as the
+        // "original" clipboard and paste that back once the first run restores.
+        guard !isSwitching else {
+            AppLogger.warn(logger, "[\(operationID)] Aborted: a switch is already in flight")
+            return
+        }
+        isSwitching = true
         let historyManager = clipboardHistoryManager
         historyManager?.suspendTracking(reason: "textSwitch:\(operationID)")
         AppLogger.action(logger, "[\(operationID)] Saving clipboard state")
@@ -35,6 +46,7 @@ final class TextSwitchEngine {
         Task { @MainActor in
             defer {
                 historyManager?.resumeTracking(reason: "textSwitch:\(operationID)")
+                isSwitching = false
             }
 
             // No fixed pre-read delay: getTextWithRetry polls changeCount with early-exit, so a

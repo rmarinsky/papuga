@@ -90,6 +90,10 @@ struct AutoFixProposal: Identifiable, Equatable {
 enum AutoFixProposalOutcome: Equatable {
     case accepted
     case dismissed
+    /// The user kept typing while the panel was up. Not a rejection — they were
+    /// mid-thought and most likely never read it — so the proposal demotes to a
+    /// passive chip that survives typing instead of dying with the panel.
+    case typedOver
     case timedOut
     case neverReplace
 
