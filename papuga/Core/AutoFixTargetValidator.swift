@@ -651,6 +651,9 @@ final class AutoFixTargetValidator {
         if !replacementCommitted,
            Self.string(for: sourceRange, in: focused) == anchor.expectedSource,
            Self.setSelectedTextRange(sourceRange, on: focused),
+           // The events go to whatever holds keyboard focus, so re-check focus and
+           // selection right before posting. This narrows the window; it cannot close it.
+           Self.selectionStillTargets(anchor: anchor, element: focused, range: sourceRange),
            Self.postUnicodeReplacement(replacement) {
             replacementCommitted = Self.waitForCommittedReplacement(
                 expected: replacement,
@@ -1293,6 +1296,19 @@ final class AutoFixTargetValidator {
             }
         }
         return nil
+    }
+
+    /// Whether keyboard focus is still on the anchored element with `range` selected.
+    private static func selectionStillTargets(
+        anchor: TextReplacementAnchor,
+        element: AXUIElement,
+        range: AXTextRange
+    ) -> Bool {
+        guard let current = focusedElementSignature(),
+              current.pid == anchor.targetPID,
+              current.stableIdentity == anchor.focusedElementIdentity
+        else { return false }
+        return selectedTextRange(for: element) == range
     }
 
     /// Whether a re-located field still sits in the window the chip was raised for.
