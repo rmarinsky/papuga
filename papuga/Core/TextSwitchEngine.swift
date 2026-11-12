@@ -10,7 +10,7 @@ final class TextSwitchEngine {
     /// A switch in flight. Both entry points run on the main thread — `HotkeyListener`
     /// installs its tap source on `CFRunLoopGetMain()`, and `KeyboardShortcuts` delivers
     /// on main — so a plain flag is enough to serialize them.
-    private var isSwitching = false
+    private(set) var isSwitching = false
 
     init(layoutManager: LayoutManager, clipboardHistoryManager: ClipboardHistoryManager? = nil) {
         AppLogger.pre(logger, "init(layoutManager:)")
