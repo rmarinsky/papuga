@@ -152,14 +152,20 @@ struct LayoutIncidentTracker: Equatable {
         proposalWindow: Double,
         hasContradiction: Bool,
         hasUnanimousDictionarySupport: Bool = false,
-        hasStrongEvidence: Bool = true
+        hasStrongEvidence: Bool = true,
+        isDictionaryBackedRun: Bool = false
     ) -> LayoutIncidentDecision {
         let margin = scoreCandidate - scoreOriginal
         if margin >= threshold {
             return hasContradiction || !hasStrongEvidence ? .propose : .replace
         }
         if margin >= threshold - proposalWindow {
-            return .propose
+            // The language scorer underrates short conversational phrases
+            // ("я ще раз" lands at 0.32), and a proposal for them is typed over
+            // long before anyone reads it. When the dictionary vouches for every
+            // real word of the run, the near-threshold margin is corroboration
+            // enough to apply — with Undo — instead of asking.
+            return isDictionaryBackedRun && !hasContradiction ? .replace : .propose
         }
         if hasUnanimousDictionarySupport, !hasContradiction {
             return .propose
@@ -175,6 +181,19 @@ struct LayoutIncidentTracker: Equatable {
     /// boundary caret to prove position the deletes would eat the newer text.
     static func allowsBlindReplacement(typedPastRun: Bool, boundaryCaret: Int?) -> Bool {
         !typedPastRun || boundaryCaret != nil
+    }
+
+    /// Two or more tokens, at least one dictionary-verified wrong-layout word,
+    /// and nothing else but function-word-sized fillers (`z`, `s`, `ot`) —
+    /// no long word the dictionary could not confirm.
+    static func isDictionaryBackedRun(_ tokens: [LayoutIncidentToken]) -> Bool {
+        tokens.count >= 2
+            && tokens.contains { $0.evidence == .strong }
+            && tokens.allSatisfy { token in
+                token.evidence == .strong
+                    || (token.evidence == .neutral
+                        && BufferedToken(rawText: token.original, keyCodes: []).core.count <= 3)
+            }
     }
 
     static func joinedBody(

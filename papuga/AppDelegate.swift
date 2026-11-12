@@ -19,7 +19,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let autoFixCharacterMapper = CharacterMapper()
     private var isConfigured = false
     private let logger = AppLogger.lifecycle
-    lazy var updaterManager = UpdaterManager()
+    lazy var updaterManager = UpdaterManager { [weak self] in
+        self?.textSwitchEngine?.isSwitching == true || AutoFixProposalShortcutGate.shared.isArmed
+    }
 
     func configure(layoutManager: LayoutManager, clipboardHistoryManager: ClipboardHistoryManager) {
         // Unit-test hosts must not register event taps, open windows, or touch live history.

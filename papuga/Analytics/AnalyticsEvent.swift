@@ -80,6 +80,8 @@ enum AnalyticsKind {
     static let autoFixSkipped = "auto_fix_skipped"
     static let autoFixProposalResolved = "auto_fix_proposal_resolved"
     static let autoFixUndone = "auto_fix_undone"
+    static let autoFixLayoutOnly = "auto_fix_layout_only"
+    static let autoFixRetypedAfterFix = "auto_fix_retyped_after_fix"
     static let manualSwitchCompleted = "manual_switch_completed"
     static let manualSwitchAborted = "manual_switch_aborted"
     static let settingChanged = "setting_changed"

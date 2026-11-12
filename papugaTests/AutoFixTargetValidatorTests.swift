@@ -932,4 +932,50 @@ final class AutoFixTargetValidatorTests: XCTestCase {
         XCTAssertTrue(AutoFixTargetValidator.isSameWindow(identity(pid: 1, title: nil), identity(pid: 1, title: 8)),
                       "no title to compare: fall back to the process")
     }
+
+    func testStandsAloneAtCaretProvesWordInMiddleOfField() {
+        // Reply typed mid-field: not at either edge, but the caret pins it.
+        let value = "перший рядок\nnj \nпідпис"
+        XCTAssertFalse(AutoFixTargetValidator.standsAloneInValue(source: "nj", boundary: " ", value: value))
+        XCTAssertTrue(AutoFixTargetValidator.standsAloneAtCaret(source: "nj", boundary: " ", value: value, caret: 16))
+        XCTAssertNil(AutoFixTargetValidator.standsAloneRejection(source: "nj", boundary: " ", value: value, caret: 16))
+    }
+
+    func testStandsAloneAtCaretAcceptsComposerTrailingNewline() {
+        // Web composers keep a stray newline after the caret.
+        XCTAssertTrue(AutoFixTargetValidator.standsAloneAtCaret(
+            source: "ghbdsn", boundary: " ", value: "ghbdsn \n", caret: 7))
+        // Boundary not rendered yet: only whitespace may follow the caret.
+        XCTAssertTrue(AutoFixTargetValidator.standsAloneAtCaret(
+            source: "ghbdsn", boundary: " ", value: "ghbdsn\n", caret: 6))
+        XCTAssertFalse(AutoFixTargetValidator.standsAloneAtCaret(
+            source: "ghbdsn", boundary: " ", value: "ghbdsnхвіст", caret: 6))
+    }
+
+    func testStandsAloneAtCaretRejectsWordGluedToExistingText() {
+        // "к|" + "nj " — the exact corruption the editing guard exists for.
+        let value = "щось кnj далі"
+        XCTAssertFalse(AutoFixTargetValidator.standsAloneAtCaret(source: "nj", boundary: " ", value: value, caret: 9))
+        XCTAssertEqual(
+            AutoFixTargetValidator.standsAloneRejection(source: "nj", boundary: " ", value: value, caret: 9),
+            "glued_to_text")
+        // Backspaced into "wor", retyped "rd": the buffer is a fragment.
+        XCTAssertNotNil(AutoFixTargetValidator.standsAloneRejection(
+            source: "rd", boundary: " ", value: "hello word ", caret: 11))
+        XCTAssertEqual(
+            AutoFixTargetValidator.standsAloneRejection(source: "nj", boundary: " ", value: "зовсім інше", caret: 3),
+            "word_not_in_value")
+    }
+
+    func testMismatchDetailNamesTheFirstDifferingComponent() {
+        func signature(title: Int? = 1, frame: Int? = 1, caret: Int? = nil, role: String = "AXTextArea") -> FocusedElementSignature {
+            FocusedElementSignature(pid: 1, role: role, subrole: nil, windowTitleHash: title,
+                                    elementIdentifier: nil, frameHash: frame, selectedRangeLocation: caret)
+        }
+        XCTAssertEqual(signature().mismatchDetail(signature(title: 2)), "window_title")
+        XCTAssertEqual(signature().mismatchDetail(signature(frame: 2)), "frame")
+        XCTAssertEqual(signature(caret: 3).mismatchDetail(signature(caret: 9)), "caret")
+        XCTAssertEqual(signature(caret: 3).mismatchDetail(signature()), "caret_availability")
+        XCTAssertEqual(signature().mismatchDetail(signature(role: "AXTextField")), "role")
+    }
 }

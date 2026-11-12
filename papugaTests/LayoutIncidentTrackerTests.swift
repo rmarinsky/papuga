@@ -279,4 +279,32 @@ final class LayoutIncidentTrackerTests: XCTestCase {
             evidence: .neutral
         )
     }
+
+    func testDictionaryBackedRunAppliesInsideProposalWindow() {
+        func verdict(backed: Bool, contradiction: Bool = false, margin: Double = 0.32) -> LayoutIncidentDecision {
+            LayoutIncidentTracker.runVerdict(scoreOriginal: 0, scoreCandidate: margin, threshold: 0.5,
+                proposalWindow: 0.22, hasContradiction: contradiction, isDictionaryBackedRun: backed)
+        }
+        XCTAssertEqual(verdict(backed: true), .replace)
+        XCTAssertEqual(verdict(backed: false), .propose)
+        XCTAssertEqual(verdict(backed: true, contradiction: true), .propose)
+        // Below the window the dictionary alone still never replaces.
+        XCTAssertEqual(verdict(backed: true, margin: 0.1), .discard)
+    }
+
+    func testDictionaryBackedRunNeedsVerifiedWordAndOnlyShortFillers() {
+        func token(_ original: String, _ evidence: LayoutIncidentToken.Evidence) -> LayoutIncidentToken {
+            LayoutIncidentToken(original: original, candidate: original, boundary: " ",
+                                targetLayoutID: "uk", evidence: evidence, boundaryCaret: nil)
+        }
+        XCTAssertTrue(LayoutIncidentTracker.isDictionaryBackedRun(
+            [token("z", .neutral), token("ot", .neutral), token("hfp", .strong)]))
+        // A long word the dictionary could not confirm keeps the run a proposal.
+        XCTAssertFalse(LayoutIncidentTracker.isDictionaryBackedRun(
+            [token("rhfot", .strong), token("ibdlie", .neutral)]))
+        XCTAssertFalse(LayoutIncidentTracker.isDictionaryBackedRun([token("z", .neutral), token("s", .neutral)]))
+        XCTAssertFalse(LayoutIncidentTracker.isDictionaryBackedRun([token("hfp", .strong)]))
+        XCTAssertFalse(LayoutIncidentTracker.isDictionaryBackedRun(
+            [token("hfp", .strong), token("the", .contradiction)]))
+    }
 }
