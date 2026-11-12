@@ -61,8 +61,19 @@ final class TextSwitchEngine {
             }
             AppLogger.post(logger, "[\(operationID)] Text captured (\(text.count) chars)")
 
-            let currentID = layoutManager.getCurrentLayoutID()
-            AppLogger.action(logger, "[\(operationID)] Current layout id: \(currentID)")
+            // The text says which layout it was typed in; the system layout only
+            // says where the keyboard is now. They differ whenever the layout was
+            // switched (by hand or by AutoFix) after the text was typed, and then
+            // converting "from the current layout" maps the text the wrong way.
+            let systemID = layoutManager.getCurrentLayoutID()
+            let orderedIDs = layoutManager.orderedLayouts()
+            for id in orderedIDs {
+                if let source = layoutManager.sourceForID(id) { characterMapper.buildMap(for: source, sourceID: id) }
+            }
+            let currentID = Self.sourceLayout(of: text, among: orderedIDs, systemLayoutID: systemID) { character, id in
+                self.characterMapper.mapping(for: character, sourceID: id) != nil
+            }
+            AppLogger.action(logger, "[\(operationID)] Source layout id: \(currentID) (system: \(systemID))")
 
             guard let targetID = layoutManager.nextLayout(after: currentID, direction: direction) else {
                 AppLogger.warn(logger, "[\(operationID)] Aborted: unable to resolve target layout")
@@ -125,6 +136,24 @@ final class TextSwitchEngine {
             clipboardManager.restore(savedState)
             AppLogger.post(logger, "[\(operationID)] Switch flow completed")
         }
+    }
+
+    /// The layout that can type the most letters of `text`. The system layout
+    /// wins ties, so same-script layouts and letterless text behave as before.
+    static func sourceLayout(
+        of text: String,
+        among layoutIDs: [String],
+        systemLayoutID: String,
+        canType: (Character, String) -> Bool
+    ) -> String {
+        let letters = text.filter(\.isLetter)
+        func coverage(_ id: String) -> Int { letters.filter { canType($0, id) }.count }
+        let systemCoverage = coverage(systemLayoutID)
+        let best = layoutIDs.filter { $0 != systemLayoutID }
+            .map { (id: $0, coverage: coverage($0)) }
+            .max { $0.coverage < $1.coverage }
+        guard let best, best.coverage > systemCoverage else { return systemLayoutID }
+        return best.id
     }
 
     func invalidateMaps() {
