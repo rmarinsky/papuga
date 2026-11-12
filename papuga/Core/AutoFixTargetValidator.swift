@@ -144,6 +144,20 @@ struct FocusedElementSignature: Equatable {
         return stableIdentity == other.stableIdentity
     }
 
+    /// First signature component that differs from `other`, for the skip log.
+    func mismatchDetail(_ other: FocusedElementSignature) -> String {
+        if pid != other.pid { return "pid" }
+        if role != other.role { return "role" }
+        if subrole != other.subrole { return "subrole" }
+        if let elementIdentifier, let otherIdentifier = other.elementIdentifier,
+           elementIdentifier != otherIdentifier { return "identifier" }
+        if selectedRangeLocation != nil, other.selectedRangeLocation != nil { return "caret" }
+        if (selectedRangeLocation == nil) != (other.selectedRangeLocation == nil) { return "caret_availability" }
+        if windowTitleHash != other.windowTitleHash { return "window_title" }
+        if frameHash != other.frameHash { return "frame" }
+        return "element"
+    }
+
     /// Identity check that deliberately ignores caret position and window geometry.
     ///
     /// Used when the caret an anchor refers to was recorded earlier, at the word
@@ -231,6 +245,9 @@ final class AutoFixTargetValidator {
     /// number to read rather than a theory to guess at — the previous three attempts
     /// at this bug were guesses.
     private(set) var lastCaretMismatch: CaretMismatch?
+    /// Which part of the focused-element signature differed on the last
+    /// `focused_element_changed` verdict. Diagnostics only.
+    private(set) var lastTargetMismatchDetail: String?
 
     /// The live collapsed caret, for callers that need to record it while it is still
     /// fresh — i.e. at the word boundary, before any grace period lets it drift.
@@ -344,6 +361,7 @@ final class AutoFixTargetValidator {
         boundary: String,
         knownBoundaryCaret: Int? = nil
     ) -> AutoFixTargetValidation {
+        lastTargetMismatchDetail = nil
         let activeBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         let expected = expectedBundleID?.nilIfEmpty ?? session.bundleID?.nilIfEmpty
 
@@ -396,9 +414,40 @@ final class AutoFixTargetValidator {
             }
         }
 
-        return sawCurrentSignature
-            ? .changed("focused_element_changed")
-            : .unverifiable("missing_current_focused_element")
+        guard sawCurrentSignature else {
+            return .unverifiable("missing_current_focused_element")
+        }
+        // Web and Electron composers re-create their accessibility proxy, grow,
+        // and retitle their window mid-word, so identity and caret arithmetic
+        // both drift while the user never left the field. The text is the
+        // stronger witness: same process, role and identifier, and the typed
+        // token readable right where it should be. captureReplacementAnchor
+        // repeats that readback before anything is mutated.
+        if let focused = Self.focusedElement(),
+           let signature = Self.focusedElementSignature(for: focused) {
+            lastTargetMismatchDetail = originalSignature.mismatchDetail(signature)
+            if originalSignature.matchesTypingTargetIgnoringPosition(signature),
+               Self.typedTokenIsReadable(source: source, boundary: boundary, in: focused) {
+                lastCaretMismatch = nil
+                lastTargetMismatchDetail = nil
+                return .verified
+            }
+        }
+        return .changed("focused_element_changed")
+    }
+
+    /// The typed token read back from the element itself: ending at a collapsed
+    /// caret, or — when no caret is exposed — as the tail of the value.
+    private static func typedTokenIsReadable(source: String, boundary: String, in element: AXUIElement) -> Bool {
+        let expected = readbackBoundaries(boundary).map { source + $0 }
+        let length = source.utf16.count + boundary.utf16.count
+        if let selection = selectedTextRange(for: element) {
+            guard selection.length == 0, selection.location >= length else { return false }
+            let range = AXTextRange(location: selection.location - length, length: length)
+            return string(for: range, in: element).map(expected.contains) ?? false
+        }
+        guard let value = stringAttribute(kAXValueAttribute as CFString, from: element) else { return false }
+        return valueSuffixRange(source: source, boundary: boundary, in: value) != nil
     }
 
     func validateKeyEventStillTargetsSession(_ event: CGEvent) -> AutoFixTargetValidation {
@@ -1211,10 +1260,62 @@ final class AutoFixTargetValidator {
         return CharacterSet.whitespacesAndNewlines.contains(scalar)
     }
 
-    /// `standsAloneInValue` against the live focused element, re-sampled as
-    /// described on `focusSampleAttempts`. Unreadable field → false: when the
+    /// The same claim proved from the caret instead of the field edge: the text
+    /// ending at the caret is exactly the typed word, and that word starts at a
+    /// word boundary. Covers what the edge rule cannot — a reply typed in the
+    /// middle of a field, or a composer whose value ends in a stray newline.
+    /// `source` alone (boundary not rendered yet) only counts when nothing but
+    /// whitespace follows the caret.
+    nonisolated static func standsAloneAtCaret(
+        source: String,
+        boundary: String,
+        value: String,
+        caret: Int
+    ) -> Bool {
+        guard !source.isEmpty, !boundary.isEmpty else { return false }
+        let valueLength = value.utf16.count
+        guard caret >= 0, caret <= valueLength else { return false }
+        for needle in readbackBoundaries(boundary).map({ source + $0 }) + [source] {
+            let length = needle.utf16.count
+            let start = caret - length
+            guard start >= 0,
+                  substring(for: AXTextRange(location: start, length: length), in: value) == needle,
+                  isWordStart(at: start, in: value)
+            else { continue }
+            if needle != source { return true }
+            if caret == valueLength { return true }
+            if let next = substring(for: AXTextRange(location: caret, length: 1), in: value)?.unicodeScalars.first,
+               CharacterSet.whitespacesAndNewlines.contains(next) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Why the typed word could not be proved to stand alone, or nil when it
+    /// was. The reason goes to the skip log: `editing_context` alone could not
+    /// tell an unreadable editor from a word genuinely glued to existing text.
+    nonisolated static func standsAloneRejection(
+        source: String,
+        boundary: String,
+        value: String,
+        caret: Int?
+    ) -> String? {
+        if standsAloneInValue(source: source, boundary: boundary, value: value) { return nil }
+        if let caret, standsAloneAtCaret(source: source, boundary: boundary, value: value, caret: caret) {
+            return nil
+        }
+        let starts = occurrenceStarts(of: source, in: value)
+        if starts.isEmpty { return "word_not_in_value" }
+        if !starts.contains(where: { isWordStart(at: $0, in: value) }) { return "glued_to_text" }
+        return caret == nil ? "not_at_edge_no_caret" : "not_at_edge"
+    }
+
+    /// `standsAloneRejection` against the live focused element, re-sampled as
+    /// described on `focusSampleAttempts`. Unreadable field → rejected: when the
     /// claim cannot be proven, the editing guard stays in force.
-    func typedWordStandsAlone(source: String, boundary: String) -> Bool {
+    func typedWordStandsAloneRejection(source: String, boundary: String) -> String? {
+        var rejection = "value_unreadable"
         for attempt in 0..<Self.focusSampleAttempts {
             if attempt > 0 {
                 Thread.sleep(forTimeInterval: Self.focusSampleRetryDelay)
@@ -1224,9 +1325,14 @@ final class AutoFixTargetValidator {
             else {
                 continue
             }
-            return Self.standsAloneInValue(source: source, boundary: boundary, value: value)
+            let selection = Self.selectedTextRange(for: focused)
+            let caret = selection.flatMap { $0.length == 0 ? $0.location : nil }
+            guard let reason = Self.standsAloneRejection(
+                source: source, boundary: boundary, value: value, caret: caret
+            ) else { return nil }
+            rejection = reason
         }
-        return false
+        return rejection
     }
 
     /// Start of the *single* occurrence of `needle` in `value`, in UTF-16 units.

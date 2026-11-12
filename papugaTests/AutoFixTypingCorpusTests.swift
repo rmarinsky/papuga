@@ -38,6 +38,39 @@ final class AutoFixTypingCorpusTests: XCTestCase {
         }
     }
 
+    func test_automaticTargetMustReadAsWord() {
+        let checker = HybridSpellChecker(indexes: DictionaryBuilder.build(base: [
+            "en": [("tv", 1000)], "uk": [("ще", 9000), ("ну", 9000)]
+        ], learned: [:]))
+        func plausible(_ word: String, _ language: String) -> Bool {
+            AutoFixWordEvaluator.isPlausibleAutomaticTarget(word, language: language, spellChecker: checker)
+        }
+        // Field false fixes: `вп → dg`, `нєа, → y'f,`, `бре → ,ht`.
+        XCTAssertFalse(plausible("dg", "en"))
+        XCTAssertFalse(plausible("y'f,", "en"))
+        XCTAssertFalse(plausible(",ht", "en"))
+        XCTAssertTrue(plausible("tv", "en"))
+        XCTAssertTrue(plausible("i've", "en"))
+        XCTAssertTrue(plausible("роблю)", "uk"))
+        XCTAssertFalse(plausible("gktqhfqn", "en"))
+    }
+
+    func test_shortSourceWordMappingToCommonTargetWordIsAmbiguous() {
+        let checker = HybridSpellChecker(indexes: DictionaryBuilder.build(base: [
+            "uk": [("ще", 9000), ("ну", 9000)]
+        ], learned: [:]))
+        func ambiguous(_ word: String, _ candidate: String) -> Bool {
+            AutoFixWordEvaluator.isAmbiguousShortSourceWord(word, candidate: candidate,
+                targetLanguage: "uk", spellChecker: checker)
+        }
+        XCTAssertTrue(ambiguous("ot", "ще"))
+        XCTAssertTrue(ambiguous("ye", "ну"))
+        // Not a common target word, too long, or carrying punctuation: still a contradiction.
+        XCTAssertFalse(ambiguous("ok", "щл"))
+        XCTAssertFalse(ambiguous("them", "еруь"))
+        XCTAssertFalse(ambiguous("ot,", "щеб"))
+    }
+
     func test_physicalPunctuationKeysStillConvertAndLiteralEdgesSurvive() throws {
         let en = try source("com.apple.keylayout.US")
         let uk = try source("com.apple.keylayout.Ukrainian-PC")

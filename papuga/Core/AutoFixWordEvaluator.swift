@@ -12,6 +12,8 @@ struct AutoFixWordEvaluation {
         case suggestLayout
         case suggestSpelling(SpellingTypoGuardAssessment)
         case suggestCompound(String)
+        /// A single finger slip in the current language — see `NarrowTypoCorrector`.
+        case fixSpelling(String)
         case replace
     }
 
@@ -172,6 +174,13 @@ struct AutoFixWordEvaluator {
                    guesses: { spellChecker.guesses(for: $0, language: $1) }) {
                 return result(.suggestCompound(suggestion))
             }
+            // Not a layout mistake at all: the mapped text is no word either.
+            if config.spellingTypoGuardEnabled,
+               let fixed = NarrowTypoCorrector.correction(for: word, language: currentLanguage,
+                   spellChecker: spellChecker,
+                   keyCode: { mapper.mapping(for: $0, sourceID: source.id)?.keyCode }) {
+                return result(.fixSpelling(fixed))
+            }
             return result(.keep(.belowThreshold))
         case .allow: break
         }
@@ -206,7 +215,43 @@ struct AutoFixWordEvaluator {
         guard verifiedLayoutWord || AutoFixDecision.shouldReplace(scoreOriginal: originalScore,
             scoreCandidate: effectiveScore, threshold: threshold) else { return result(.uncertain) }
         guard hasCore else { return result(.uncertain) }
+        guard Self.isPlausibleAutomaticTarget(lexicalCandidate, language: best.targetLang,
+                                              spellChecker: spellChecker) else { return result(.uncertain) }
         return result(selection?.isAmbiguous == true ? .suggestLayout : .replace)
+    }
+
+    /// The system English dictionary accepts almost any two or three letters
+    /// (`dg`, `y'f`), and a language score says nothing about spelling, so on
+    /// their own they let `вп → dg` and `нєа, → y'f,` through. An automatic
+    /// replacement must land on something that reads as a word; with only two
+    /// letters, it must also be attested by the frequency or learned vocabulary.
+    static func isPlausibleAutomaticTarget(
+        _ candidate: String,
+        language: String,
+        spellChecker: SpellCheckingClient
+    ) -> Bool {
+        // An unplanned candidate still carries its edge punctuation (`роблю)`).
+        let core = BufferedToken(rawText: candidate, keyCodes: []).core
+        if spellChecker.isExplicitlyKnown(core, language: language) { return true }
+        return core.filter(\.isLetter).count > 2 && WordPlausibility.isWordLike(core)
+    }
+
+    /// A short source token that is a real word in the current language yet
+    /// maps to a common word of the target one (`ot → ще`, `ye → ну`). Alone it
+    /// proves nothing either way, so inside a wrong-layout run it must not
+    /// count as a contradiction that cuts the run in half.
+    static func isAmbiguousShortSourceWord(
+        _ word: String,
+        candidate: String,
+        targetLanguage: String,
+        spellChecker: SpellCheckingClient
+    ) -> Bool {
+        let core = BufferedToken(rawText: word, keyCodes: []).core
+        let mapped = BufferedToken(rawText: candidate, keyCodes: []).core
+        return (2...3).contains(core.count)
+            && core == word
+            && AutoFixDecision.isCrossScriptConversion(original: core, candidate: mapped)
+            && spellChecker.logFrequency(of: mapped, language: targetLanguage) >= 2
     }
     private static func isLexicalToken(_ word: String) -> Bool {
         let pieces = word.split(omittingEmptySubsequences: false, whereSeparator: { "-'’ʼ".contains($0) })

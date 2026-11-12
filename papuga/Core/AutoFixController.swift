@@ -59,6 +59,9 @@ final class AutoFixController {
 
     private var buffer = WordBuffer()
     private var lastFix: PendingUndo?
+    /// When the last automatic replacement landed, until the user types on.
+    /// Deleting into it right away is a rejection nobody clicks Undo for.
+    private var implicitUndoWatch: (appliedAt: TimeInterval, backspaces: Int, bundleID: String)?
     private var pendingProposalRecovery: PendingProposalRecovery?
     private var pendingReapply: PendingReapply?
     /// One slot, newest wins: the fix the user typed past, kept alive as a
@@ -345,6 +348,7 @@ final class AutoFixController {
         }
 
         if !typedString.isEmpty {
+            implicitUndoWatch = nil
             if buffer.text.isEmpty {
                 targetValidator.startSession(targetPID: targetPID, keyCode: keyCode, typedString: typedString)
             } else {
@@ -361,6 +365,7 @@ final class AutoFixController {
 
     private func handleBackspace(timestamp: TimeInterval) {
         let bufferWasEmpty = buffer.text.isEmpty
+        noteBackspaceAfterFix(bufferWasEmpty: bufferWasEmpty, timestamp: timestamp)
         // The tap observes Backspace after the target editor has already consumed it. Using that
         // key as an undo gesture would therefore delete the untouched Space/Return/Tab boundary
         // before Papuga can validate anything. Undo remains available through the range-safe chip.
@@ -372,6 +377,29 @@ final class AutoFixController {
         if buffer.text.isEmpty {
             targetValidator.reset()
         }
+    }
+
+    /// Two deletes straight into a fresh replacement, before anything else is
+    /// typed, mean the user is taking it back by hand. Telemetry only: it is
+    /// the false-fix signal the unused Undo button never produced.
+    private func noteBackspaceAfterFix(bufferWasEmpty: Bool, timestamp: TimeInterval) {
+        guard var watch = implicitUndoWatch else { return }
+        guard bufferWasEmpty, AutoFixDecision.isImplicitUndoWindow(elapsed: timestamp - watch.appliedAt) else {
+            implicitUndoWatch = nil
+            return
+        }
+        watch.backspaces += 1
+        guard watch.backspaces >= 2 else {
+            implicitUndoWatch = watch
+            return
+        }
+        implicitUndoWatch = nil
+        PapugaEventLog.shared.track(AnalyticsEvent(
+            kind: AnalyticsKind.autoFixRetypedAfterFix,
+            frontmostBundleID: watch.bundleID,
+            inputLayout: layoutManager.getCurrentLayoutID(),
+            properties: ["time_to_delete_ms": .int(Int((timestamp - watch.appliedAt) * 1000))]
+        ))
     }
 
     private func undoFromToast() {
@@ -481,6 +509,9 @@ final class AutoFixController {
             for (key, value) in caretMismatchProperties() {
                 extra[key] = value
             }
+            if let detail = targetValidator.lastTargetMismatchDetail {
+                extra["target_detail"] = .string(detail)
+            }
             logSkip(.targetChanged, word: word, bundleID: bundleID, extra: extra)
             resetLayoutIncident()
             return
@@ -523,11 +554,26 @@ final class AutoFixController {
         // — the danger is absent and the word stays fixable. This was eating
         // the first word of every fresh chat message.
         if editingGuard.shouldSuppress(enabled: Defaults[.autoFixConservativeEditingGuard]),
-           !targetValidator.typedWordStandsAlone(source: word, boundary: boundary.isEmpty ? " " : boundary) {
+           let guardReason = targetValidator.typedWordStandsAloneRejection(
+               source: word, boundary: boundary.isEmpty ? " " : boundary
+           ) {
             logSkip(.editingContext, word: word, bundleID: bundleID, extra: [
-                "from_lang": .string(currentLang)
+                "from_lang": .string(currentLang),
+                "guard_reason": .string(guardReason)
             ])
             resetLayoutIncident()
+            // Words the user curated (blocklist, allowlist, rules) keep their
+            // meaning; anything else that is unmistakably wrong-layout still
+            // earns the layout switch.
+            if appPolicy.allowsAutomaticMutation,
+               !Defaults[.autoFixBlocklist].contains(bundleID),
+               !AutoFixDecision.isInAllowlist(word, allowlist: Defaults[.autoFixAllowlist]),
+               !cachedCustomRules.contains(where: { $0.matches(word) }),
+               let best = evaluateWord(word, currentID: currentID, threshold: Defaults[.autoFixThreshold],
+                                       algorithm: configuredAlgorithm).replacement {
+                switchLayoutWithoutReplacing(fromLayoutID: currentID, targetLayoutID: best.targetID,
+                                             bundleID: bundleID, cause: "editing_context")
+            }
             return
         }
 
@@ -576,21 +622,18 @@ final class AutoFixController {
 
         let algorithm = configuredAlgorithm
         let threshold = Defaults[.autoFixThreshold]
-        let evaluator = AutoFixWordEvaluator(mapper: characterMapper, spellChecker: spellChecker,
-            scorer: resolvedScorer(for: algorithm))
-        let evaluation = evaluator.evaluate(word,
-            source: layoutManager.availableLayouts.first { $0.id == currentID },
-            targets: layoutManager.candidateTargets(excluding: currentID).compactMap { id in
-                layoutManager.availableLayouts.first { $0.id == id }
-            },
-            configuration: .init(minimumLength: Defaults[.autoFixMinWordLength], threshold: threshold,
-                candidateSeparation: Defaults[.autoFixCandidateSeparation],
-                spellingTypoGuardEnabled: Defaults[.autoFixSpellingTypoGuardEnabled],
-                spellingTypoGuardMinimumLength: Defaults[.autoFixSpellingTypoGuardMinWordLength],
-                spellingTypoGuardMaximumDistance: Defaults[.autoFixSpellingTypoGuardMaxEditDistance]),
-            previousWord: layoutIncident.tokens.last?.original)
+        let evaluation = evaluateWord(word, currentID: currentID, threshold: threshold, algorithm: algorithm)
         let scoreOriginal = evaluation.scoreOriginal
         updateDecisionCandidates(scoreOriginal: scoreOriginal, candidates: evaluation.candidates, threshold: threshold)
+        if case .fixSpelling(let suggestion) = evaluation.disposition {
+            // An ordinary word of the current language: it ends any layout run.
+            resetLayoutIncident()
+            applySpellingFix(original: word, suggestion: suggestion, boundary: boundary,
+                             layoutID: currentID, language: currentLang, algorithm: algorithm,
+                             bundleID: bundleID, targetSession: targetSession,
+                             canMutateDirectly: canMutateDirectly, allowsProposal: appPolicy.allowsProposal)
+            return
+        }
         if case .keep(let reason) = evaluation.disposition {
             logSkip(reason, word: word, bundleID: bundleID, layoutID: currentID)
             resetLayoutIncident()
@@ -659,7 +702,9 @@ final class AutoFixController {
                 canMutateDirectly: canMutateDirectly,
                 allowsProposal: appPolicy.allowsProposal,
                 targetSession: targetSession,
-                evidence: .contradiction,
+                evidence: AutoFixWordEvaluator.isAmbiguousShortSourceWord(
+                    word, candidate: candidate, targetLanguage: targetLang, spellChecker: spellChecker
+                ) ? .neutral : .contradiction,
                 singleAction: .none,
                 boundaryCaret: boundaryCaret
             )
@@ -879,6 +924,10 @@ final class AutoFixController {
         }
 
         guard canMutateDirectly else {
+            if evaluation.replacement != nil, appPolicy.allowsAutomaticMutation {
+                switchLayoutWithoutReplacing(fromLayoutID: currentID, targetLayoutID: targetID,
+                                             bundleID: bundleID, cause: "target_unverifiable")
+            }
             if appPolicy.allowsProposal {
                 maybeShowProposal(
                     original: word,
@@ -936,7 +985,7 @@ final class AutoFixController {
             return
         }
 
-        applyFix(
+        let didApply = applyFix(
             original: word,
             candidate: candidate,
             boundary: boundary,
@@ -950,6 +999,55 @@ final class AutoFixController {
             bundleID: bundleID,
             targetSession: targetSession
         )
+        if !didApply {
+            switchLayoutWithoutReplacing(fromLayoutID: currentID, targetLayoutID: targetID,
+                                         bundleID: bundleID, cause: "replacement_failed")
+        }
+    }
+
+    private func evaluateWord(
+        _ word: String,
+        currentID: String,
+        threshold: Double,
+        algorithm: LanguageScorerAlgorithm
+    ) -> AutoFixWordEvaluation {
+        let evaluator = AutoFixWordEvaluator(mapper: characterMapper, spellChecker: spellChecker,
+            scorer: resolvedScorer(for: algorithm))
+        return evaluator.evaluate(word,
+            source: layoutManager.availableLayouts.first { $0.id == currentID },
+            targets: layoutManager.candidateTargets(excluding: currentID).compactMap { id in
+                layoutManager.availableLayouts.first { $0.id == id }
+            },
+            configuration: .init(minimumLength: Defaults[.autoFixMinWordLength], threshold: threshold,
+                candidateSeparation: Defaults[.autoFixCandidateSeparation],
+                spellingTypoGuardEnabled: Defaults[.autoFixSpellingTypoGuardEnabled],
+                spellingTypoGuardMinimumLength: Defaults[.autoFixSpellingTypoGuardMinWordLength],
+                spellingTypoGuardMaximumDistance: Defaults[.autoFixSpellingTypoGuardMaxEditDistance]),
+            previousWord: layoutIncident.tokens.last?.original)
+    }
+
+    /// The text could not be replaced safely, but the evidence that the layout
+    /// is wrong stands on its own: switching now stops the mistake at this word
+    /// instead of letting it run to the end of the sentence. What is already
+    /// typed stays as it is — the manual hotkey converts it.
+    private func switchLayoutWithoutReplacing(
+        fromLayoutID: String,
+        targetLayoutID: String,
+        bundleID: String,
+        cause: String
+    ) {
+        let policy = AutoFixLayoutSwitchPolicy(rawValue: Defaults[.autoFixLayoutSwitchPolicy]) ?? .adaptive
+        guard policy != .keepCurrentLayout,
+              fromLayoutID != targetLayoutID,
+              layoutManager.getCurrentLayoutID() == fromLayoutID
+        else { return }
+        layoutManager.switchTo(targetLayoutID)
+        PapugaEventLog.shared.track(AnalyticsEvent(
+            kind: AnalyticsKind.autoFixLayoutOnly,
+            frontmostBundleID: bundleID,
+            inputLayout: targetLayoutID,
+            properties: ["cause": .string(cause)]
+        ))
     }
 
     private func layoutIncidentEvidence(
@@ -1235,6 +1333,11 @@ final class AutoFixController {
                 targetSession: decision.targetSession,
                 boundaryCaret: decision.boundaryCaret
             )
+            if !didApply {
+                switchLayoutWithoutReplacing(fromLayoutID: decision.fromLayoutID,
+                                             targetLayoutID: decision.targetLayoutID,
+                                             bundleID: decision.bundleID, cause: "replacement_failed")
+            }
             recordDeferredSingleDecision(
                 decision,
                 outcome: didApply ? .replaced : .skipped,
@@ -1326,7 +1429,8 @@ final class AutoFixController {
             proposalWindow: Defaults[.autoFixProposalWindow],
             hasContradiction: judged.contains { $0.evidence == .contradiction },
             hasUnanimousDictionarySupport: judged.allSatisfy { $0.evidence == .strong },
-            hasStrongEvidence: judged.contains { $0.evidence == .strong }
+            hasStrongEvidence: judged.contains { $0.evidence == .strong },
+            isDictionaryBackedRun: LayoutIncidentTracker.isDictionaryBackedRun(judged)
         )
 
         guard decision != .discard,
@@ -1376,6 +1480,11 @@ final class AutoFixController {
                 boundaryCaret: incidentBoundaryCaret,
                 allowsKeyboardFallback: allowsBlindReplacement
             )
+            if !didApply {
+                switchLayoutWithoutReplacing(fromLayoutID: context.fromLayoutID,
+                                             targetLayoutID: context.targetLayoutID,
+                                             bundleID: context.bundleID, cause: "replacement_failed")
+            }
             recordPhraseDecision(
                 original: original,
                 candidate: candidate,
@@ -1393,6 +1502,12 @@ final class AutoFixController {
                 signalKind: didApply ? .layoutIncident : .mutationFailure
             )
             return
+        }
+
+        if decision == .replace {
+            switchLayoutWithoutReplacing(fromLayoutID: context.fromLayoutID,
+                                         targetLayoutID: context.targetLayoutID,
+                                         bundleID: context.bundleID, cause: "target_unverifiable")
         }
 
         guard context.allowsProposal, Defaults[.autoFixProposalEnabled] else {
@@ -1706,6 +1821,62 @@ final class AutoFixController {
             demoteProposalToChip(proposal)
         }
         return true
+    }
+
+    /// Applies a `NarrowTypoCorrector` fix in place, with the usual Undo. Where
+    /// the editor cannot be mutated directly it degrades to the proposal.
+    private func applySpellingFix(
+        original: String,
+        suggestion: String,
+        boundary: String,
+        layoutID: String,
+        language: String,
+        algorithm: LanguageScorerAlgorithm,
+        bundleID: String,
+        targetSession: AutoFixTargetSession?,
+        canMutateDirectly: Bool,
+        allowsProposal: Bool
+    ) {
+        let boundaryToPreserve = boundary.isEmpty ? " " : boundary
+        guard canMutateDirectly,
+              let targetSession,
+              let replacementAnchor = targetValidator.captureReplacementAnchor(
+                for: targetSession,
+                expectedBundleID: bundleID,
+                source: original,
+                boundary: boundaryToPreserve,
+                allowsKeyboardFallback: false
+              )
+        else {
+            if allowsProposal {
+                showSpellingProposal(original: original, suggestion: suggestion, confidence: 1,
+                                     boundary: boundary, layoutID: layoutID, language: language,
+                                     algorithm: algorithm, bundleID: bundleID, targetSession: targetSession)
+            }
+            return
+        }
+        updateSpellingDecision(suggestion: suggestion, source: original, confidence: 1)
+        let applied = applyProposal(AutoFixProposal(
+            original: original,
+            candidate: suggestion,
+            boundary: boundaryToPreserve,
+            fromLayoutID: layoutID,
+            targetLayoutID: layoutID,
+            scoreOriginal: 0,
+            scoreCandidate: 1,
+            threshold: 0,
+            algorithm: algorithm,
+            currentLang: language,
+            targetLang: language,
+            bundleID: bundleID,
+            createdAt: ProcessInfo.processInfo.systemUptime,
+            replacementAnchor: replacementAnchor,
+            kind: .spelling
+        ), source: "spelling_auto")
+        if applied {
+            markDecision(outcome: .replaced, reason: nil, signalKind: .spellingSuggestion,
+                         candidateOrigin: .spelling, matching: original)
+        }
     }
 
     private func showSpellingProposal(
@@ -2230,6 +2401,7 @@ final class AutoFixController {
         changesInputLayout: Bool = true,
         recoveryAnchor: TextReplacementAnchor?
     ) -> Bool {
+        implicitUndoWatch = (ProcessInfo.processInfo.systemUptime, 0, AppContextProvider.frontmostBundleID() ?? "")
         guard let recoveryAnchor else {
             lastFix = nil
             return false

@@ -231,3 +231,35 @@ Proposal actions append `auto_fix_proposal_resolved` with `proposal_id` and
 `chip_superseded`, `chip_stopped`). These events contain no source or candidate text. `accepted` records the user's choice, not
 proof of insertion; a successful `auto_fix_applied` event carries the same
 `proposal_id` separately. Recovery can produce a later choice for the same proposal.
+
+
+## Recall and precision pass (2026-11-12)
+
+Measured on 30 days of local history, most missed layout fixes were words the
+engine recognised but a safety gate refused to touch.
+
+- The editing guard also accepts a caret proof: the text ending at the caret is the
+  typed word and it starts at a word boundary. This covers replies typed mid-field and
+  composers whose value ends in a stray newline. `editing_context` skips carry a
+  `guard_reason`.
+- `focused_element_changed` falls back to the text: same process, role and identifier,
+  and the typed token readable at the caret (or as the value's tail). Remaining skips
+  carry a `target_detail` naming the signature component that differed.
+- When a confident replacement cannot be applied, Papuga still switches the layout
+  (`auto_fix_layout_only`) unless the switch policy is "keep current layout". The text
+  already typed is left for the manual hotkey.
+- An automatic replacement must land on a word-like target; a two-letter target must be
+  attested by the frequency or learned vocabulary.
+- A two- or three-letter source word that maps to a common target word (`ot → ще`) is
+  neutral inside a run instead of a contradiction that cuts it.
+- A run inside the proposal window is applied, with Undo, when it has a
+  dictionary-verified word and nothing else but tokens of at most three letters.
+- Two deletes straight into a fresh replacement log `auto_fix_retyped_after_fix`.
+- Spelling: a single adjacent transposition or same-row neighbouring-key slip in a word
+  of five or more letters is fixed automatically when exactly one common word is one
+  edit away. Other spelling suggestions stay proposals. The existing spelling-guard
+  setting turns this off.
+
+`AutoFixReplayCorpusTests` (gated by `PAPUGA_REPLAY=1`) replays the local correction
+history and recorded mistakes. It measures detection only; editor insertion in
+Electron and Qt apps was not exercised by tests.

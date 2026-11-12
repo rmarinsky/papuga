@@ -93,6 +93,11 @@ enum AutoFixDecision {
         return scoreCandidate - scoreOriginal >= threshold
     }
 
+    /// How long after a replacement a delete still reads as taking it back.
+    static func isImplicitUndoWindow(elapsed: TimeInterval) -> Bool {
+        elapsed >= 0 && elapsed <= 6
+    }
+
     static func shouldBypassLayoutIncidentGrace(scoreCandidate: Double, hasVerifiedLayoutWord: Bool = false) -> Bool {
         hasVerifiedLayoutWord || scoreCandidate >= 0.995
     }
