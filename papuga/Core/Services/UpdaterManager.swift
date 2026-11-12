@@ -22,6 +22,9 @@ final class UpdaterManager: NSObject, ObservableObject {
         )
         updaterController.updater.publisher(for: \.canCheckForUpdates)
             .assign(to: &$canCheckForUpdates)
+        // The unit-test host builds this through MenuBarView. Started there, a silent
+        // update would replace the app bundle under the running tests.
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
         updaterController.startUpdater()
     }
 
