@@ -55,6 +55,24 @@ final class AutoFixTypingCorpusTests: XCTestCase {
         XCTAssertFalse(plausible("gktqhfqn", "en"))
     }
 
+    func test_undictionariedLayoutSlipNeedsNoiseSourceAndWordLikeTarget() {
+        func slip(_ source: String, _ candidate: String, _ original: Double, _ mapped: Double) -> Bool {
+            AutoFixWordEvaluator.isUndictionariedLayoutSlip(source: source, candidate: candidate,
+                scoreOriginal: original, scoreCandidate: mapped)
+        }
+        // Slang in no dictionary, typed in the wrong layout.
+        XCTAssertTrue(slip("jycfqn", "онсайт", 0.01, 0.07))
+        XCTAssertTrue(slip("pfctnfgktyj", "засетаплено", 0.00, 0.14))
+        // No vowel at all: noise whatever the scores say.
+        XCTAssertTrue(slip("gsczk", "пісял", 0.00, 0.01))
+        // Correctly typed translit slang must stay.
+        XCTAssertFalse(slip("афтер", "fanth", 0.048, 0.172))
+        // Mapped text is not word-shaped, too short, or no better than the source.
+        XCTAssertFalse(slip("nginx", "тпштч", 0.01, 0.20))
+        XCTAssertFalse(slip("yfc", "нас", 0.00, 0.90))
+        XCTAssertFalse(slip("yffqce", "наайсу", 0.02, 0.03))
+    }
+
     func test_shortSourceWordMappingToCommonTargetWordIsAmbiguous() {
         let checker = HybridSpellChecker(indexes: DictionaryBuilder.build(base: [
             "uk": [("ще", 9000), ("ну", 9000)]

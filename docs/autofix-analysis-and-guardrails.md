@@ -260,6 +260,13 @@ engine recognised but a safety gate refused to touch.
   edit away. Other spelling suggestions stay proposals. The existing spelling-guard
   setting turns this off.
 
+- Slang in neither dictionary (`jycfqn → онсайт`) is converted when the typed text of four
+  or more letters scores as noise in its own language (at most 0.03), the mapped text is
+  word-shaped, and it scores clearly higher or the typed text has no pronounceable shape.
+  Sources containing punctuation keys (`crjgs.`) are still left alone.
+- The manual hotkey takes the source layout from the selected text (the layout that can
+  type most of its letters), not from the system layout; the system layout wins ties.
+
 `AutoFixReplayCorpusTests` (gated by `PAPUGA_REPLAY=1`) replays the local correction
 history and recorded mistakes. It measures detection only; editor insertion in
 Electron and Qt apps was not exercised by tests.

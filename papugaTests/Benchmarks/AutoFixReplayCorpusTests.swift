@@ -70,7 +70,8 @@ final class AutoFixReplayCorpusTests: XCTestCase {
                                                 configuration: .init(), previousWord: previous)
                 previous = word
                 candidates.append(result.selection?.best.candidate ?? word)
-                dispositions.append("\(result.disposition)")
+                dispositions.append(String(format: "\(result.disposition) %.2f>%.2f",
+                                           result.scoreOriginal, result.selection?.best.scoreCandidate ?? -1))
                 switch result.disposition {
                 case .replace: evidence.append(.strong)
                 case .sourceWord:
@@ -161,6 +162,48 @@ final class AutoFixReplayCorpusTests: XCTestCase {
                 p("TYPO \(language) \(word) -> \(correction)")
             }
             p("TYPO TOTAL \(language) fixed=\(fixed) of \(sources.count)")
+        }
+    }
+
+    /// The false-positive side: every word Papuga recorded as a mistake was
+    /// typed in the RIGHT layout (slang, jargon, typos). None of them may be
+    /// converted to the other layout.
+    func test_replayCorrectLayoutWordsAreNotConverted() throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["PAPUGA_REPLAY"] == "1",
+                          "set PAPUGA_REPLAY=1 to replay the local mistake observations")
+        let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("papuga/mistake-observations.jsonl")
+        var words: [String: Set<String>] = [:]
+        for line in try String(contentsOf: url, encoding: .utf8).split(separator: "\n") {
+            guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+                  let source = object["source"] as? String, let language = object["language"] as? String
+            else { continue }
+            words[language, default: []].insert(source)
+        }
+        PersonalLayoutModel.shared.replaceHistory([])
+        let checker = HybridSpellChecker.production
+        let deadline = Date().addingTimeInterval(30)
+        while !checker.indexedLanguages.isSuperset(of: ["uk", "en"]), Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        let evaluator = AutoFixWordEvaluator(mapper: CharacterMapper(), spellChecker: checker,
+                                             scorer: LanguageScorerFactory.make(.appleNL))
+        func source(_ id: String) -> InputSourceInfo? {
+            let list = TISCreateInputSourceList([kTISPropertyInputSourceID!: id] as CFDictionary, true)
+                .takeRetainedValue() as? [TISInputSource]
+            return list?.first.map { InputSourceInfo(id: id, name: id, source: $0) }
+        }
+        guard let uk = source("com.apple.keylayout.Ukrainian-PC"), let en = source("com.apple.keylayout.US") else { return }
+        for (language, from, to) in [("uk", uk, en), ("en", en, uk)] {
+            var converted = 0
+            for word in (words[language] ?? []).sorted() {
+                let result = evaluator.evaluate(word, source: from, targets: [to], configuration: .init())
+                guard let replacement = result.replacement else { continue }
+                converted += 1
+                p(String(format: "FALSEFIX \(language) \(word) -> \(replacement.candidate) %.3f>%.3f",
+                         result.scoreOriginal, replacement.scoreCandidate))
+            }
+            p("FALSEFIX TOTAL \(language) converted=\(converted) of \(words[language]?.count ?? 0)")
         }
     }
 }

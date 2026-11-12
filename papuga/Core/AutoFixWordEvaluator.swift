@@ -181,7 +181,14 @@ struct AutoFixWordEvaluator {
                    keyCode: { mapper.mapping(for: $0, sourceID: source.id)?.keyCode }) {
                 return result(.fixSpelling(fixed))
             }
-            return result(.keep(.belowThreshold))
+            // Slang and jargon are in no dictionary (`засетаплено`, `онсайт`),
+            // so a missing dictionary entry cannot veto the conversion by
+            // itself — see `isUndictionariedLayoutSlip`.
+            guard Self.isLexicalToken(sourceWord),
+                  Self.isUndictionariedLayoutSlip(source: sourceWord, candidate: lexicalCandidate,
+                      scoreOriginal: originalScore, scoreCandidate: best.scoreCandidate)
+            else { return result(.keep(.belowThreshold)) }
+            return result(selection?.isAmbiguous == true ? .suggestLayout : .replace)
         case .allow: break
         }
         // A language score is not the probability that a word is spelled correctly.
@@ -234,6 +241,25 @@ struct AutoFixWordEvaluator {
         let core = BufferedToken(rawText: candidate, keyCodes: []).core
         if spellChecker.isExplicitlyKnown(core, language: language) { return true }
         return core.filter(\.isLetter).count > 2 && WordPlausibility.isWordLike(core)
+    }
+
+    /// A word in neither dictionary that is still plainly typed in the wrong
+    /// layout: what was typed is noise in its own language, and what it maps
+    /// to reads as a word. Both language scores sit near zero for such words,
+    /// so the absolute threshold never fires; the test is that the typed text
+    /// scores as nothing while the mapped text scores clearly more.
+    static func isUndictionariedLayoutSlip(
+        source: String,
+        candidate: String,
+        scoreOriginal: Double,
+        scoreCandidate: Double
+    ) -> Bool {
+        source.count >= 4
+            && AutoFixDecision.isCrossScriptConversion(original: source, candidate: candidate)
+            && WordPlausibility.isWordLike(candidate)
+            // 0.03: correctly typed translit slang (`афтер`, 0.048) sits just above.
+            && scoreOriginal <= 0.03
+            && (scoreCandidate >= 3 * scoreOriginal + 0.01 || !WordPlausibility.isWordLike(source))
     }
 
     /// A short source token that is a real word in the current language yet
